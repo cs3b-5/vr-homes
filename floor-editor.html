@@ -196,7 +196,7 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
         <div class="tgrid">
           <button class="tool" data-tool="select" title="選択・移動 (V)"><kbd>V</kbd><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z"/></svg>選択・移動</button>
           <button class="tool" data-tool="rect" title="四角い部屋 (R)"><kbd>R</kbd><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>四角い部屋</button>
-          <button class="tool" data-tool="poly" title="自由な形の部屋 (P)"><kbd>P</kbd><svg viewBox="0 0 24 24"><path d="M4 5h9v6h7v8H4z"/></svg>L字など</button>
+          <button class="tool" data-tool="poly" title="自由な形の部屋・斜めの壁 (P)"><kbd>P</kbd><svg viewBox="0 0 24 24"><path d="M4 5h9l7 7v7H4z"/></svg>L字・斜め</button>
           <button class="tool" data-tool="wall" title="壁を引く (L)"><kbd>L</kbd><svg viewBox="0 0 24 24"><path d="M4 18 20 6" stroke-width="3.2"/></svg>壁だけ</button>
           <button class="tool wide" id="bAddRoom" title="サイズを数字で指定して部屋を追加"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 12h8M12 8v8"/></svg>数字で部屋を追加</button>
         </div>
@@ -576,11 +576,19 @@ function snapPoint(p, opt) {
   if (gx || gy) snapInfo = { kind: 'align', p: r, gx, gy };
   return r;
 }
-/* 直前の点から縦横にそろえる(Shiftで自由) */
+/* 直前の点からの向きをそろえる: 縦横・45°に近ければその向きに吸着、それ以外は斜めのまま(Shiftで完全に自由) */
 function orthoFrom(prev, p) {
   if (!prev || shiftDown) return p;
-  const dx = p.x - prev.x, dy = p.y - prev.y;
-  return Math.abs(dx) >= Math.abs(dy) ? { x: p.x, y: prev.y } : { x: prev.x, y: p.y };
+  const dx = p.x - prev.x, dy = p.y - prev.y, len = Math.hypot(dx, dy);
+  if (len < 1) return p;
+  const ang = Math.atan2(dy, dx), step = Math.PI / 4;
+  const snapped = Math.round(ang / step) * step;
+  const tol = Math.round(ang / step) % 2 === 0 ? 10 : 5;   // 縦横は±10°、45°は±5°で吸着
+  if (Math.abs(ang - snapped) * 180 / Math.PI > tol) return p;
+  if (Math.abs(Math.cos(snapped)) < 1e-6) return { x: prev.x, y: p.y };
+  if (Math.abs(Math.sin(snapped)) < 1e-6) return { x: p.x, y: prev.y };
+  const l = (dx * Math.cos(snapped) + dy * Math.sin(snapped));
+  return { x: prev.x + Math.cos(snapped) * l, y: prev.y + Math.sin(snapped) * l };
 }
 
 /* ───────── 開口(ドア・窓)───────── */
@@ -960,7 +968,7 @@ function updateHint() {
       break;
     case 'rect': setHint('ドラッグ(または2回クリック)で部屋を描く。他の部屋の角や壁に吸い付きます'); break;
     case 'poly':
-      if (!draft || !draft.pts.length) setHint('角を順にクリック。数字を打つと長さ指定できます ' + ortho);
+      if (!draft || !draft.pts.length) setHint('角を順にクリック(斜めの壁もOK)。縦横・45°に近いと自動でそろいます ' + ortho);
       else setHint(`${draft.pts.length}個目の角まで ${ortho} — 数字+Enterで長さ指定`, [{ label: '長さを入力', fn: () => openNumbox('長さ') }, { label: '1つ戻す', fn: () => { draft.pts.pop(); if (!draft.pts.length) draft = null; updateHint(); draw(); } }].concat(draft.pts.length >= 3 ? [{ label: '✓ 閉じて完成', ok: true, fn: finishPoly }] : []));
       break;
     case 'wall':
@@ -1100,7 +1108,7 @@ function onDown(e) {
       drag = { kind: 'rect' };
       return draw();
     }
-    case 'poly': return clickPoly(p);
+    case 'poly': return clickPoly(p);   // 斜めの壁もこれで描ける
     case 'wall': return clickWall(p);
     case 'door': case 'window': case 'passage': return placeOpening(p);
     case 'furniture': return placeFurniture(p);
@@ -1357,8 +1365,13 @@ function suggestName() {
 }
 function currentDraftPoint(p) {
   const prev = draft && draft.pts.length ? draft.pts[draft.pts.length - 1] : null;
-  let q = snapPoint(orthoFrom(prev, p), { extraVerts: draft ? draft.pts : [] });
-  if (prev && !shiftDown && snapInfo && snapInfo.kind !== 'vertex') q = orthoFrom(prev, q);
+  const o = orthoFrom(prev, p);
+  let q = snapPoint(o, { extraVerts: draft ? draft.pts : [] });
+  // 縦横に吸着した線は、グリッド吸着でずれないように向きを保つ
+  if (prev && !shiftDown && snapInfo && snapInfo.kind !== 'vertex') {
+    if (o.y === prev.y) q.y = prev.y; else if (o.x === prev.x) q.x = prev.x;
+    else if (o !== p) q = o;   // 45°は向きを優先
+  }
   return q;
 }
 function clickPoly(p) {
@@ -1799,10 +1812,13 @@ function applyCalib(m) {
 let awCache = null, rfCache = null;
 function getBgAnalysisImage() {
   if (awCache && awCache.img === bg.img) return awCache;
-  const iw = bg.img.width, ih = bg.img.height, s = Math.min(1, 2000 / Math.max(iw, ih));
+  // 小さい画像は拡大してから解析する(壁が数pxしかないと形が崩れるため)。大きい画像は2000pxまで縮小
+  const iw = bg.img.width, ih = bg.img.height, mx = Math.max(iw, ih);
+  const s = mx < 1200 ? Math.min(4, 1200 / mx) : Math.min(1, 2000 / mx);
   const w = Math.max(1, Math.round(iw * s)), h = Math.max(1, Math.round(ih * s));
   const off = document.createElement('canvas'); off.width = w; off.height = h;
   const octx = off.getContext('2d', { willReadFrequently: true });
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, w, h);   // 透明部分は白として扱う
   octx.drawImage(bg.img, 0, 0, w, h);
   try { awCache = { img: bg.img, data: octx.getImageData(0, 0, w, h).data, w, h, s }; } catch (err) { console.error(err); return null; }
   return awCache;
@@ -2065,6 +2081,21 @@ $('autoOk').onclick = () => {
   }, 30);
 };
 
+// 壁は図面の中で一番濃い色。大津のしきい値と「一番濃い色」の中間を使うと、灰色の文字や設備の線を拾いにくい
+function wallThreshold(im, maxSat) {
+  const otsu = otsuThreshold(im, maxSat);
+  const hist = new Float64Array(256), d = im.data; let total = 0;
+  for (let i = 0, p = 0; i < im.w * im.h; i++, p += 4) {
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    const l = (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) | 0;
+    if (l < otsu) { hist[l]++; total++; }
+  }
+  if (!total) return otsu;
+  // 暗い側の中央値
+  let acc = 0, med = 0; for (let l = 0; l < 256; l++) { acc += hist[l]; if (acc >= total / 2) { med = l; break; } }
+  return Math.round(med + (otsu - med) * 0.55);
+}
 function otsuThreshold(im, maxSat) {
   const hist = new Float64Array(256), d = im.data; let total = 0;
   for (let i = 0, p = 0; i < im.w * im.h; i++, p += 4) {
@@ -2091,15 +2122,19 @@ function estimateWallThickness(mask, w, h) {
   const add = len => { if (len >= 3 && len <= maxL) hist[len] += len; };
   for (let y = 0; y < h; y += 2) { let run = 0; for (let x = 0; x < w; x++) { if (mask[y * w + x]) run++; else { add(run); run = 0; } } add(run); }
   for (let x = 0; x < w; x += 2) { let run = 0; for (let y = 0; y < h; y++) { if (mask[y * w + x]) run++; else { add(run); run = 0; } } add(run); }
+  const score = L => hist[L - 1] * 0.5 + hist[L] + hist[L + 1] * 0.5;
   let best = 4, bestScore = -1;
-  for (let L = 3; L <= maxL; L++) { const sc = hist[L - 1] * 0.5 + hist[L] + hist[L + 1] * 0.5; if (sc > bestScore) { bestScore = sc; best = L; } }
-  return best;
+  for (let L = 3; L <= maxL; L++) { const sc = score(L); if (sc > bestScore) { bestScore = sc; best = L; } }
+  // 一番細い「ちゃんとした壁」(内壁など)の太さ
+  let thin = best;
+  for (let L = 3; L < best; L++) { const sc = score(L); if (sc >= bestScore * 0.3 && sc >= score(L - 1) && sc >= score(L + 1)) { thin = L; break; } }
+  return { t: best, tMin: thin };
 }
 function autoBuildFromImage(areaM2, replace) {
   const im = getBgAnalysisImage(); if (!im) { toast('画像を読み取れませんでした'); return null; }
   const w = im.w, h = im.h, d = im.data;
   const maxSat = P('pSat');
-  const thr = otsuThreshold(im, maxSat);
+  const thr = wallThreshold(im, maxSat);
   $('pThreshold').value = thr; $('pThresholdV').textContent = thr;
   // 1) 壁候補
   let dark = new Uint8Array(w * h);
@@ -2109,15 +2144,16 @@ function autoBuildFromImage(areaM2, replace) {
     if (mx - mn > maxSat) continue;
     if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < thr) dark[i] = 1;
   }
-  const t = estimateWallThickness(dark, w, h);
-  // 細い線を消す(opening: 収縮→膨張)
-  const rOpen = Math.max(1, Math.round(t * 0.3));
+  const th = estimateWallThickness(dark, w, h), t = th.t, tMin = th.tMin;
+  // 細い線を消す(opening: 収縮→膨張)。一番細い壁は残る大きさにする
+  const rOpen = Math.max(1, Math.floor((tMin - 1) / 2 * 0.45));
   const walls = dilateBin(erodeBin(dark, w, h, rOpen), w, h, rOpen);
-  // 2) 開口を塞いで部屋を見つける
-  const N = Math.max(2, Math.round(t * 3.6));
-  const closed = closeBin(walls, w, h, N);
+  // 2) ドアの隙間だけを塞ぐ: 同じ線上にある壁と壁の間の短い隙間を橋渡しする
+  //    (全体を太らせると、トイレのような狭い部屋まで埋まってしまうため)
+  const N = Math.max(2, Math.round(t * 7));
+  const closed = closeBin(bridgeGaps(walls, w, h, Math.max(4, Math.round(t * 2)), N), w, h, Math.max(1, Math.round(tMin * 0.5)));
   // 建物の外側: 大きな窓の隙間も塞いだ状態で、画像の端から塗った領域
-  const N2 = Math.max(N + 2, Math.round(t * 10));
+  const N2 = Math.max(4, Math.round(t * 10));
   const closed2 = closeBin(walls, w, h, N2);
   const outside = new Uint8Array(w * h);
   {
@@ -2152,7 +2188,7 @@ function autoBuildFromImage(areaM2, replace) {
     // 外側に大きく面している領域は、建物のくぼみ(部屋ではない)
     comps.push({ id, count, border: border || (perim > 0 && touchOut / perim > 0.3) });
   }
-  const minArea = (t * 7) * (t * 7);
+  const minArea = (tMin * 5) * (tMin * 5);
   const roomComps = comps.filter(c => !c.border && c.count >= minArea);
   if (!roomComps.length) { toast('部屋を見つけられませんでした。画像がはっきりした間取り図か確認してください'); updateHint(); return null; }
   const isRoom = new Uint8Array(next);
@@ -2167,7 +2203,7 @@ function autoBuildFromImage(areaM2, replace) {
     m = dilateBin(m, w, h, K);
     const contour = traceContour(m, w, h);
     if (contour.length < 8) return;
-    const simp = flattenJogs(orthogonalize(simplifyDP(contour, Math.max(1.5, t * 0.6))), t * 1.8);
+    const simp = flattenJogs(orthogonalizeSoft(simplifyDP(contour, Math.max(1.5, tMin * 0.6)), 12, tMin * 2.5), tMin * 1.8);
     if (simp.length < 3) return;
     polys.push({ comp: c, pts: simp, areaPx: Math.abs(polyArea2(simp)) / 2 });
   });
@@ -2193,12 +2229,12 @@ function autoBuildFromImage(areaM2, replace) {
     const s2 = polyArea2(pg.pts) > 0 ? 1 : -1;
     for (let i = 0; i < pg.pts.length; i++) {
       const a = pg.pts[i], b = pg.pts[(i + 1) % pg.pts.length];
-      const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < t * 3) continue;
+      const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < tMin * 3) continue;
       const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, nx = -uy * s2, ny = ux * s2;   // n: 部屋の内側
       const present = [];
       for (let k = 0; k <= L; k++) {
         let hit = false;
-        for (let j = -t; j <= t && !hit; j++) if (wallAt(a.x + ux * k + nx * j, a.y + uy * k + ny * j)) hit = true;
+        for (let j = -t; j <= t && !hit; j++) if (wallAt(a.x + ux * k + nx * j, a.y + uy * k + ny * j)) hit = true;   // 壁の中心線の前後を見る
         present.push(hit);
       }
       let k = 0;
@@ -2207,7 +2243,7 @@ function autoBuildFromImage(areaM2, replace) {
         const st = k; while (k < present.length && !present[k]) k++;
         const en = k;   // [st, en)
         const len = en - st;
-        if (st < t * 0.6 || en > L - t * 0.6) continue;     // 角の付近は誤検出しやすい
+        if (st < tMin * 0.6 || en > L - tMin * 0.6) continue;     // 角の付近は誤検出しやすい
         const wm = len * mPerPx;
         if (wm < 0.45 || wm > 3.5) continue;
         const cpos = (st + en) / 2;
@@ -2281,6 +2317,41 @@ function flattenJogs(v, maxDepth) {
     if (!changed && pts.length === before) break;
   }
   return pts;
+}
+// 同じ行(列)にある長い壁と長い壁の間の、短い隙間を埋める
+function bridgeGaps(src, w, h, minRun, maxGap) {
+  const out = src.slice();
+  const pass = (n1, n2, at, set) => {
+    for (let i = 0; i < n1; i++) {
+      let j = 0, prevEnd = -1;
+      while (j < n2) {
+        if (!at(i, j)) { j++; continue; }
+        const st = j; while (j < n2 && at(i, j)) j++;
+        if (j - st < minRun) continue;                 // 直交する壁の断面など、短いものは無視
+        if (prevEnd >= 0 && st - prevEnd <= maxGap) for (let k = prevEnd; k < st; k++) set(i, k);
+        prevEnd = j;
+      }
+    }
+  };
+  pass(h, w, (y, x) => src[y * w + x], (y, x) => { out[y * w + x] = 1; });
+  pass(w, h, (x, y) => src[y * w + x], (x, y) => { out[y * w + x] = 1; });
+  return out;
+}
+// 水平・垂直に近い辺だけ真っすぐにそろえる(斜めの壁はそのまま残す)
+function orthogonalizeSoft(verts, maxDeg, shortLen) {
+  if (verts.length < 3) return verts;
+  const out = verts.map(v => ({ x: v.x, y: v.y })), lim = Math.tan(maxDeg * Math.PI / 180);
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i], b = out[(i + 1) % out.length], dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+    const short = Math.hypot(dx, dy) < (shortLen || 0);   // 短い辺はノイズなので、斜めでも縦横にそろえる
+    if (short) { if (dx >= dy) { const m = (a.y + b.y) / 2; a.y = m; b.y = m; } else { const m = (a.x + b.x) / 2; a.x = m; b.x = m; } }
+    else if (dy <= dx * lim) { const m = (a.y + b.y) / 2; a.y = m; b.y = m; }
+    else if (dx <= dy * lim) { const m = (a.x + b.x) / 2; a.x = m; b.x = m; }
+  }
+  const res = [];
+  out.forEach(p => { const q = res[res.length - 1]; if (!q || dist(p, q) > 1) res.push(p); });
+  if (res.length > 2 && dist(res[0], res[res.length - 1]) <= 1) res.pop();
+  return res;
 }
 // 余白を付けてから閉じる(画像の端に壁がくっついていても正しく塞げるように)
 function closeBin(src, w, h, r) {
