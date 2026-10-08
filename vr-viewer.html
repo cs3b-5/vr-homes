@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>VR Homes - VR内見</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0e1a; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; -webkit-user-select: none; user-select: none; }
+  #canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; cursor: grab; }
+  #canvas.dragging { cursor: grabbing; }
+
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #0a0e1a; color: #fff; z-index: 30; transition: opacity .4s; }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #334; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loadingText { font-size: 14px; padding: 0 24px; text-align: center; line-height: 1.7; }
+
+  .pill { background: rgba(10,14,26,.62); color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 999px; }
+  #topbar { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); display: flex; align-items: center; gap: 8px; z-index: 12; pointer-events: none; }
+  #closeBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  #title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
+  #roomName { margin-left: auto; white-space: nowrap; }
+  #roomName:empty, #title:empty { display: none; }
+
+  #hint { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10; white-space: nowrap; transition: opacity .6s; pointer-events: none; }
+  #hint.hide { opacity: 0; }
+
+  #joystick { position: fixed; left: calc(24px + env(safe-area-inset-left)); bottom: calc(24px + env(safe-area-inset-bottom)); width: 120px; height: 120px; border-radius: 50%; background: rgba(10,14,26,.32); border: 2px solid rgba(255,255,255,.8); box-shadow: 0 2px 10px rgba(0,0,0,.25); z-index: 11; display: none; touch-action: none; }
+  #stick { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 1px 6px rgba(0,0,0,.35); pointer-events: none; }
+  body.touch #joystick { display: block; }
+  body.touch #hint { bottom: auto; top: calc(56px + env(safe-area-inset-top)); }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="loading"><div class="spinner"></div><div id="loadingText">読み込み中…</div></div>
+<div id="topbar">
+  <button id="closeBtn" class="pill">✕ 閉じる</button>
+  <div id="title" class="pill"></div>
+  <div id="roomName" class="pill"></div>
+</div>
+<div id="hint" class="pill"></div>
+<div id="joystick"><div id="stick"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9.29.0/babylon.js"></script>
+<script>
+"use strict";
+
+/* =========================================================
+   VR Homes — ブラウザ内見ビューア
+   間取りエディタ(floor-editor.html)が保存するデータをそのまま読む。
+     { rooms:[...], furnitures:[...], walls:[...] }
+   座標はエディタと同じピクセル座標 (50px = 1m、yが下)。
+
+   データの渡し方:
+     1) index.html から iframe で開く → postMessage({type:'vr-viewer-init', data, propName})
+     2) vr-viewer.html?plan=JSONのURL
+     3) 何も渡さない → サンプルの部屋
+   ========================================================= */
+
+const BASE_SCALE = 50;       // エディタと同じ: 50px = 1m
+const WALL_H = 2.4;          // 壁の高さ (m)
+const WALL_T = 0.1;          // 壁の厚み (m)
+const EYE_HEIGHT = 1.55;     // 目の高さ (m)
+const WALK_SPEED = 1.8;      // 歩く速さ (m/秒)
+const BODY_RADIUS = 0.22;    // 体の半径 (m)
+
+const SAMPLE_PLAN = {
+  rooms: [
+    { id: 0, name: "リビング", wx: 0, wy: 0, ww: 250, wh: 200, color: "#1D9E75",
+      openings: [
+        { type: "door", wall: "East", offsetAlongWall: 0.3, width: 0.9, height: 2.0, doorType: "swing_left" },
+        { type: "window", wall: "North", offsetAlongWall: 0.5, width: 1.8, height: 1.0 },
+        { type: "window", wall: "West", offsetAlongWall: 0.5, width: 1.2, height: 1.0 }
+      ] },
+    { id: 1, name: "寝室", wx: 250, wy: 0, ww: 150, wh: 200, color: "#185FA5",
+      openings: [ { type: "window", wall: "East", offsetAlongWall: 0.5, width: 1.2, height: 1.0 } ] }
+  ],
+  furnitures: [
+    { id: 0, type: "sofa", name: "ソファ", cx: 125, cy: 170, w: 2.0, d: 0.9, h: 0.8, rotation: 0, color: "#8B6914" },
+    { id: 1, type: "table", name: "テーブル", cx: 125, cy: 105, w: 1.2, d: 0.7, h: 0.4, rotation: 0, color: "#A0522D" },
+    { id: 2, type: "bed", name: "ベッド", cx: 345, cy: 140, w: 1.0, d: 2.0, h: 0.5, rotation: 0, color: "#6B7FA8" }
+  ],
+  walls: []
+};
+
+const canvas = document.getElementById("canvas");
+const loadingEl = document.getElementById("loading");
+const loadingText = document.getElementById("loadingText");
+const hintEl = document.getElementById("hint");
+const titleEl = document.getElementById("title");
+const roomNameEl = document.getElementById("roomName");
+const closeBtn = document.getElementById("closeBtn");
+const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+const isEmbedded = window.parent !== window;
+if (isTouch) document.body.classList.add("touch");
+
+function showError(msg) {
+  loadingEl.classList.remove("hide");
+  loadingEl.querySelector(".spinner").style.display = "none";
+  loadingText.textContent = msg;
+}
+
+function postToParent(msg) {
+  try { if (isEmbedded) window.parent.postMessage(msg, "*"); } catch (e) { /* 親がいないだけ */ }
+}
+
+if (isEmbedded) {
+  closeBtn.style.display = "block";
+  closeBtn.addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
+  window.addEventListener("keydown", function (e) { if (e.key === "Escape") postToParent({ type: "vr-viewer-close" }); });
+}
+
+if (typeof BABYLON === "undefined") {
+  showError("3Dエンジンを読み込めませんでした。通信環境を確認して再読み込みしてください。");
+  throw new Error("Babylon.js not loaded");
+}
+
+/* ---------- エンジンとシーン ---------- */
+const engine = new BABYLON.Engine(canvas, true, { stencil: true }, false);
+const maxDpr = isTouch ? 1.5 : 2;   // スマホは解像度を抑えて軽くする
+engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, maxDpr));
+
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.72, 0.85, 0.96, 1);
+scene.ambientColor = new BABYLON.Color3(0.04, 0.04, 0.04);
+scene.collisionsEnabled = true;
+
+const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.1, 1, 0.05), scene);
+hemi.intensity = 1.0;
+hemi.groundColor = new BABYLON.Color3(0.86, 0.85, 0.83);
+const sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.45, -1, 0.35), scene);
+sun.intensity = 0.1;
+
+/* ---------- カメラ (入力は自前で処理して、PC・スマホで同じ挙動にする) ---------- */
+const camera = new BABYLON.FreeCamera("cam", new BABYLON.Vector3(0, EYE_HEIGHT, 0), scene);
+camera.inputs.clear();
+camera.minZ = 0.05;
+camera.maxZ = 300;
+camera.fov = 1.15;
+camera.inertia = 0;
+// 縦持ちのスマホでも横の視野が狭くならないようにする
+function updateFov() {
+  const portrait = engine.getRenderWidth() < engine.getRenderHeight();
+  camera.fovMode = portrait ? BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED : BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+  camera.fov = portrait ? 1.25 : 1.15;
+}
+updateFov();
+camera.checkCollisions = true;
+// 当たり判定の楕円はカメラ位置から下に伸びる (頭〜足元近くまで)
+camera.ellipsoid = new BABYLON.Vector3(BODY_RADIUS, (EYE_HEIGHT - 0.1) / 2, BODY_RADIUS);
+
+/* ---------- マテリアル ---------- */
+function makeFloorTexture() {
+  const size = 512;
+  const tex = new BABYLON.DynamicTexture("floorTex", size, scene, true);
+  const ctx = tex.getContext();
+  const rows = 8, plank = size / rows;
+  let seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+  for (let i = 0; i < rows; i++) {
+    const shade = 168 + Math.round(rnd() * 26);
+    ctx.fillStyle = "rgb(" + (shade + 30) + "," + (shade - 8) + "," + (shade - 58) + ")";
+    ctx.fillRect(0, i * plank, size, plank);
+    ctx.fillStyle = "rgba(70,42,18,0.45)";
+    ctx.fillRect(0, i * plank, size, 2);
+    ctx.fillRect(rnd() * size, i * plank, 2, plank);
+  }
+  tex.update();
+  tex.wrapU = tex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  return tex;
+}
+
+function stdMat(name, hex, opts) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.diffuseColor = BABYLON.Color3.FromHexString(hex);
+  m.ambientColor = m.diffuseColor;
+  m.specularColor = new BABYLON.Color3(0.03, 0.03, 0.03);
+  if (opts) Object.assign(m, opts);
+  return m;
+}
+
+const wallMat = stdMat("wallMat", "#F1EEE8");
+const frameMat = stdMat("frameMat", "#FFFFFF");
+const doorMat = stdMat("doorMat", "#9A6B43");
+const glassMat = stdMat("glassMat", "#BFE3F5", { alpha: 0.28 });
+const ceilMat = stdMat("ceilMat", "#FFFFFF", { backFaceCulling: false });
+const floorMat = stdMat("floorMat", "#FFFFFF", { backFaceCulling: false });
+floorMat.diffuseTexture = makeFloorTexture();
+floorMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+const furnMats = {};
+function furnitureMat(hex) {
+  const key = /^#[0-9a-fA-F]{6}$/.test(hex || "") ? hex : (/^#[0-9a-fA-F]{3}$/.test(hex || "") ? "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : "#888888");
+  if (!furnMats[key]) furnMats[key] = stdMat("furn" + key, key);
+  return furnMats[key];
+}
+
+/* ---------- 形状ヘルパー ---------- */
+// エディタのピクセル座標 → メートル (xが右、zが奥。上から見るとエディタと同じ向き)
+function toWorld(px, py) { return { x: px / BASE_SCALE, z: -py / BASE_SCALE }; }
+
+// 2点間に箱を立てる。y0〜y1 の高さ、thick の厚み
+function boxBetween(name, a, b, y0, y1, thick, extend) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const len = Math.sqrt(dx * dx + dz * dz);
+  if (len < 0.005 || y1 - y0 < 0.005) return null;
+  const box = BABYLON.MeshBuilder.CreateBox(name, { width: len + (extend || 0), height: y1 - y0, depth: thick }, scene);
+  box.position.set((a.x + b.x) / 2, (y0 + y1) / 2, (a.z + b.z) / 2);
+  box.rotation.y = -Math.atan2(dz, dx);
+  return box;
+}
+
+// 単純多角形の三角形分割 (耳切り法)
+function triangulate(pts) {
+  const n = pts.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; area += p.x * q.z - q.x * p.z; }
+  const idx = [];
+  for (let i = 0; i < n; i++) idx.push(area >= 0 ? i : n - 1 - i);
+  const tris = [];
+  function cross(a, b, c) { return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x); }
+  function inside(p, a, b, c) { return cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0; }
+  let guard = n * n + 10;
+  while (idx.length > 3 && guard-- > 0) {
+    let cut = false;
+    for (let i = 0; i < idx.length; i++) {
+      const ia = idx[(i + idx.length - 1) % idx.length], ib = idx[i], ic = idx[(i + 1) % idx.length];
+      const a = pts[ia], b = pts[ib], c = pts[ic];
+      if (cross(a, b, c) <= 1e-9) continue;
+      let ok = true;
+      for (let j = 0; j < idx.length; j++) {
+        const k = idx[j];
+        if (k === ia || k === ib || k === ic) continue;
+        if (inside(pts[k], a, b, c)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      tris.push(ia, ib, ic);
+      idx.splice(i, 1);
+      cut = true;
+      break;
+    }
+    if (!cut) idx.splice(0, 1);   // 壊れた形状でも止まらないようにする
+  }
+  if (idx.length === 3) tris.push(idx[0], idx[1], idx[2]);
+  return tris;
+}
+
+// 多角形の水平面 (床・天井)
+function flatPolygon(name, pts, y, up, material) {
+  const positions = [], normals = [], uvs = [];
+  pts.forEach(function (p) {
+    positions.push(p.x, y, p.z);
+    normals.push(0, up ? 1 : -1, 0);
+    uvs.push(p.x / 2, p.z / 2);
+  });
+  const mesh = new BABYLON.Mesh(name, scene);
+  const vd = new BABYLON.VertexData();
+  vd.positions = positions; vd.normals = normals; vd.uvs = uvs; vd.indices = triangulate(pts);
+  vd.applyToMesh(mesh);
+  mesh.material = material;
+  return mesh;
+}
+
+function pointInPolygon(x, z, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonInfo(pts) {
+  let a = 0, cx = 0, cz = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    const f = p.x * q.z - q.x * p.z;
+    a += f; cx += (p.x + q.x) * f; cz += (p.z + q.z) * f;
+  }
+  if (Math.abs(a) < 1e-6) return { area: 0, x: pts[0].x, z: pts[0].z };
+  return { area: Math.abs(a / 2), x: cx / (3 * a), z: cz / (3 * a) };
+}
+
+/* ---------- 間取りデータ → 部屋ごとの壁の辺と開口 ---------- */
+function num(v, fallback) { const n = Number(v); return isFinite(n) ? n : fallback; }
+
+function parseRooms(plan) {
+  const out = [];
+  (plan.rooms || []).forEach(function (r, ri) {
+    let pts, edges;
+    if (Array.isArray(r.vertices) && r.vertices.length >= 3) {
+      pts = r.vertices.map(function (v) { return toWorld(num(v.x, 0), num(v.y, 0)); });
+      edges = pts.map(function (p, i) { return { a: p, b: pts[(i + 1) % pts.length], key: i }; });
+    } else {
+      const x = num(r.wx, NaN), y = num(r.wy, NaN), w = num(r.ww, NaN), h = num(r.wh, NaN);
+      if (!isFinite(x + y + w + h) || w <= 0 || h <= 0) return;
+      const nw = toWorld(x, y), ne = toWorld(x + w, y), se = toWorld(x + w, y + h), sw = toWorld(x, y + h);
+      pts = [nw, ne, se, sw];
+      // 開口の位置はエディタと同じく「左から」「上から」の割合
+      edges = [
+        { a: nw, b: ne, key: "North" }, { a: sw, b: se, key: "South" },
+        { a: nw, b: sw, key: "West" }, { a: ne, b: se, key: "East" }
+      ];
+    }
+    const info = polygonInfo(pts);
+    edges.forEach(function (e) {
+      const dx = e.b.x - e.a.x, dz = e.b.z - e.a.z;
+      e.len = Math.sqrt(dx * dx + dz * dz);
+      e.ux = e.len > 0 ? dx / e.len : 1; e.uz = e.len > 0 ? dz / e.len : 0;
+      // 部屋の内側を向く法線
+      let nx = -e.uz, nz = e.ux;
+      const mx = (e.a.x + e.b.x) / 2, mz = (e.a.z + e.b.z) / 2;
+      if ((info.x - mx) * nx + (info.z - mz) * nz < 0) { nx = -nx; nz = -nz; }
+      e.nx = nx; e.nz = nz;
+      e.holes = [];
+    });
+    (r.openings || []).forEach(function (o) {
+      const e = edges.find(function (ed) { return o.edgeIndex !== undefined ? ed.key === o.edgeIndex : ed.key === o.wall; });
+      if (!e || e.len < 0.05) return;
+      const type = o.type === "window" ? "window" : (o.type === "passage" ? "passage" : "door");
+      let along = num(o.offsetAlongWall, 0.5);
+      if (!(along > 0)) along = 0.5;
+      const center = along <= 1 ? along * e.len : Math.min(along, e.len);   // 割合 (古いデータはメートル)
+      const sill = type === "window" ? 0.9 : 0;
+      const height = Math.min(num(o.height, type === "window" ? 1.0 : 2.0) || 2.0, WALL_H - sill);
+      e.holes.push({ type: type, center: center, width: Math.max(0.2, num(o.width, 0.9)), sill: sill, top: sill + height, doorType: o.doorType || "swing_left", own: true });
+    });
+    out.push({ name: r.name || ("部屋" + (ri + 1)), pts: pts, edges: edges, info: info });
+  });
+  return out;
+}
+
+// 隣の部屋と壁が重なっている所は、相手側の壁にも同じ穴を開ける (でないとドアが塞がる)
+function shareOpenings(rooms) {
+  const all = [];
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) {
+      e.holes.forEach(function (h) {
+        all.push({ edge: e, hole: h, x: e.a.x + e.ux * h.center, z: e.a.z + e.uz * h.center });
+      });
+    });
+  });
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) {
+      all.forEach(function (o) {
+        if (o.edge === e) return;
+        if (Math.abs(e.ux * o.edge.uz - e.uz * o.edge.ux) > 0.08) return;                 // 平行でない
+        const rx = o.x - e.a.x, rz = o.z - e.a.z;
+        if (Math.abs(rx * -e.uz + rz * e.ux) > WALL_T * 1.6) return;                       // 同じ線上でない
+        const t = rx * e.ux + rz * e.uz;
+        if (t < 0.05 || t > e.len - 0.05) return;
+        e.holes.push({ type: o.hole.type, center: t, width: o.hole.width, sill: o.hole.sill, top: o.hole.top, own: false });
+      });
+    });
+  });
+}
+
+/* ---------- 部屋を組み立てる ---------- */
+let planRoot = null;
+let floorMeshes = [];
+let roomAreas = [];
+let currentSpawn = { x: 0, z: 0, rotY: 0 };
+let xrHelper = null;
+
+function buildWallEdge(e, solid, deco) {
+  const P = function (t) { return { x: e.a.x + e.ux * t, z: e.a.z + e.uz * t }; };
+  const holes = e.holes.map(function (h) {
+    return Object.assign({}, h, { l: Math.max(0, h.center - h.width / 2), r: Math.min(e.len, h.center + h.width / 2) });
+  }).filter(function (h) { return h.r - h.l > 0.05; }).sort(function (p, q) { return p.l - q.l; });
+
+  let cursor = 0;
+  const used = [];
+  holes.forEach(function (h) {
+    if (h.l < cursor - 0.001) return;   // 重なった開口は先のものを優先
+    // 開口の手前の壁
+    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), 0, WALL_H, WALL_T, cursor === 0 ? WALL_T / 2 : 0));
+    // 開口の上と下
+    solid.push(boxBetween("wallTop", P(h.l), P(h.r), h.top, WALL_H, WALL_T));
+    solid.push(boxBetween("wallSill", P(h.l), P(h.r), 0, h.sill, WALL_T));
+    cursor = h.r;
+    used.push(h);
+  });
+  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), 0, WALL_H, WALL_T, WALL_T / 2));
+
+  // 窓ガラスとドア
+  used.forEach(function (h) {
+    if (!h.own) return;
+    if (h.type === "window") {
+      const glass = boxBetween("glass", P(h.l), P(h.r), h.sill, h.top, 0.02);
+      if (glass) { glass.material = glassMat; glass.checkCollisions = true; deco.glass.push(glass); }
+      [[h.sill - 0.03, h.sill + 0.03], [h.top - 0.03, h.top + 0.03]].forEach(function (y) {
+        deco.frame.push(boxBetween("frame", P(h.l), P(h.r), y[0], y[1], WALL_T + 0.04));
+      });
+      deco.frame.push(boxBetween("frame", P(h.center - 0.02), P(h.center + 0.02), h.sill, h.top, 0.05));
+    } else if (h.type === "door") {
+      const dt = h.doorType;
+      const w = h.r - h.l;
+      const right = dt === "swing_right" || dt === "swing_right_out" || dt === "slide_right";
+      const slide = dt.indexOf("slide") === 0;
+      const hingeT = right ? h.r : h.l;
+      const hinge = P(hingeT);
+      let leaf;
+      if (slide) {
+        // 引き戸: 開けた状態 (壁に沿って横へ)
+        const s = right ? 1 : -1, off = WALL_T / 2 + 0.03;
+        const p1 = { x: hinge.x + e.nx * off, z: hinge.z + e.nz * off };
+        const end = P(hingeT + s * w);
+        leaf = boxBetween("door", p1, { x: end.x + e.nx * off, z: end.z + e.nz * off }, 0, h.top - 0.02, 0.035);
+      } else {
+        // 開き戸: 90度開けた状態 (内開きは部屋側、外開きは反対側)
+        const out = dt.indexOf("_out") > 0 ? -1 : 1;
+        leaf = boxBetween("door", hinge, { x: hinge.x + e.nx * out * w, z: hinge.z + e.nz * out * w }, 0, h.top - 0.02, 0.04);
+      }
+      if (leaf) deco.door.push(leaf);
+    }
+  });
+}
+
+function mergeInto(list, name, material, collide) {
+  const meshes = list.filter(Boolean);
+  if (meshes.length === 0) return null;
+  const merged = meshes.length === 1 ? meshes[0] : BABYLON.Mesh.MergeMeshes(meshes, true, true);
+  if (!merged) return null;
+  merged.name = name;
+  merged.material = material;
+  merged.checkCollisions = !!collide;
+  merged.parent = planRoot;
+  merged.freezeWorldMatrix();
+  return merged;
+}
+
+function buildPlan(plan) {
+  if (!plan || typeof plan !== "object") throw new Error("間取りデータの形式が違います");
+  const rooms = parseRooms(plan);
+  const freeWalls = (plan.walls || []).map(function (w) {
+    return { a: toWorld(num(w.x1, 0), num(w.y1, 0)), b: toWorld(num(w.x2, 0), num(w.y2, 0)) };
+  });
+  if (rooms.length === 0 && freeWalls.length === 0) throw new Error("間取りデータに部屋がありません");
+  shareOpenings(rooms);
+
+  if (planRoot) planRoot.dispose(false, false);
+  planRoot = new BABYLON.TransformNode("planRoot", scene);
+  floorMeshes = [];
+  roomAreas = rooms.map(function (r) { return { name: r.name, pts: r.pts }; });
+
+  const solid = [], deco = { glass: [], frame: [], door: [] };
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) { if (e.len >= 0.02) buildWallEdge(e, solid, deco); });
+    const floor = flatPolygon("floor", room.pts, 0, true, floorMat);
+    floor.parent = planRoot;
+    floorMeshes.push(floor);
+    const ceil = flatPolygon("ceiling", room.pts, WALL_H, false, ceilMat);
+    ceil.parent = planRoot;
+    ceil.isPickable = false;
+  });
+  freeWalls.forEach(function (w) { solid.push(boxBetween("freeWall", w.a, w.b, 0, WALL_H, 0.05)); });
+
+  mergeInto(solid, "walls", wallMat, true);
+  mergeInto(deco.frame, "frames", frameMat, false);
+  mergeInto(deco.door, "doors", doorMat, false);
+  deco.glass.forEach(function (g) { g.parent = planRoot; g.isPickable = false; });
+
+  // 家具
+  const furnBoxes = [];
+  (plan.furnitures || plan.furniture || []).forEach(function (f, i) {
+    const w = num(f.w, 0), d = num(f.d, 0), h = num(f.h, 0.8) || 0.8;
+    if (w <= 0 || d <= 0) return;
+    const p = toWorld(num(f.cx, 0), num(f.cy, 0));
+    const box = BABYLON.MeshBuilder.CreateBox("furniture" + i, { width: w, height: h, depth: d }, scene);
+    box.position.set(p.x, h / 2, p.z);
+    box.rotation.y = num(f.rotation, 0) * Math.PI / 180;
+    box.material = furnitureMat(f.color);
+    box.checkCollisions = true;
+    box.parent = planRoot;
+    box.enableEdgesRendering();
+    box.edgesWidth = 1.5;
+    box.edgesColor = new BABYLON.Color4(0, 0, 0, 0.25);
+    box.freezeWorldMatrix();
+    furnBoxes.push({ x: p.x, z: p.z, r: Math.max(w, d) / 2 + BODY_RADIUS });
+  });
+
+  // 開始位置: 一番広い部屋の中で、家具と重ならない場所
+  let spawn = { x: 0, z: 0 };
+  if (rooms.length > 0) {
+    const big = rooms.slice().sort(function (p, q) { return q.info.area - p.info.area; })[0];
+    const cands = [{ x: big.info.x, z: big.info.z }];
+    const xs = big.pts.map(function (p) { return p.x; }), zs = big.pts.map(function (p) { return p.z; });
+    const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), z0 = Math.min.apply(null, zs), z1 = Math.max.apply(null, zs);
+    for (let i = 1; i < 6; i++) for (let j = 1; j < 6; j++) cands.push({ x: x0 + (x1 - x0) * i / 6, z: z0 + (z1 - z0) * j / 6 });
+    const free = cands.filter(function (c) {
+      if (!pointInPolygon(c.x, c.z, big.pts)) return false;
+      return furnBoxes.every(function (f) { return Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
+    });
+    free.sort(function (p, q) { return Math.hypot(p.x - big.info.x, p.z - big.info.z) - Math.hypot(q.x - big.info.x, q.z - big.info.z); });
+    spawn = free[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, big.pts); }) || cands[0];
+    currentSpawn = { x: spawn.x, z: spawn.z, rotY: Math.atan2(big.info.x - spawn.x, big.info.z - spawn.z) || 0 };
+  } else {
+    const w = freeWalls[0];
+    currentSpawn = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 + 1, rotY: 0 };
+  }
+  // 一番奥まで見通せる向きで始める
+  scene.meshes.forEach(function (m) { m.computeWorldMatrix(true); });
+  let bestDist = -1;
+  for (let i = 0; i < 16; i++) {
+    const a = i * Math.PI / 8;
+    const ray = new BABYLON.Ray(new BABYLON.Vector3(currentSpawn.x, 1.2, currentSpawn.z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
+    const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls" || m.name.indexOf("furniture") === 0; });
+    const d = hit && hit.hit ? hit.distance : 60;
+    if (d > bestDist + 0.01) { bestDist = d; currentSpawn.rotY = a; }
+  }
+  camera.position.set(currentSpawn.x, EYE_HEIGHT, currentSpawn.z);
+  yaw = currentSpawn.rotY; pitch = 0;
+  camera.rotation.set(pitch, yaw, 0);
+
+  if (xrHelper && xrHelper.teleportation) floorMeshes.forEach(function (m) { xrHelper.teleportation.addFloorMesh(m); });
+}
+
+/* ---------- 視点操作 (ドラッグで見回す) ---------- */
+let yaw = 0, pitch = 0;
+const look = { id: null, x: 0, y: 0 };
+canvas.addEventListener("pointerdown", function (e) {
+  if (look.id !== null) return;
+  look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+  canvas.classList.add("dragging");
+});
+canvas.addEventListener("pointermove", function (e) {
+  if (e.pointerId !== look.id) return;
+  const k = (isTouch ? 0.0055 : 0.0035);
+  yaw += (e.clientX - look.x) * k;
+  pitch += (e.clientY - look.y) * k;
+  pitch = Math.max(-1.3, Math.min(1.3, pitch));
+  look.x = e.clientX; look.y = e.clientY;
+});
+function endLook(e) { if (e.pointerId === look.id) { look.id = null; canvas.classList.remove("dragging"); } }
+canvas.addEventListener("pointerup", endLook);
+canvas.addEventListener("pointercancel", endLook);
+canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+/* ---------- 移動 (PC: WASD・矢印 / スマホ: 仮想スティック) ---------- */
+const keys = {};
+window.addEventListener("keydown", function (e) { keys[e.code] = true; });
+window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+window.addEventListener("blur", function () { Object.keys(keys).forEach(function (k) { keys[k] = false; }); });
+
+const joy = { x: 0, y: 0, id: null };
+(function setupJoystick() {
+  const base = document.getElementById("joystick");
+  const stick = document.getElementById("stick");
+  const RADIUS = 44;
+  function update(e) {
+    const r = base.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > RADIUS) { dx = dx / d * RADIUS; dy = dy / d * RADIUS; }
+    stick.style.transform = "translate(" + dx + "px," + dy + "px)";
+    joy.x = dx / RADIUS;
+    joy.y = -dy / RADIUS;   // 上に倒すと前進
+  }
+  function release(e) {
+    if (e.pointerId !== joy.id) return;
+    joy.id = null; joy.x = 0; joy.y = 0;
+    stick.style.transform = "translate(0,0)";
+  }
+  base.addEventListener("pointerdown", function (e) { joy.id = e.pointerId; base.setPointerCapture(e.pointerId); update(e); e.preventDefault(); });
+  base.addEventListener("pointermove", function (e) { if (e.pointerId === joy.id) update(e); });
+  base.addEventListener("pointerup", release);
+  base.addEventListener("pointercancel", release);
+})();
+
+const vel = { x: 0, z: 0 };
+let roomTimer = 0;
+scene.onBeforeRenderObservable.add(function () {
+  if (scene.activeCamera !== camera) return;   // VR中はヘッドセット側が動かす
+  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+
+  let fwd = joy.y, side = joy.x;
+  if (keys.KeyW || keys.ArrowUp) fwd += 1;
+  if (keys.KeyS || keys.ArrowDown) fwd -= 1;
+  if (keys.KeyD) side += 1;
+  if (keys.KeyA) side -= 1;
+  if (keys.ArrowRight) yaw += 1.8 * dt;
+  if (keys.ArrowLeft) yaw -= 1.8 * dt;
+  const mag = Math.sqrt(fwd * fwd + side * side);
+  if (mag > 1) { fwd /= mag; side /= mag; }
+  const speed = WALK_SPEED * (keys.ShiftLeft || keys.ShiftRight ? 1.8 : 1);
+  const tx = (Math.sin(yaw) * fwd + Math.cos(yaw) * side) * speed;
+  const tz = (Math.cos(yaw) * fwd - Math.sin(yaw) * side) * speed;
+  const k = 1 - Math.exp(-dt * 12);   // なめらかに加減速
+  vel.x += (tx - vel.x) * k; vel.z += (tz - vel.z) * k;
+  if (Math.abs(vel.x) < 0.002) vel.x = 0;
+  if (Math.abs(vel.z) < 0.002) vel.z = 0;
+
+  camera.rotation.set(pitch, yaw, 0);
+  camera.cameraDirection.set(vel.x * dt, 0, vel.z * dt);
+  camera.position.y = EYE_HEIGHT;
+
+  // 今いる部屋の名前
+  roomTimer += dt;
+  if (roomTimer > 0.25) {
+    roomTimer = 0;
+    const here = roomAreas.find(function (r) { return pointInPolygon(camera.position.x, camera.position.z, r.pts); });
+    const name = here ? here.name : "";
+    if (roomNameEl.textContent !== name) roomNameEl.textContent = name;
+  }
+});
+
+/* ---------- Questなど (WebXR対応ブラウザのときだけVRボタンが出る) ---------- */
+async function setupXR() {
+  if (!navigator.xr || !navigator.xr.isSessionSupported) return;
+  try {
+    const ok = await navigator.xr.isSessionSupported("immersive-vr");
+    if (!ok) return;
+    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes });
+    if (!xrHelper.baseExperience) return;
+    xrHelper.baseExperience.onInitialXRPoseSetObservable.add(function (xrCam) {
+      xrCam.position.x = currentSpawn.x;
+      xrCam.position.z = currentSpawn.z;
+    });
+  } catch (err) {
+    console.warn("WebXRは利用できません:", err);
+  }
+}
+
+/* ---------- 読み込み ---------- */
+function showHint() {
+  hintEl.textContent = isTouch
+    ? "左下のスティックで移動 / 画面ドラッグで見回す"
+    : "W A S D で移動 / ドラッグで見回す / Shiftで速く";
+  hintEl.classList.remove("hide");
+  setTimeout(function () { hintEl.classList.add("hide"); }, 7000);
+}
+
+let started = false;
+async function startWith(plan, propName) {
+  buildPlan(plan);
+  titleEl.textContent = propName || "";
+  if (!started) {
+    started = true;
+    await setupXR();
+    engine.runRenderLoop(function () { scene.render(); });
+  }
+  loadingEl.classList.add("hide");
+  showHint();
+}
+function fail(err) {
+  console.error(err);
+  showError("読み込みに失敗しました: " + (err && err.message ? err.message : err));
+}
+
+// ほかのスクリプトからも呼べるようにしておく
+window.loadPlan = function (plan, propName) { return startWith(plan, propName).catch(fail); };
+
+window.addEventListener("message", function (e) {
+  const msg = e.data;
+  if (!msg || typeof msg !== "object" || msg.type !== "vr-viewer-init") return;
+  gotInit = true;
+  startWith(msg.data, msg.propName).catch(fail);
+});
+
+let gotInit = false;
+(async function boot() {
+  const planUrl = new URLSearchParams(location.search).get("plan");
+  if (planUrl) {
+    loadingText.textContent = "間取りデータを読み込み中…";
+    const res = await fetch(planUrl);
+    if (!res.ok) throw new Error("間取りデータを取得できませんでした (" + res.status + ")");
+    await startWith(await res.json(), "");
+    return;
+  }
+  if (isEmbedded) {
+    postToParent({ type: "vr-viewer-ready" });
+    // 親からデータが来なければサンプルを表示
+    setTimeout(function () { if (!gotInit && !started) startWith(SAMPLE_PLAN, "サンプルの部屋").catch(fail); }, 2500);
+    return;
+  }
+  await startWith(SAMPLE_PLAN, "サンプルの部屋");
+})().catch(fail);
+
+window.addEventListener("resize", function () { engine.resize(); updateFov(); });
+</script>
+</body>
+</html>
