@@ -536,20 +536,57 @@ function openFloorEditor(propId){
   _openFloorEditorModal('edit');
 }
 
+const VR_VIEWER_PATH = 'vr-viewer.html';
+let _vrPendingInit=null;
+
+/* ブラウザ内でVR内見を開く(PC・スマホ・Questブラウザ共通) */
 function viewInVR(propId){
   const prop=PROPS.find(p=>p.id===propId);
   if(!prop){alert('物件が見つかりません');return;}
   if(!prop.floorplanData){alert('この物件には間取りデータがありません');return;}
+  closeVRViewer();
+  _vrPendingInit={type:'vr-viewer-init',data:prop.floorplanData,propName:prop.name||''};
+  const overlay=document.createElement('div');
+  overlay.id='vr-viewer-overlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:100000;background:#0a0e1a';
+  const iframe=document.createElement('iframe');
+  iframe.id='vr-viewer-iframe';
+  iframe.title='VR内見';
+  iframe.setAttribute('allow','xr-spatial-tracking; fullscreen; gyroscope; accelerometer');
+  iframe.setAttribute('allowfullscreen','');
+  iframe.style.cssText='width:100%;height:100%;border:0;display:block';
+  iframe.src=VR_VIEWER_PATH+'?embed=1';
+  overlay.appendChild(iframe);
+  document.body.appendChild(overlay);
+  document.body.style.overflow='hidden';
+}
+
+function closeVRViewer(){
+  const overlay=document.getElementById('vr-viewer-overlay');
+  if(overlay){overlay.remove();document.body.style.overflow='';}
+  _vrPendingInit=null;
+}
+
+window.addEventListener('message',function(e){
+  const msg=e.data;
+  if(!msg||typeof msg!=='object'||!msg.type) return;
+  if(msg.type==='vr-viewer-ready'){
+    const iframe=document.getElementById('vr-viewer-iframe');
+    if(_vrPendingInit&&iframe&&iframe.contentWindow) iframe.contentWindow.postMessage(_vrPendingInit,'*');
+  } else if(msg.type==='vr-viewer-close'){closeVRViewer();}
+});
+
+/* 旧方式: Unity(FloorPlayVR6)を動かしているQuest 3へ間取りを送信する。ボタンからは呼んでいない(予備) */
+function sendFloorplanToQuest(propId){
+  const prop=PROPS.find(p=>p.id===propId);
+  if(!prop){alert('物件が見つかりません');return;}
+  if(!prop.floorplanData){alert('この物件には間取りデータがありません');return;}
   if(!confirm(`「${prop.name}」をQuest 3に送信します。\n\nQuest側でVRアプリが起動済みであることを確認してください。`)) return;
-  const vrBtn=document.getElementById('pd-vr-btn');
-  const orig=vrBtn?vrBtn.innerHTML:'';
-  if(vrBtn){vrBtn.disabled=true;vrBtn.innerHTML='<i class="ti ti-loader"></i> 送信中...';}
   fetch(AWS_API_URL+'?action=saveFloorplan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(prop.floorplanData)})
     .then(r=>r.json()).then(d=>{
       if(d&&d.success) alert(`✅ 送信完了！\n\nQuest 3 で Bボタン を押してください`);
       else alert('送信は完了しましたがレスポンスが想定外でした。');
-    }).catch(e=>alert('送信に失敗しました:\n'+e.message))
-    .finally(()=>{if(vrBtn){vrBtn.disabled=false;vrBtn.innerHTML=orig;}});
+    }).catch(e=>alert('送信に失敗しました:\n'+e.message));
 }
 
 function _openFloorEditorModal(mode){
@@ -605,7 +642,7 @@ function _applyFloorplanThumbnail(){
 }
 
 function clearFloorplan(){window.editedFloorplanData=null;window.editedFloorplanThumb=null;_applyFloorplanThumbnail();}
-window.clearFloorplan=clearFloorplan;window.openFloorEditor=openFloorEditor;window.viewInVR=viewInVR;window.closeFloorEditor=closeFloorEditor;
+window.clearFloorplan=clearFloorplan;window.openFloorEditor=openFloorEditor;window.viewInVR=viewInVR;window.closeFloorEditor=closeFloorEditor;window.closeVRViewer=closeVRViewer;window.sendFloorplanToQuest=sendFloorplanToQuest;
 
 function downloadFloorplan(id){
   const prop=PROPS.find(p=>p.id===id);

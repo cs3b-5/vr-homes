@@ -157,7 +157,7 @@
       <h1 class="hero-title">
         自宅から、360°<span class="hero-title-accent">VR内見</span>できる<br>不動産サービス
       </h1>
-      <p class="hero-sub">物件を選んでMeta Quest 3に送信するだけ。移動なしでリアルな内見体験を。</p>
+      <p class="hero-sub">物件を選ぶだけ。スマホ・PC・VRゴーグルのブラウザで、移動なしの内見体験を。</p>
       <div class="search-bar">
         <div class="search-row">
           <div class="search-field">
@@ -245,7 +245,7 @@
           <div class="lp-step-num">03</div>
           <div class="lp-step-icon"><i class="ti ti-vr"></i></div>
           <div class="lp-step-title">VRで内見開始</div>
-          <div class="lp-step-desc">Meta Quest 3で実際の部屋を360°体験。移動なしでリアルな内見。</div>
+          <div class="lp-step-desc">ブラウザの中で部屋を自由に歩いて体験。アプリのインストールは不要です。</div>
         </div>
       </div>
     </div>
@@ -274,8 +274,8 @@
         </div>
         <div class="lp-feat">
           <div class="lp-feat-icon lp-feat-icon--teal"><i class="ti ti-device-vr"></i></div>
-          <div class="lp-feat-title">Meta Quest 3対応</div>
-          <div class="lp-feat-desc">最新のVRヘッドセットで、まるで実際にいるような体験が可能です。</div>
+          <div class="lp-feat-title">スマホ・PC・Quest対応</div>
+          <div class="lp-feat-desc">スマホやPCのブラウザだけで内見でき、Meta Quest ならヘッドセットで没入体験もできます。</div>
         </div>
       </div>
     </div>
@@ -311,7 +311,7 @@
     <div class="lp-inner lp-cta-inner">
       <span class="lp-cta-icon">🏠</span>
       <h2 class="lp-cta-title">VR内見を今すぐ体験しよう</h2>
-      <p class="lp-cta-desc">物件を選んで「VRで内見する」ボタンを押すだけ。Meta Quest 3に自動送信されます。</p>
+      <p class="lp-cta-desc">物件を選んで「VRで内見する」ボタンを押すだけ。その場で部屋の中を歩けます。</p>
       <button class="btn btn-p lp-cta-btn" onclick="document.querySelector('.card-grid').scrollIntoView({behavior:'smooth'})">
         <i class="ti ti-arrow-up"></i> 物件一覧を見る
       </button>
@@ -605,51 +605,35 @@
       <iframe src="help.html" style="width:100%;height:600px;border:0;display:block" title="使い方ヘルプ"></iframe>
     </div>
 
-    <!-- VRシステムのダウンロード -->
+    <!-- VR内見の動作環境 -->
     <div style="margin-top:32px">
-      <h2 style="font-size:20px;font-weight:800;color:var(--navy);margin-bottom:6px"><i class="ti ti-download" style="color:var(--blue)"></i> VR内見システムのダウンロード</h2>
+      <h2 style="font-size:20px;font-weight:800;color:var(--navy);margin-bottom:6px"><i class="ti ti-device-vr" style="color:var(--blue)"></i> VR内見の動作環境</h2>
       <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">
-        Meta Quest 3 で実際に物件をVR内見するためのシステムです。以下の手順でセットアップしてください。
+        VR内見はブラウザだけで動きます。アプリのインストールは不要です。物件詳細の「VRで内見する」を押してください。
       </p>
       <div style="display:grid;gap:14px;max-width:640px">
 
         <div class="card" style="display:flex;gap:16px;align-items:flex-start">
-          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#000,#333);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:800">1</div>
+          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px"><i class="ti ti-device-desktop"></i></div>
           <div style="flex:1">
-            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">Unity をインストール</div>
-            <div style="font-size:12px;color:#64748b;line-height:1.7;margin-bottom:10px">
-              まず Unity 公式サイトから Unity Hub をダウンロードし、Unity 6 (LTS) をインストールしてください。
-            </div>
-            <a href="https://unity.com/ja/download" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:12px">
-              <i class="ti ti-external-link"></i> Unity 公式ダウンロード
-            </a>
+            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">PC</div>
+            <div style="font-size:12px;color:#64748b;line-height:1.7"><b>W A S D</b> で移動、マウスドラッグで見回します。Shift で速く歩けます。</div>
           </div>
         </div>
 
         <div class="card" style="display:flex;gap:16px;align-items:flex-start">
-          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#2563eb,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:800">2</div>
+          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#16a34a,#15803d);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px"><i class="ti ti-device-mobile"></i></div>
           <div style="flex:1">
-            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">VRシステムをダウンロード</div>
-            <div style="font-size:12px;color:#64748b;line-height:1.7;margin-bottom:10px">
-              VR Homes 専用の Unity プロジェクト一式（FloorPlayVR6）です。ダウンロード後、Unity Hub から開いてください。
-            </div>
-            <a id="vr-download-link" href="#" target="_blank" rel="noopener" class="btn btn-p btn-sm" style="font-size:12px" onclick="return handleVRDownload(event)">
-              <i class="ti ti-download"></i> VRシステムをダウンロード
-            </a>
-            <div style="font-size:11px;color:#94a3b8;margin-top:8px">
-              ※ ファイルサイズが大きいため、Wi-Fi 環境でのダウンロードを推奨します。
-            </div>
+            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">スマホ・タブレット</div>
+            <div style="font-size:12px;color:#64748b;line-height:1.7">左下のスティックで移動、画面ドラッグで見回します。</div>
           </div>
         </div>
 
         <div class="card" style="display:flex;gap:16px;align-items:flex-start">
-          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#16a34a,#15803d);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:800">3</div>
+          <div style="width:44px;height:44px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#000,#333);display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px"><i class="ti ti-device-vr"></i></div>
           <div style="flex:1">
-            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">Quest 3 を接続して内見</div>
-            <div style="font-size:12px;color:#64748b;line-height:1.7">
-              PC と Meta Quest 3 を USB ケーブルで接続し、Unity でプロジェクトを再生（Play）します。<br>
-              この Web サイトの物件詳細から「VRで内見する」を押すと、間取りが Quest に送信され、ヘッドセットの <b>B ボタン</b> で読み込めます。
-            </div>
+            <div style="font-size:15px;font-weight:800;color:var(--navy);margin-bottom:4px">Meta Quest</div>
+            <div style="font-size:12px;color:#64748b;line-height:1.7">Quest のブラウザでこのサイトを開き、内見画面のVRボタンを押すとヘッドセットで体験できます。移動はコントローラーのスティックで行き先を指します。</div>
           </div>
         </div>
 
