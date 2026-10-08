@@ -556,10 +556,11 @@ function openFloorEditor(propId){
   _fePendingInit={type:'init',mode:'edit',data:null,propName:''};
   if(propId!=null){
     const prop=PROPS.find(p=>p.id===propId);
-    if(prop){_fePendingInit.data=prop.floorplanData||null;_fePendingInit.propName=prop.name||'';}
+    if(prop){_fePendingInit.data=prop.floorplanData||null;_fePendingInit.propName=prop.name||'';_fePendingInit.area=+prop.size||0;}
   } else {
     _fePendingInit.data=window.editedFloorplanData||null;
     _fePendingInit.propName=(document.getElementById('af-name')||{}).value||'新規物件';
+    _fePendingInit.area=+((document.getElementById('af-size')||{}).value)||0;  // 専有面積(画像から自動作成の縮尺に使う)
   }
   _openFloorEditorModal('edit');
 }
