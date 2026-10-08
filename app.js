@@ -2,10 +2,28 @@
    STATE & CONSTANTS
 ══════════════════════════════════════ */
 const MASTER_EMAIL = 'nori1216chopper@gmail.com';
-const ADMIN_CODE   = 'admin';
-const MASTER_CODE  = 'master';
-const AD_SECRET_CODE = 'zakoshi';
+// 管理者・マスター・広告管理のコードはサーバー(Lambdaの環境変数)だけが知っている。ここには書かない
 const AWS_API_URL  = 'https://h5mx5gy6l2y7v6k46kxxfsm4li0cxnpr.lambda-url.ap-northeast-3.on.aws/';
+
+/* ── ログイン通行証(サーバーが発行する署名つきトークン) ── */
+const TOKEN_KEY = 'vr_session_token';
+function getToken(){ try{ return localStorage.getItem(TOKEN_KEY)||''; }catch(e){ return ''; } }
+function setToken(t){ try{ if(t) localStorage.setItem(TOKEN_KEY,t); else localStorage.removeItem(TOKEN_KEY); }catch(e){} }
+/* AWS への通信には自動で通行証を付ける */
+(function(){
+  const _fetch=window.fetch.bind(window);
+  window.fetch=function(input, init){
+    const url=typeof input==='string'?input:((input&&input.url)||'');
+    const token=getToken();
+    if(token && url.indexOf(AWS_API_URL)===0){
+      init=Object.assign({}, init||{});
+      const h=new Headers(init.headers||{});
+      h.set('Authorization','Bearer '+token);
+      init.headers=h;
+    }
+    return _fetch(input, init);
+  };
+})();
 const EDITOR_PATH  = 'floor-editor.html';
 
 let isLoggedIn  = false;
@@ -52,7 +70,8 @@ function saveFieldDefs(defs) {
 }
 let fieldDefs = loadFieldDefs();
 
-const MASTER_USER = { name:'のり', email:MASTER_EMAIL, password:'nori1216master', role:'master', active:true, photoURL:null, wishlist:{} };
+// マスターはサーバー(DynamoDB)に登録されたアカウントでログインする。パスワードはここに書かない
+const MASTER_USER = { name:'のり', email:MASTER_EMAIL, role:'master', active:true, photoURL:null, wishlist:{} };
 const DEMO_USER  = { name:'デモユーザー', email:'demo@vrhomes.jp', password:'demo1234', role:'user',  active:true, photoURL:null, wishlist:{}, favs:[], history:[] };
 const DEMO_ADMIN = { name:'デモ管理者',   email:'admin@vrhomes.jp', password:'admin1234', role:'admin', active:true, photoURL:null, wishlist:{}, favs:[], history:[] };
 let userStore = [MASTER_USER, DEMO_USER, DEMO_ADMIN];
@@ -459,8 +478,9 @@ function mergeUserCache(){
       // AWSより新しいローカル値で上書き（ユーザー個人データのみ・パスワードは扱わない）
       existing.favs=cu.favs||existing.favs||[];
       existing.history=cu.history||existing.history||[];
-      existing.role=cu.role||existing.role;
-      existing.active=(cu.active!==undefined)?cu.active:existing.active;
+      // ロールと停止状態はサーバーの値を正とする(端末側で書き換えても反映しない)
+      existing.role=existing.role||cu.role;
+      existing.active=(existing.active!==undefined)?existing.active:cu.active;
       existing.photoURL=cu.photoURL||existing.photoURL;
       existing.wishlist=cu.wishlist||existing.wishlist||{};
       if(cu.groupId!==undefined) existing.groupId=cu.groupId;
@@ -490,10 +510,12 @@ async function fetchUsers(){
   if(!AWS_API_URL) return;
   try{
     const res=await fetch(AWS_API_URL+'?action=getUsers');
+    if(res.status===401){ setToken(''); throw new Error('未ログインまたはログイン期限切れ'); }
     if(!res.ok) throw new Error('HTTP '+res.status);
     const users=await res.json();
-    const awsUsers=users.filter(u=>u.email!==MASTER_EMAIL&&u.email!==DEMO_USER.email&&u.email!==DEMO_ADMIN.email);
-    userStore=[MASTER_USER,DEMO_USER,DEMO_ADMIN,...awsUsers];
+    const awsUsers=users.filter(u=>u.email!==DEMO_USER.email&&u.email!==DEMO_ADMIN.email);
+    const hasMaster=awsUsers.some(u=>u.email===MASTER_EMAIL);
+    userStore=[...(hasMaster?[]:[MASTER_USER]),DEMO_USER,DEMO_ADMIN,...awsUsers];
   }catch(e){ console.warn('ユーザー取得失敗（デモモードで続行）:',e.message); }
   // AWS取得後、ローカルキャッシュを必ずマージ（データ消失を防ぐ）
   mergeUserCache();
@@ -502,9 +524,15 @@ async function fetchUsers(){
 /* AWSとローカル両方に保存（ローカルは即時・確実） */
 async function saveUserToAWS(user){
   cacheUserLocal(user); // まずローカルに確実保存
-  if(!AWS_API_URL||user.email===MASTER_EMAIL) return;
+  if(!AWS_API_URL) return;
+  if(user.email===DEMO_USER.email||user.email===DEMO_ADMIN.email) return; // デモはサーバーに保存しない
   try{
-    await fetch(AWS_API_URL+'?action=saveUser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...user})});
+    const res=await fetch(AWS_API_URL+'?action=saveUser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...user})});
+    if(!res.ok){
+      const d=await res.json().catch(()=>({}));
+      console.warn('ユーザー保存がサーバーで拒否されました:',d.error||res.status);
+      if(res.status===401) showToast&&showToast('ログインの有効期限が切れました。もう一度ログインしてください','warn');
+    }
   }catch(e){console.warn('ユーザー保存失敗（ローカルには保存済み）:',e.message);}
 }
 
@@ -840,10 +868,11 @@ async function gateLogin(){
   const pass=(document.getElementById('g-pass')||{}).value||'';
   if(!email||!pass){showGateMsg('メールアドレスとパスワードを入力してください',true);return;}
 
-  // ① デモアカウント・マスターはローカルで先に照合（users.jsonに無いため）
-  const localSpecial=[DEMO_USER, DEMO_ADMIN, MASTER_USER].find(u=>u.email===email&&u.password===pass);
+  // ① デモアカウントだけはローカルで照合（サーバーには無いため。サーバーへの書き込みはできない）
+  const localSpecial=[DEMO_USER, DEMO_ADMIN].find(u=>u.email===email&&u.password===pass);
   if(localSpecial){
     if(!localSpecial.active){showGateMsg('このアカウントは停止されています',true);return;}
+    setToken('');
     try{ localStorage.setItem('vr_session_email', localSpecial.email); }catch(e){}
     _enterApp(localSpecial);
     return;
@@ -864,7 +893,10 @@ async function gateLogin(){
           if(idx>=0) userStore[idx]={...userStore[idx],...user};
           else userStore.push(user);
           cacheUserLocal(user);
+          setToken(data.token||'');
           try{ localStorage.setItem('vr_session_email', user.email); }catch(e){}
+          // ログインできたので、通行証つきでユーザー一覧を取り直す
+          fetchUsers().catch(()=>{});
           _enterApp(user);
           return;
         }
@@ -916,6 +948,13 @@ function restoreSession(){
     if(gate){ gate.style.display=''; gate.classList.remove('hidden'); }
   };
   if(!email){ showGate(); return false; }
+  const isDemo=(email===DEMO_USER.email||email===DEMO_ADMIN.email);
+  if(!isDemo && !getToken()){
+    // 通行証が無い・期限切れなら、もう一度ログインしてもらう
+    try{localStorage.removeItem('vr_session_email');}catch(e){}
+    showGate();
+    return false;
+  }
   const user=userStore.find(u=>u.email===email);
   if(!user||!user.active) {
     try{localStorage.removeItem('vr_session_email');}catch(e){}
@@ -1028,6 +1067,7 @@ async function gateVerifyCode(){
 function doLogout(){
   isLoggedIn=false;currentUser=null;
   try{ localStorage.removeItem('vr_session_email'); }catch(e){}
+  setToken('');
   document.documentElement.classList.remove('has-session');
   // 履歴をクリア（ログアウト後に戻るで中に入れないように）
   try{ history.replaceState({screen:'top'}, '', location.pathname+location.search); }catch(e){}
@@ -1046,41 +1086,52 @@ function doLogout(){
 /* ══════════════════════════════════════
    CODE INPUT
 ══════════════════════════════════════ */
-function submitCode(){
-  const code=(document.getElementById('code-input')||{}).value?.trim()||'';
+async function submitCode(){
+  const inputEl=document.getElementById('code-input');
+  const code=(inputEl||{}).value?.trim()||'';
   const msgEl=document.getElementById('code-msg');
-  const okAdmin  = code===ADMIN_CODE;
-  const okMaster = code===MASTER_CODE;
-  const okAd     = code.toLowerCase()===AD_SECRET_CODE.toLowerCase();
-  const ok = okAdmin||okMaster||okAd;
-
   const showMsg=(text,isOk)=>{
     msgEl.style.cssText=`display:block;background:${isOk?'rgba(22,163,74,.15)':'rgba(220,38,38,.15)'};border:1px solid ${isOk?'rgba(22,163,74,.3)':'rgba(220,38,38,.3)'};color:${isOk?'var(--green)':'var(--red)'};border-radius:var(--r-md);padding:9px 13px;font-size:13px;margin-bottom:14px`;
     msgEl.textContent=text;
     setTimeout(()=>{msgEl.style.display='none';},3000);
   };
+  if(!code){showMsg('コードを入力してください',false);return;}
+  if(!getToken()){showMsg('この操作にはログインが必要です（デモアカウントでは使えません）',false);return;}
 
-  if(okAd){
+  // コードの照合はサーバーで行う
+  let data=null;
+  try{
+    const res=await fetch(AWS_API_URL+'?action=redeemCode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+    data=await res.json().catch(()=>({}));
+    if(!res.ok){
+      showMsg(data.error||'コードが正しくありません。',false);
+      if(inputEl) inputEl.value='';
+      return;
+    }
+  }catch(e){
+    showMsg('サーバーに接続できません',false);
+    return;
+  }
+  if(inputEl) inputEl.value='';
+  const serverUser=data.user||{};
+  const s=userStore.find(u=>u.email===currentUser.email);
+
+  if(data.kind==='ad'){
     // 広告管理解放
-    localStorage.setItem(AD_UNLOCK_KEY,'yes');
-    document.getElementById('code-input').value='';
+    currentUser.adUnlocked=true; if(s) s.adUnlocked=true;
+    try{ localStorage.setItem(AD_UNLOCK_KEY,'yes'); }catch(e){}
     showMsg('🔓 広告管理が解放されました！マスターパネルで確認できます',true);
     if(isMaster()){_showAdTab();renderAdManagement();}
     return;
   }
-  if(ok){
-    const newRole=okMaster?'master':'admin';
-    currentUser.role=newRole;
-    const s=userStore.find(u=>u.email===currentUser.email);if(s) s.role=newRole;
-    saveUserToAWS(currentUser); // ロール変更をローカル＆AWSに保存（リロードでも維持）
-    showMsg(`✓ ${okMaster?'マスター':'管理者'}として認証されました！`,true);
-    applyRoleUI();
-    if(okMaster){renderFieldManagement();if(isAdUnlocked()){_showAdTab();renderAdManagement();}}
-    setTimeout(()=>{document.getElementById('code-input').value='';guardedScreen(okMaster?'master':'admin');},1500);
-  } else {
-    showMsg('コードが正しくありません。',false);
-    document.getElementById('code-input').value='';
-  }
+  const newRole=serverUser.role||(data.kind==='master'?'master':'admin');
+  const isNewMaster=newRole==='master';
+  currentUser.role=newRole; if(s) s.role=newRole;
+  cacheUserLocal(currentUser);
+  showMsg(`✓ ${isNewMaster?'マスター':'管理者'}として認証されました！`,true);
+  applyRoleUI();
+  if(isNewMaster){renderFieldManagement();if(isAdUnlocked()){_showAdTab();renderAdManagement();}}
+  setTimeout(()=>{guardedScreen(isNewMaster?'master':'admin');},1500);
 }
 
 /* ══════════════════════════════════════
@@ -3209,13 +3260,24 @@ window.removeGroupMember=removeGroupMember;
 /* ── 広告管理 隠しコード解放 ── */
 const AD_UNLOCK_KEY = 'vr_ad_unlocked';
 function isAdUnlocked() {
+  if (currentUser && currentUser.adUnlocked) return true;
   try { return localStorage.getItem(AD_UNLOCK_KEY) === 'yes'; } catch(e) { return false; }
 }
-function submitSecretCode() {
+async function submitSecretCode() {
   const inp = document.getElementById('secret-code-input');
   const msg = document.getElementById('secret-code-msg');
   const code = (inp ? inp.value.trim() : '').toLowerCase();
-  if (code === AD_SECRET_CODE.toLowerCase()) {
+  // コードの照合はサーバーで行う（'lock' だけは端末内で処理）
+  let adOk = false;
+  if (code && code !== 'lock' && getToken()) {
+    try {
+      const res = await fetch(AWS_API_URL + '?action=redeemCode', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code }) });
+      const d = await res.json().catch(() => ({}));
+      adOk = res.ok && d.kind === 'ad';
+      if (adOk && currentUser) currentUser.adUnlocked = true;
+    } catch (e) { adOk = false; }
+  }
+  if (adOk) {
     localStorage.setItem(AD_UNLOCK_KEY, 'yes');
     if (inp) inp.value = '';
     if (msg) {
@@ -3228,8 +3290,9 @@ function submitSecretCode() {
     renderAdManagement();
     switchMaster('ads', document.getElementById('master-ads-nav-item') || {classList:{add:()=>{},remove:()=>{}}});
   } else if (code === 'lock') {
-    // 再ロック
+    // 再ロック（この端末の表示だけ）
     localStorage.removeItem(AD_UNLOCK_KEY);
+    if (currentUser) currentUser.adUnlocked = false;
     _hideAdTab();
     if (inp) inp.value = '';
     if (msg) {
@@ -3636,7 +3699,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   `;
   document.head.appendChild(adStyle);
-  // 広告はデフォルト完全非表示（zakoshiコードで解放後のみ表示）
+  // 広告はデフォルト完全非表示（広告コードで解放後のみ表示）
   // injectSideAds();
   // setTimeout(showAdPopup, 3000);
 });
