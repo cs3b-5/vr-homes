@@ -5,14 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>VR Homes — VR内見不動産サイト</title>
 <script>
-  /* ログイン画面のちらつき防止：DOM描画前にセッション有無を判定 */
-  (function(){
-    try{
-      if(localStorage.getItem('vr_session_email')){
-        document.documentElement.classList.add('has-session');
-      }
-    }catch(e){}
-  })();
+  /* ログインしなくても物件を見られるので、ログイン画面は最初は出さない（必要なときだけ出す） */
+  document.documentElement.classList.add('has-session');
+  try{ if(!localStorage.getItem('vr_session_email')) document.documentElement.classList.add('fx-guest'); }catch(e){}
 </script>
 <style>
   /* セッションがある場合、login-gateを最初から非表示にして描画（ちらつき防止） */
@@ -71,14 +66,7 @@
 <!-- ══════ LOGIN ══════ -->
 <div id="login-gate">
   <script>
-    (function(){
-      try{
-        if(localStorage.getItem('vr_session_email')){
-          var g=document.getElementById('login-gate');
-          if(g) g.style.display='none';
-        }
-      }catch(e){}
-    })();
+    (function(){ var g=document.getElementById('login-gate'); if(g) g.style.display='none'; })();
   </script>
   <div class="login-bg-orb login-bg-orb1"></div>
   <div class="login-bg-orb login-bg-orb2"></div>
@@ -1111,6 +1099,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="app.js"></script>
+<script src="features.js"></script>
 <script>
 /* ── Service Worker 登録 ── */
 if ('serviceWorker' in navigator) {

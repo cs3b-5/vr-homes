@@ -1,0 +1,1469 @@
+/* ══════════════════════════════════════════════════════════════
+   VR Homes 追加機能（app.js のあとに読み込む）
+   ・内見予約（申し込み／マイページの予約一覧／管理者の予約管理）
+   ・一緒に内見（VRビューアとサーバーの橋渡し）
+   ・VR内見の閲覧記録と分析
+   ・物件の比較 ・共有 ・お知らせ ・初期費用の計算 ・印刷 ・英語表示
+══════════════════════════════════════════════════════════════ */
+(function () {
+'use strict';
+
+/* ───────── 共通 ───────── */
+let fxLang = (() => { try { return localStorage.getItem('vr_lang') === 'en' ? 'en' : 'ja'; } catch (e) { return 'ja'; } })();
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const yen = n => '¥' + Math.round(+n || 0).toLocaleString();
+const findProp = id => PROPS.find(p => p.id === +id);
+const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+const WEEK_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+async function api(action, opts) {
+  opts = opts || {};
+  const qs = new URLSearchParams(Object.assign({ action }, opts.query || {})).toString();
+  const init = { method: opts.body ? 'POST' : 'GET' };
+  if (opts.body) { init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opts.body); }
+  const res = await fetch(AWS_API_URL + '?' + qs, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || ('HTTP ' + res.status)); e.status = res.status; throw e; }
+  return data;
+}
+function toast(msg, type) { if (typeof showToast === 'function') showToast(msg, type || 'info'); }
+function slotLabel(slot) {
+  const d = new Date(slot.replace('T', ' ').replace(/-/g, '/'));
+  if (isNaN(d)) return slot;
+  if (fxLang === 'en') return `${d.getMonth() + 1}/${d.getDate()} (${WEEK_EN[d.getDay()]}) ${slot.slice(11, 16)}`;
+  return `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]}) ${slot.slice(11, 16)}`;
+}
+function canEdit(p) { try { return typeof canEditProp === 'function' && canEditProp(p); } catch (e) { return false; } }
+
+/* ───────── モーダル（共通の入れ物）───────── */
+function openModal(id, title, html, opts) {
+  closeModal(id);
+  const ov = document.createElement('div');
+  ov.className = 'fx-overlay'; ov.id = id;
+  ov.innerHTML = `<div class="fx-modal" style="max-width:${(opts && opts.width) || 520}px">
+    <div class="fx-mhead"><h3>${title}</h3><button class="fx-x" aria-label="閉じる"><i class="ti ti-x"></i></button></div>
+    <div class="fx-mbody">${html}</div></div>`;
+  ov.addEventListener('click', e => { if (e.target === ov) closeModal(id); });
+  ov.querySelector('.fx-x').onclick = () => closeModal(id);
+  document.body.appendChild(ov);
+  document.body.style.overflow = 'hidden';
+  return ov.querySelector('.fx-mbody');
+}
+function closeModal(id) {
+  const el = $(id); if (el) el.remove();
+  if (!document.querySelector('.fx-overlay') && !($('pd-overlay') && $('pd-overlay').classList.contains('show'))) document.body.style.overflow = '';
+}
+window.fxCloseModal = closeModal;
+
+/* ══════════════ 1. VRビューアとの連携（閲覧記録・一緒に内見）══════════════ */
+const live = { code: '', uid: '', propId: null, pose: null, chat: [], timer: null, host: false, busy: false, pendingResv: null };
+function newUid() { const c = 'abcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 12; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+function viewerWin() { const f = $('vr-viewer-iframe'); return f && f.contentWindow; }
+function toViewer(msg) { const w = viewerWin(); if (w) w.postMessage(msg, '*'); }
+
+window.viewInVR = function (propId, extra) {
+  const prop = findProp(propId);
+  if (!prop) { alert('物件が見つかりません'); return; }
+  if (!prop.floorplanData && !prop.splatURL && !(prop.panoramas && prop.panoramas.length)) { alert('この物件にはVR内見のデータがありません'); return; }
+  if (extra && extra.live && !isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.viewInVR(propId, extra)); return; }
+  stopLive(false);
+  live.propId = prop.id;
+  openVRViewer({
+    data: prop.floorplanData || null, propName: prop.name || '',
+    splat: prop.splatURL ? { url: prop.splatURL, transform: prop.splatTransform || null, ext: '.spz' } : null,
+    propKey: String(prop.id), liveOk: !!isLoggedIn, lang: fxLang,
+    panoramas: prop.panoramas || [], geo: { lat: +prop.lat || 35.68, lng: +prop.lng || 139.76 },
+    live: extra && extra.live ? extra.live : null
+  });
+};
+const _closeVR = window.closeVRViewer;
+window.closeVRViewer = function () { stopLive(true); return _closeVR.apply(this, arguments); };
+
+function stopLive(endIfHost) {
+  if (live.timer) clearInterval(live.timer);
+  live.timer = null;
+  if (endIfHost && live.host && live.code) api('liveEnd', { body: { code: live.code } }).catch(() => {});
+  live.code = ''; live.host = false; live.chat = []; live.pose = null; live.busy = false;
+}
+function startSync() {
+  if (live.timer) clearInterval(live.timer);
+  const tick = async () => {
+    if (!live.code || live.busy) return;
+    live.busy = true;
+    try {
+      const body = { code: live.code, uid: live.uid, pose: live.pose || {} };
+      if (live.chat.length) body.chat = live.chat.shift();
+      const st = await api('liveSync', { body });
+      toViewer({ type: 'vr-live-state', state: st, uid: live.uid });
+    } catch (e) {
+      if (e.status === 404 || e.status === 401) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); stopLive(false); }
+    } finally { live.busy = false; }
+  };
+  tick();
+  live.timer = setInterval(tick, 1000);
+}
+async function liveStart() {
+  try {
+    live.uid = newUid();
+    const r = await api('liveCreate', { body: { propId: live.propId, uid: live.uid } });
+    live.code = r.code; live.host = true;
+    startSync();
+    if (live.pendingResv) {
+      const pr = live.pendingResv; live.pendingResv = null;
+      api('updateReservation', { body: { propId: pr.propId, resvId: pr.resvId, status: 'confirmed', liveCode: r.code,
+        message: '「一緒にVR内見」を始めました。物件ページの「コードで参加」に参加コードを入れるか、マイページの「内見予約」から参加してください。' } })
+        .then(() => toast('予約者に参加コードを送りました', 'success')).catch(() => {});
+    }
+  } catch (e) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); }
+}
+async function liveJoin(code) {
+  try {
+    const info = await api('liveInfo', { query: { code } });
+    if (+info.propId !== +live.propId) {   // 別の物件の内見だったら、その物件で開き直す
+      if (!findProp(info.propId)) throw new Error('物件が見つかりません');
+      setTimeout(() => window.viewInVR(info.propId, { live: { code } }), 50);
+      return;
+    }
+    live.uid = live.uid || newUid(); live.code = info.code; live.host = false;
+    startSync();
+  } catch (e) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); }
+}
+window.addEventListener('message', e => {
+  const m = e.data;
+  if (!m || typeof m !== 'object' || !m.type) return;
+  if (e.source && e.source !== viewerWin()) return;
+  switch (m.type) {
+    case 'vr-viewer-stats':
+      if (m.stats && m.stats.seconds >= 2 && m.propKey)
+        api('trackView', { body: Object.assign({ propId: +m.propKey }, m.stats) }).catch(() => {});
+      break;
+    case 'vr-live-start': liveStart(); break;
+    case 'vr-live-join': liveJoin(String(m.code || '')); break;
+    case 'vr-live-pose': live.pose = m.pose; break;
+    case 'vr-live-chat': if (m.text) live.chat.push(String(m.text).slice(0, 200)); break;
+    case 'vr-live-leave': stopLive(true); break;
+    case 'vr-copy':
+      try { navigator.clipboard.writeText(String(m.text || '')); toast('コピーしました', 'success'); } catch (err) { prompt('コピーしてください', m.text); }
+      break;
+  }
+});
+/* 参加コードを入れて一緒に内見する（物件ページ・マイページから） */
+window.fxJoinByCode = async function (code) {
+  if (!isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.fxJoinByCode(code)); return; }
+  code = String(code || prompt(t('参加コード（6けた）を入力してください')) || '').replace(/\D/g, '');
+  if (!code) return;
+  if (code.length !== 6) { toast(t('参加コードは6けたの数字です'), 'warn'); return; }
+  try {
+    const info = await api('liveInfo', { query: { code } });
+    if ($('pd-overlay').classList.contains('show')) closePropDetail();
+    window.viewInVR(info.propId, { live: { code } });
+  } catch (e) { toast(e.message, 'error'); }
+};
+/* 一緒に内見を始める（物件ページから） */
+window.fxStartLive = function (propId) {
+  if (!isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.fxStartLive(propId)); return; }
+  window.viewInVR(propId, { live: { start: true } });
+};
+
+/* ══════════════ 2. URLから開く（?p=物件ID / ?live=参加コード）══════════════ */
+const deep = (() => { const q = new URLSearchParams(location.search); return { p: q.get('p'), live: q.get('live') }; })();
+if (deep.p || deep.live) {
+  const iv = setInterval(() => {
+    if (!PROPS.length) return;
+    clearInterval(iv);
+    try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) {}
+    if (deep.live) window.fxJoinByCode(deep.live);
+    else if (deep.p && findProp(deep.p)) showPropDetail(+deep.p);
+  }, 300);
+  setTimeout(() => clearInterval(iv), 60000);
+}
+
+/* ══════════════ 3. 物件詳細の追加ボタン・初期費用の計算 ══════════════ */
+const _renderPropDetail = window.renderPropDetail;
+window.renderPropDetail = function (prop) {
+  _renderPropDetail.apply(this, arguments);
+  try { decorateDetail(prop); } catch (e) { console.error(e); }
+};
+function decorateDetail(prop) {
+  const side = document.querySelector('#pd-overlay .pd-side');
+  if (!side) return;
+  let box = $('fx-pd-actions');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'fx-pd-actions';
+    const contact = side.querySelector('button[onclick^="openContactForm"]');
+    side.insertBefore(box, contact ? contact.nextSibling : null);
+  }
+  const hasVR = !!(prop.floorplanData || prop.splatURL || (prop.panoramas && prop.panoramas.length));
+  const vrBtn = $('pd-vr-btn'); if (vrBtn) vrBtn.style.display = hasVR ? 'flex' : 'none';
+  const st = PSTATUS[prop.status || 'open'] || PSTATUS.open;
+  const nameEl = $('pd-name');
+  if (nameEl && prop.status && prop.status !== 'open') nameEl.insertAdjacentHTML('beforeend', ` <span class="fx-pst" style="background:${st[1]}">${t(st[0])}</span>`);
+  const closed = prop.status === 'closed' || prop.status === 'hidden';
+  const inCmp = compareIds().includes(prop.id);
+  const vs = prop.viewStats || {};
+  box.innerHTML = `
+    ${closed ? `<div class="fx-closed-note"><i class="ti ti-info-circle"></i> ${t(prop.status === 'hidden' ? 'この物件は非公開です（編集できる人にだけ表示）' : 'この物件は成約済みです')}</div>` : `<button class="btn btn-p fx-wide" onclick="fxOpenReserve(${prop.id})"><i class="ti ti-calendar-event"></i> ${t('内見を予約する')}</button>`}
+    ${hasVR ? `<div class="fx-row"><button class="btn fx-grow" onclick="fxStartLive(${prop.id})" title="${t('担当者や家族と同じ部屋を一緒に見られます')}"><i class="ti ti-users"></i> ${t('一緒に内見')}</button>
+      <button class="btn fx-grow" onclick="fxJoinByCode()"><i class="ti ti-key"></i> ${t('コードで参加')}</button></div>` : ''}
+    <div class="fx-row">
+      <button class="btn fx-grow ${inCmp ? 'fx-on' : ''}" onclick="fxToggleCompare(${prop.id});renderPropDetail(PROPS.find(p=>p.id===${prop.id}))"><i class="ti ti-arrows-left-right"></i> ${inCmp ? t('比較中') : t('比較')}</button>
+      <button class="btn fx-grow" onclick="fxShare(${prop.id})"><i class="ti ti-share"></i> ${t('共有')}</button>
+      <button class="btn fx-grow" onclick="fxPrint()"><i class="ti ti-printer"></i> ${t('印刷')}</button>
+    </div>
+    ${canEdit(prop) && vs.views ? `<div class="fx-mini"><i class="ti ti-chart-bar"></i> ${t('VR内見')} ${vs.views}${t('回')}・${t('平均')}${Math.round(vs.seconds / vs.views)}${t('秒')}</div>` : ''}`;
+  addPoiSection(prop);
+  // 初期費用の計算
+  let sim = $('fx-cost-sim');
+  if (!sim) {
+    sim = document.createElement('details'); sim.id = 'fx-cost-sim'; sim.className = 'fx-sim';
+    const costs = $('pd-costs'); costs.parentNode.insertBefore(sim, costs.nextSibling);
+  }
+  const wasOpen = sim.open;
+  const d = new Date(); d.setDate(d.getDate() + 30);
+  const def = sim.dataset.pid === String(prop.id) && sim._vals ? sim._vals : { move: d.toISOString().slice(0, 10), agent: '1', fire: 20000, keyx: 16500, guar: '0.5', other: 0 };
+  sim.dataset.pid = String(prop.id);
+  sim.innerHTML = `<summary><i class="ti ti-calculator"></i> ${t('初期費用・月々の支払いを計算する')}</summary>
+    <div class="fx-sim-in">
+      <label>${t('入居日')}<input type="date" data-k="move" value="${def.move}"></label>
+      <label>${t('仲介手数料')}<select data-k="agent"><option value="0">${t('なし')}</option><option value="0.5">${t('家賃0.5ヶ月')}</option><option value="1">${t('家賃1ヶ月')}</option></select></label>
+      <label>${t('保証会社（初回）')}<select data-k="guar"><option value="0">${t('なし')}</option><option value="0.5">${t('月額の50%')}</option><option value="1">${t('月額の100%')}</option></select></label>
+      <label>${t('火災保険')}<input type="number" data-k="fire" value="${def.fire}" step="1000" min="0"></label>
+      <label>${t('鍵の交換')}<input type="number" data-k="keyx" value="${def.keyx}" step="1000" min="0"></label>
+      <label>${t('その他')}<input type="number" data-k="other" value="${def.other}" step="1000" min="0"></label>
+    </div><div class="fx-sim-out" id="fx-sim-out"></div>`;
+  sim.querySelector('[data-k=agent]').value = def.agent;
+  sim.querySelector('[data-k=guar]').value = def.guar;
+  sim.open = wasOpen;
+  const calc = () => {
+    const v = {}; sim.querySelectorAll('[data-k]').forEach(el => { v[el.dataset.k] = el.value; });
+    sim._vals = v;
+    $('fx-sim-out').innerHTML = costHtml(prop, v);
+  };
+  sim.querySelectorAll('[data-k]').forEach(el => el.addEventListener('input', calc));
+  calc();
+}
+function costBreakdown(prop, v) {
+  const rent = +prop.price || 0, mgmt = +prop.mgmt || 0, monthly = rent + mgmt;
+  const move = new Date((v.move || '') + 'T00:00:00');
+  let prorate = 0, days = 0, dim = 30;
+  if (!isNaN(move)) { dim = new Date(move.getFullYear(), move.getMonth() + 1, 0).getDate(); days = dim - move.getDate() + 1; prorate = Math.round(monthly * days / dim); }
+  const rows = [
+    [t('敷金'), rent * (+prop.deposit || 0)],
+    [t('礼金'), rent * (+prop.key || 0)],
+    [t('日割り家賃') + (days ? `（${days}/${dim}${t('日')}）` : ''), prorate],
+    [t('翌月分の家賃・管理費'), monthly],
+    [t('仲介手数料（税込）'), Math.round(rent * (+v.agent || 0) * 1.1)],
+    [t('保証会社（初回）'), Math.round(monthly * (+v.guar || 0))],
+    [t('火災保険'), +v.fire || 0],
+    [t('鍵の交換'), +v.keyx || 0],
+    [t('その他'), +v.other || 0]
+  ];
+  return { rows, total: rows.reduce((s, r) => s + r[1], 0), monthly };
+}
+function costHtml(prop, v) {
+  const b = costBreakdown(prop, v);
+  return `<table>${b.rows.filter(r => r[1] > 0).map(r => `<tr><td>${r[0]}</td><td>${yen(r[1])}</td></tr>`).join('')}
+    <tr class="fx-total"><td>${t('初期費用の合計（目安）')}</td><td>${yen(b.total)}</td></tr>
+    <tr><td>${t('毎月の支払い（家賃＋管理費）')}</td><td>${yen(b.monthly)}</td></tr></table>
+    <div class="fx-mini">${t('家賃の目安は手取りの3分の1と言われます。この物件なら手取り')} <b>${yen(b.monthly * 3)}</b> ${t('以上が目安です。')}<br>${t('※ 実際の金額は不動産会社にご確認ください。')}</div>`;
+}
+
+/* ───────── 印刷 ───────── */
+window.fxPrint = function () {
+  const sim = $('fx-cost-sim'); if (sim) sim.open = true;
+  const p = findProp(pdCurrentId);
+  let head = $('fx-print-head');
+  if (!head) { head = document.createElement('div'); head.id = 'fx-print-head'; document.querySelector('#pd-overlay .pd-modal').prepend(head); }
+  head.innerHTML = `<b>VR Homes</b> ${t('物件資料')}　<span>${new Date().toLocaleDateString()}</span><span style="float:right">${esc(location.origin + location.pathname)}?p=${p ? p.id : ''}</span>`;
+  let fp = $('fx-print-fp');
+  if (!fp) { fp = document.createElement('div'); fp.id = 'fx-print-fp'; document.querySelector('#pd-overlay .pd-main').appendChild(fp); }
+  fp.innerHTML = p && p.floorplanURL ? `<div class="pd-section-title">${t('間取り図')}</div><img src="${esc(p.floorplanURL)}" alt="">` : '';
+  setTimeout(() => window.print(), 100);
+};
+
+/* ══════════════ 4. 内見予約 ══════════════ */
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+window.fxOpenReserve = function (propId) {
+  if (!isLoggedIn) { requireLogin('内見を予約するにはログインしてください', () => window.fxOpenReserve(propId)); return; }
+  const prop = findProp(propId); if (!prop) return;
+  if (prop.status === 'closed' || prop.status === 'hidden') { toast(t('この物件は現在、内見の予約を受け付けていません'), 'warn'); return; }
+  const rule = Object.assign({ days: [0, 1, 2, 3, 4, 5, 6], start: 10, end: 18, closed: [] }, prop.viewingRule || {});
+  const dayOk = d => rule.days.includes(d.getDay()) && !(rule.closed || []).includes(ymd(d));
+  const hasVR = !!(prop.floorplanData || prop.splatURL);
+  const days = [];
+  for (let i = 1; i <= 14; i++) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i); days.push(d); }
+  const body = openModal('fx-resv', `<i class="ti ti-calendar-event"></i> ${t('内見を予約する')}`, `
+    <div class="fx-prop-line">${esc(prop.name)}</div>
+    <div class="fx-label">${t('内見の方法')}</div>
+    <div class="fx-seg" id="fx-kind">
+      <button data-k="visit" class="on"><i class="ti ti-walk"></i> ${t('現地で内見')}</button>
+      ${hasVR ? `<button data-k="online"><i class="ti ti-users"></i> ${t('オンラインで一緒にVR内見')}</button>` : ''}
+    </div>
+    <div class="fx-label">${t('日にち')}</div>
+    <div class="fx-days" id="fx-days">${days.map(d => `<button data-d="${ymd(d)}" ${dayOk(d) ? '' : 'disabled title="' + t('休み') + '"'} class="${d.getDay() === 0 ? 'sun' : d.getDay() === 6 ? 'sat' : ''}"><small>${d.getMonth() + 1}/${d.getDate()}</small>${fxLang === 'en' ? WEEK_EN[d.getDay()] : WEEK[d.getDay()]}</button>`).join('')}</div>
+    <div class="fx-label">${t('時間')}</div>
+    <div class="fx-times" id="fx-times"></div>
+    <div class="fx-two">
+      <label class="fx-field">${t('電話番号（任意）')}<input id="fx-phone" type="tel" maxlength="20" placeholder="090-xxxx-xxxx"></label>
+    </div>
+    <label class="fx-field">${t('ご要望など（任意）')}<textarea id="fx-note" rows="3" maxlength="500" placeholder="${t('例: 駐車場を見たいです')}"></textarea></label>
+    <button class="btn btn-p fx-wide" id="fx-resv-go" disabled><i class="ti ti-check"></i> ${t('この日時で予約する')}</button>
+    <div class="fx-mini">${t('予約は担当者が確認すると「確定」になり、マイページとお知らせに届きます。')}<br>${t('予約すると')} <a href="privacy.html" target="_blank">${t('個人情報の取り扱い')}</a> ${t('に同意したものとします。')}</div>`, { width: 560 });
+  const firstOk = days.find(dayOk);
+  if (!firstOk) { body.querySelector('#fx-times').innerHTML = `<div class="fx-mini">${t('受け付けている日がありません')}</div>`; }
+  let day = firstOk ? ymd(firstOk) : '', time = null, kind = 'visit';
+  const dbtn = body.querySelector(`#fx-days button[data-d="${day}"]`); if (dbtn) dbtn.classList.add('on');
+  const SLOT_HOURS = []; for (let h = +rule.start; h < +rule.end; h++) SLOT_HOURS.push(h);
+  const booked = new Set(prop.bookedSlots || []);
+  const renderTimes = () => {
+    if (!day) return;
+    body.querySelector('#fx-times').innerHTML = SLOT_HOURS.map(h => {
+      const s = `${day}T${String(h).padStart(2, '0')}:00`, full = booked.has(s);
+      return `<button data-t="${s}" ${full ? 'disabled title="' + t('予約済み') + '"' : ''} class="${time === s ? 'on' : ''}">${h}:00${full ? '<small>' + t('満') + '</small>' : ''}</button>`;
+    }).join('');
+    body.querySelectorAll('#fx-times button:not([disabled])').forEach(b => b.onclick = () => { time = b.dataset.t; renderTimes(); });
+    body.querySelector('#fx-resv-go').disabled = !time;
+    body.querySelector('#fx-resv-go').innerHTML = `<i class="ti ti-check"></i> ${time ? slotLabel(time) + ' ' + t('で予約する') : t('時間を選んでください')}`;
+  };
+  body.querySelectorAll('#fx-days button:not([disabled])').forEach(b => b.onclick = () => { day = b.dataset.d; time = null; body.querySelectorAll('#fx-days button').forEach(x => x.classList.toggle('on', x === b)); renderTimes(); });
+  body.querySelectorAll('#fx-kind button').forEach(b => b.onclick = () => { kind = b.dataset.k; body.querySelectorAll('#fx-kind button').forEach(x => x.classList.toggle('on', x === b)); });
+  renderTimes();
+  body.querySelector('#fx-resv-go').onclick = async () => {
+    const btn = body.querySelector('#fx-resv-go'); btn.disabled = true;
+    try {
+      await api('reserve', { body: { propId: prop.id, slot: time, kind, phone: body.querySelector('#fx-phone').value, note: body.querySelector('#fx-note').value } });
+      prop.bookedSlots = (prop.bookedSlots || []).concat([time]);
+      closeModal('fx-resv');
+      toast(t('予約を申し込みました。確定したらお知らせします'), 'success');
+    } catch (e) { toast(e.message, 'error'); btn.disabled = false; if (e.status === 409) { booked.add(time); time = null; renderTimes(); } }
+  };
+};
+const STATUS = { pending: ['確認待ち', '#f59e0b'], confirmed: ['確定', '#16a34a'], declined: ['お断り', '#dc2626'], cancelled: ['キャンセル', '#94a3b8'], done: ['完了', '#64748b'] };
+const KIND = { visit: '現地で内見', online: 'オンラインで一緒にVR内見' };
+function statusBadge(s) { const v = STATUS[s] || [s, '#64748b']; return `<span class="fx-badge" style="background:${v[1]}">${t(v[0])}</span>`; }
+function nowSlot() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+
+/* マイページ「内見予約」 */
+(function addMyPageTab() {
+  const nav = document.querySelector('.mp-nav-item[onclick*="\'prof\'"]');
+  if (nav && !$('mp-nav-resv')) {
+    const it = document.createElement('div');
+    it.className = 'mp-nav-item'; it.id = 'mp-nav-resv';
+    it.setAttribute('onclick', "switchMp('resv',this)");
+    it.innerHTML = '<i class="ti ti-calendar-event"></i>内見予約';
+    nav.parentNode.insertBefore(it, nav);
+  }
+  const prof = $('mp-prof');
+  if (prof && !$('mp-resv')) {
+    const sec = document.createElement('div');
+    sec.id = 'mp-resv'; sec.style.display = 'none';
+    sec.innerHTML = '<div class="fx-sec-title"><i class="ti ti-calendar-event"></i> 内見予約</div><div id="mp-resv-list"></div>';
+    prof.parentNode.insertBefore(sec, prof);
+  }
+})();
+const _switchMp = window.switchMp;
+window.switchMp = function (id, el) {
+  const sec = $('mp-resv'); if (sec) sec.style.display = id === 'resv' ? 'block' : 'none';
+  if (id === 'resv') {
+    ['fav', 'inbox', 'hist', 'prof', 'wish', 'code'].forEach(k => { const e = $('mp-' + k); if (e) e.style.display = 'none'; });
+    document.querySelectorAll('.mp-nav-item').forEach(i => i.classList.remove('on'));
+    (el || $('mp-nav-resv')).classList.add('on');
+    renderMyResv();
+    return;
+  }
+  return _switchMp.apply(this, arguments);
+};
+async function renderMyResv() {
+  const box = $('mp-resv-list'); if (!box) return;
+  box.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`;
+  try {
+    const list = await api('myReservations');
+    if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-off"></i><br>${t('まだ予約はありません。物件ページの「内見を予約する」から申し込めます。')}</div>`; return; }
+    const now = nowSlot();
+    box.innerHTML = list.map(r => {
+      const future = r.slot > now, active = r.status === 'pending' || r.status === 'confirmed';
+      return `<div class="fx-card ${future ? '' : 'past'}">
+        <div class="fx-card-h"><b>${slotLabel(r.slot)}</b>${statusBadge(r.status)}</div>
+        <div class="fx-link" onclick="showPropDetail(${r.propId})">${esc(r.propName)}</div>
+        <div class="fx-mini">${t(KIND[r.kind] || '')}${r.note ? '・' + esc(r.note) : ''}</div>
+        ${r.reply ? `<div class="fx-reply"><i class="ti ti-message"></i> ${esc(r.reply)}</div>` : ''}
+        <div class="fx-row">
+          ${r.liveCode && active ? `<button class="btn btn-p btn-sm" onclick="fxJoinByCode('${esc(r.liveCode)}')"><i class="ti ti-users"></i> ${t('一緒にVR内見に参加')}（${esc(r.liveCode)}）</button>` : ''}
+          ${active && future ? `<button class="btn btn-sm" style="color:var(--red)" onclick="fxCancelResv(${r.propId},'${esc(r.id)}')">${t('キャンセル')}</button>` : ''}
+        </div></div>`;
+    }).join('');
+  } catch (e) { box.innerHTML = `<div class="fx-empty">${esc(e.message)}</div>`; }
+}
+window.fxCancelResv = async function (propId, resvId) {
+  if (!confirm(t('この予約をキャンセルしますか？'))) return;
+  try { await api('updateReservation', { body: { propId, resvId, status: 'cancelled' } }); toast(t('キャンセルしました'), 'success'); renderMyResv(); refreshBooked(); }
+  catch (e) { toast(e.message, 'error'); }
+};
+function refreshBooked() { if (typeof fetchAndRenderProps === 'function') fetchAndRenderProps().catch(() => {}); }
+
+/* 管理画面「予約」 */
+(function addAdminTab() {
+  const statsNav = document.querySelector('#s-admin .admin-nav-item[onclick*="\'stats\'"]');
+  if (statsNav && !$('admin-nav-resv')) {
+    const it = document.createElement('div');
+    it.className = 'admin-nav-item'; it.id = 'admin-nav-resv';
+    it.setAttribute('onclick', "switchAdmin('resv',this)");
+    it.innerHTML = '<i class="ti ti-calendar-event"></i>予約 <span class="badge" id="admin-resv-badge" style="display:none">0</span>';
+    statsNav.parentNode.insertBefore(it, statsNav);
+  }
+  const stats = $('admin-stats');
+  if (stats && !$('admin-resv')) {
+    const sec = document.createElement('div');
+    sec.id = 'admin-resv'; sec.style.display = 'none';
+    sec.innerHTML = `<h2 class="fx-h2">内見予約の管理</h2>
+      <div class="fx-tabs" id="fx-resv-filter"><button data-f="todo" class="on">対応が必要</button><button data-f="future">これからの予定</button><button data-f="all">すべて</button></div>
+      <div id="admin-resv-list"></div>`;
+    stats.parentNode.insertBefore(sec, stats);
+    sec.querySelectorAll('#fx-resv-filter button').forEach(b => b.onclick = () => { sec.querySelectorAll('#fx-resv-filter button').forEach(x => x.classList.toggle('on', x === b)); resvFilter = b.dataset.f; renderAdminResv(); });
+  }
+  if (stats && !$('fx-vr-analytics')) {
+    const a = document.createElement('div');
+    a.id = 'fx-vr-analytics';
+    stats.appendChild(a);
+  }
+})();
+let resvFilter = 'todo', adminResvCache = [];
+const _switchAdmin = window.switchAdmin;
+window.switchAdmin = function (id, el) {
+  const sec = $('admin-resv'); if (sec) sec.style.display = id === 'resv' ? 'block' : 'none';
+  if (id === 'resv') {
+    ['props', 'group', 'users', 'stats'].forEach(k => { const e = $('admin-' + k); if (e) e.style.display = 'none'; });
+    document.querySelectorAll('#s-admin .admin-nav-item').forEach(i => i.classList.remove('on'));
+    (el && el.classList ? el : $('admin-nav-resv')).classList.add('on');
+    renderAdminResv(true);
+    return;
+  }
+  const r = _switchAdmin.apply(this, arguments);
+  if (id === 'stats') renderAnalytics();
+  return r;
+};
+async function loadAdminResv() {
+  if (!currentUser || !isAdmin()) return [];
+  try { adminResvCache = await api('getReservations'); } catch (e) { adminResvCache = []; }
+  const n = adminResvCache.filter(r => r.status === 'pending').length;
+  const bd = $('admin-resv-badge'); if (bd) { bd.textContent = n; bd.style.display = n ? 'inline-block' : 'none'; }
+  return adminResvCache;
+}
+async function renderAdminResv(reload) {
+  const box = $('admin-resv-list'); if (!box) return;
+  if (reload) { box.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`; await loadAdminResv(); }
+  const now = nowSlot();
+  let list = adminResvCache.slice();
+  if (resvFilter === 'todo') list = list.filter(r => r.status === 'pending' || (r.status === 'confirmed' && r.slot > now));
+  if (resvFilter === 'future') list = list.filter(r => r.slot > now && r.status !== 'cancelled' && r.status !== 'declined');
+  if (resvFilter === 'all') list.reverse();
+  if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-check"></i><br>${t('ここに表示する予約はありません')}</div>`; return; }
+  box.innerHTML = list.map(r => {
+    const future = r.slot > now;
+    return `<div class="fx-card ${future ? '' : 'past'}">
+      <div class="fx-card-h"><b>${slotLabel(r.slot)}</b>${statusBadge(r.status)}<span class="fx-kind">${r.kind === 'online' ? '<i class="ti ti-users"></i> オンライン' : '<i class="ti ti-walk"></i> 現地'}</span></div>
+      <div class="fx-link" onclick="showPropDetail(${r.propId})">${esc(r.propName)}</div>
+      <div class="fx-mini"><i class="ti ti-user"></i> ${esc(r.name || '')} &lt;${esc(r.email)}&gt;${r.phone ? ' ・ <i class="ti ti-phone"></i> ' + esc(r.phone) : ''}</div>
+      ${r.note ? `<div class="fx-reply"><i class="ti ti-note"></i> ${esc(r.note)}</div>` : ''}
+      ${r.reply ? `<div class="fx-mini">返信: ${esc(r.reply)}</div>` : ''}
+      <div class="fx-row">
+        ${r.status === 'pending' ? `<button class="btn btn-p btn-sm" onclick="fxSetResv(${r.propId},'${r.id}','confirmed')">確定する</button><button class="btn btn-sm" style="color:var(--red)" onclick="fxSetResv(${r.propId},'${r.id}','declined')">お断りする</button>` : ''}
+        ${r.status === 'confirmed' && r.kind === 'online' ? `<button class="btn btn-p btn-sm" onclick="fxHostResv(${r.propId},'${r.id}')"><i class="ti ti-users"></i> 一緒にVR内見を始める</button>` : ''}
+        ${r.status === 'confirmed' ? `<button class="btn btn-sm" onclick="fxSetResv(${r.propId},'${r.id}','done')">完了にする</button>` : ''}
+      </div></div>`;
+  }).join('');
+}
+window.fxSetResv = async function (propId, resvId, status) {
+  const label = { confirmed: '確定', declined: 'お断り', done: '完了' }[status];
+  const msg = status === 'done' ? '' : prompt(`「${label}」にします。予約者へのメッセージ（任意）`, status === 'confirmed' ? '当日お待ちしております。' : '');
+  if (msg === null) return;
+  try { await api('updateReservation', { body: { propId, resvId, status, message: msg } }); toast(`「${label}」にしました。予約者にお知らせが届きます`, 'success'); renderAdminResv(true); refreshBooked(); }
+  catch (e) { toast(e.message, 'error'); }
+};
+window.fxHostResv = function (propId, resvId) {
+  live.pendingResv = { propId, resvId };
+  window.viewInVR(propId, { live: { start: true } });
+};
+
+/* ══════════════ 5. VR内見の分析（管理画面）══════════════ */
+const _refreshStats = window.refreshStats;
+window.refreshStats = function () { const r = _refreshStats.apply(this, arguments); renderAnalytics(); return r; };
+async function renderAnalytics() {
+  const box = $('fx-vr-analytics'); if (!box || !currentUser) return;
+  const mine = PROPS.filter(p => canEdit(p));
+  const resv = await loadAdminResv();
+  const favCount = id => (typeof userStore !== 'undefined' ? userStore : []).filter(u => Array.isArray(u.favs) && u.favs.includes(id)).length;
+  const rows = mine.map(p => {
+    const v = p.viewStats || {}, views = v.views || 0;
+    const rooms = Object.entries(v.rooms || {}).sort((a, b) => b[1] - a[1]);
+    const roomMax = rooms.length ? rooms[0][1] : 1;
+    return { p, views, avg: views ? Math.round(v.seconds / views) : 0, real: v.seconds ? Math.round(v.realSeconds / v.seconds * 100) : 0,
+      tours: v.tours || 0, measures: v.measures || 0, furn: v.furniture || 0, rooms, roomMax,
+      resv: resv.filter(r => r.propId === p.id && r.status !== 'cancelled').length, favs: favCount(p.id), last: v.last };
+  }).sort((a, b) => b.views - a.views);
+  const total = rows.reduce((s, r) => s + r.views, 0);
+  const totalResv = rows.reduce((s, r) => s + r.resv, 0);
+  box.innerHTML = `<h2 class="fx-h2" style="margin-top:28px">VR内見の分析 <small>（${isMaster() ? 'すべての物件' : '編集できる物件'}）</small></h2>
+    <div class="stat-card-grid">
+      <div class="stat-card"><div class="stat-card-label">VR内見の回数</div><div class="stat-card-val">${total}</div></div>
+      <div class="stat-card"><div class="stat-card-label">内見予約</div><div class="stat-card-val">${totalResv}</div></div>
+      <div class="stat-card"><div class="stat-card-label">予約につながった割合</div><div class="stat-card-val">${total ? Math.round(totalResv / total * 100) + '%' : '−'}</div></div>
+    </div>
+    ${rows.length ? `<div class="fx-an-list">${rows.map(r => `<div class="fx-an">
+      <div class="fx-an-h"><span class="fx-link" onclick="showPropDetail(${r.p.id})">${esc(r.p.name)}</span><span>${r.last ? '最終: ' + esc(r.last.replace('T', ' ').slice(0, 16)) : ''}</span></div>
+      <div class="fx-an-nums">
+        <div><b>${r.views}</b>VR内見（回）</div><div><b>${r.avg}</b>平均（秒）</div><div><b>${r.real}%</b>実写で見た割合</div>
+        <div><b>${r.resv}</b>予約（件）</div><div><b>${r.favs}</b>お気に入り（人）</div>
+        <div><b>${r.tours}</b>ツアー（回）</div><div><b>${r.measures}</b>計測（回）</div><div><b>${r.furn}</b>家具お試し（個）</div>
+      </div>
+      ${r.rooms.length ? `<div class="fx-mini" style="margin:6px 0 3px">よく見られている部屋（合計時間）</div>${r.rooms.slice(0, 5).map(([n, s]) => `<div class="fx-bar"><span>${esc(n)}</span><i style="width:${Math.max(4, s / r.roomMax * 100)}%"></i><em>${s >= 60 ? Math.round(s / 60) + '分' : Math.round(s) + '秒'}</em></div>`).join('')}` : '<div class="fx-mini">まだVR内見の記録がありません</div>'}
+    </div>`).join('')}</div>` : '<div class="fx-empty">編集できる物件がありません</div>'}`;
+}
+
+/* ══════════════ 6. 物件の比較 ══════════════ */
+const CMP_KEY = 'vr_compare';
+function compareIds() { try { return (JSON.parse(localStorage.getItem(CMP_KEY) || '[]') || []).filter(id => findProp(id)); } catch (e) { return []; } }
+function saveCompare(ids) { try { localStorage.setItem(CMP_KEY, JSON.stringify(ids)); } catch (e) {} renderCompareBar(); decorateCards(); }
+window.fxToggleCompare = function (id) {
+  let ids = compareIds();
+  if (ids.includes(id)) ids = ids.filter(x => x !== id);
+  else { if (ids.length >= 4) { toast(t('比較できるのは4件までです'), 'warn'); return; } ids.push(id); }
+  saveCompare(ids);
+};
+function renderCompareBar() {
+  let bar = $('fx-cmp-bar');
+  const ids = compareIds();
+  if (!ids.length) { if (bar) bar.remove(); return; }
+  if (!bar) { bar = document.createElement('div'); bar.id = 'fx-cmp-bar'; document.body.appendChild(bar); }
+  bar.innerHTML = `<span><i class="ti ti-arrows-left-right"></i> ${t('比較リスト')} <b>${ids.length}</b>${t('件')}</span>
+    <button class="btn btn-p btn-sm" onclick="fxOpenCompare()">${t('比較する')}</button>
+    <button class="btn btn-sm" onclick="fxClearCompare()">${t('クリア')}</button>`;
+}
+window.fxClearCompare = () => saveCompare([]);
+window.fxOpenCompare = function () {
+  const ps = compareIds().map(findProp);
+  if (!ps.length) return;
+  const def = { move: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10), agent: '1', fire: 20000, keyx: 16500, guar: '0.5', other: 0 };
+  const allFeat = [...new Set(ps.flatMap(p => p.features || []))];
+  const best = (vals, low) => { const nums = vals.filter(v => v != null && isFinite(v)); if (nums.length < 2 || nums.every(v => v === nums[0])) return null; return low ? Math.min(...nums) : Math.max(...nums); };
+  const row = (label, vals, fmt, lowIsBest) => {
+    const b = lowIsBest === undefined ? null : best(vals, lowIsBest);
+    return `<tr><th>${label}</th>${vals.map(v => `<td class="${b != null && v === b ? 'fx-best' : ''}">${v == null || v === '' ? '−' : (fmt ? fmt(v) : esc(v))}</td>`).join('')}</tr>`;
+  };
+  const html = `<div class="fx-cmp-wrap"><table class="fx-cmp">
+    <tr><th></th>${ps.map(p => `<td><div class="fx-cmp-img" style="${p.photoURLs && p.photoURLs[0] ? `background-image:url('${esc(p.photoURLs[0])}')` : ''}">${p.photoURLs && p.photoURLs[0] ? '' : '<i class="ti ti-building"></i>'}</div>
+      <div class="fx-link" onclick="fxCloseModal('fx-cmp');showPropDetail(${p.id})">${esc(p.name)}</div>
+      <button class="btn btn-sm" onclick="fxToggleCompare(${p.id});fxCloseModal('fx-cmp');fxOpenCompare()">${t('外す')}</button></td>`).join('')}</tr>
+    ${row(t('家賃'), ps.map(p => +p.price || 0), yen, true)}
+    ${row(t('管理費'), ps.map(p => +p.mgmt || 0), yen, true)}
+    ${row(t('毎月の支払い'), ps.map(p => (+p.price || 0) + (+p.mgmt || 0)), yen, true)}
+    ${row(t('初期費用の目安'), ps.map(p => costBreakdown(p, def).total), yen, true)}
+    ${row(t('間取り'), ps.map(p => p.madori))}
+    ${row(t('面積'), ps.map(p => +p.size || null), v => v + '㎡', false)}
+    ${row(t('1㎡あたりの家賃'), ps.map(p => +p.size ? Math.round(((+p.price || 0) + (+p.mgmt || 0)) / p.size) : null), yen, true)}
+    ${row(t('最寄駅'), ps.map(p => (p.station ? p.station + (fxLang === 'en' ? ' Sta.' : '駅') : '') + (p.walkMin != null ? ' ' + t('徒歩') + p.walkMin + t('分') : '')))}
+    ${row(t('駅まで'), ps.map(p => p.walkMin != null ? +p.walkMin : null), v => v + t('分'), true)}
+    ${row(t('築年数'), ps.map(p => p.age != null ? +p.age : null), v => v + t('年'), true)}
+    ${row(t('構造'), ps.map(p => p.structure))}
+    ${row(t('物件種別'), ps.map(p => p.type))}
+    ${row(t('敷金・礼金'), ps.map(p => `${p.deposit || 0} / ${p.key || 0} ${t('ヶ月')}`))}
+    ${row('VR', ps.map(p => [p.floorplanData ? t('間取り') : '', p.splatURL ? t('実写') : ''].filter(Boolean).join('・') || t('なし')))}
+    <tr><th>${t('設備・条件')}</th>${ps.map(p => `<td class="fx-feat">${allFeat.map(f => (p.features || []).includes(f) ? `<span class="on">✓ ${esc(f)}</span>` : `<span>− ${esc(f)}</span>`).join('')}</td>`).join('')}</tr>
+    <tr><th></th>${ps.map(p => `<td>${p.floorplanData || p.splatURL ? `<button class="btn btn-p btn-sm" onclick="fxCloseModal('fx-cmp');viewInVR(${p.id})"><i class="ti ti-vr"></i> ${t('VRで内見')}</button>` : ''}</td>`).join('')}</tr>
+  </table></div><div class="fx-mini">${t('緑の数字は、比べた中でいちばん条件が良いものです。初期費用は仲介手数料1ヶ月・保証会社50%などで計算した目安です。')}</div>`;
+  openModal('fx-cmp', `<i class="ti ti-arrows-left-right"></i> ${t('物件を比較')}`, html, { width: 980 });
+};
+function decorateCards() {
+  const ids = compareIds();
+  document.querySelectorAll('#card-grid .prop-card').forEach(card => {
+    const fb = card.querySelector('.fav-btn'); if (!fb) return;
+    const id = +fb.dataset.propId;
+    let b = card.querySelector('.fx-cmp-btn');
+    if (!b) {
+      b = document.createElement('button'); b.className = 'fx-cmp-btn'; b.type = 'button';
+      b.onclick = e => { e.stopPropagation(); window.fxToggleCompare(id); };
+      card.querySelector('.prop-img').appendChild(b);
+    }
+    const on = ids.includes(id);
+    b.classList.toggle('on', on);
+    b.innerHTML = `<i class="ti ti-${on ? 'check' : 'arrows-left-right'}"></i> ${on ? t('比較中') : t('比較')}`;
+  });
+}
+const _renderCards = window.renderCards;
+window.renderCards = function () { const r = _renderCards.apply(this, arguments); try { decorateCards(); decorateCardsMore(); renderCompareBar(); } catch (e) { console.error(e); } return r; };
+
+/* ══════════════ 7. 共有 ══════════════ */
+window.fxShare = async function (propId) {
+  const p = findProp(propId); if (!p) return;
+  const url = location.origin + location.pathname + '?p=' + p.id;
+  const text = `${p.name}｜${yen(p.price)}/${t('月')} ${p.madori || ''} ${p.station ? p.station + (fxLang === 'en' ? ' Sta.' : '駅') : ''}`;
+  const body = openModal('fx-share', `<i class="ti ti-share"></i> ${t('この物件を共有')}`, `
+    <div class="fx-prop-line">${esc(p.name)}</div>
+    <div class="fx-row"><input class="finput" id="fx-share-url" readonly value="${esc(url)}" style="flex:1"><button class="btn btn-p" id="fx-share-copy"><i class="ti ti-copy"></i> ${t('コピー')}</button></div>
+    <div class="fx-share-grid">
+      <a class="btn" target="_blank" rel="noopener" href="https://line.me/R/msg/text/?${encodeURIComponent(text + '\n' + url)}"><i class="ti ti-brand-line"></i> LINE</a>
+      <a class="btn" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}"><i class="ti ti-brand-x"></i> X</a>
+      <a class="btn" href="mailto:?subject=${encodeURIComponent('[VR Homes] ' + p.name)}&body=${encodeURIComponent(text + '\n' + url)}"><i class="ti ti-mail"></i> ${t('メール')}</a>
+      ${navigator.share ? `<button class="btn" id="fx-share-native"><i class="ti ti-dots"></i> ${t('その他')}</button>` : ''}
+    </div>
+    <div class="fx-mini">${t('リンクを開いた人は、ログインするとこの物件のページが開きます。')}</div>`, { width: 460 });
+  body.querySelector('#fx-share-copy').onclick = () => {
+    const inp = body.querySelector('#fx-share-url'); inp.select();
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast(t('リンクをコピーしました'), 'success'), () => { document.execCommand('copy'); toast(t('リンクをコピーしました'), 'success'); });
+  };
+  const nb = body.querySelector('#fx-share-native');
+  if (nb) nb.onclick = () => navigator.share({ title: p.name, text, url }).catch(() => {});
+};
+
+/* ══════════════ 8. お知らせ（新着物件・メッセージ）══════════════ */
+const NOTIF_ON = 'vr_notify_browser';
+function seenKey() { return 'vr_seen_prop_' + (currentUser ? currentUser.email : ''); }
+function wishOf() { return (currentUser && currentUser.wishlist) || {}; }
+function matchesWish(p) {
+  const w = wishOf();
+  const has = k => Array.isArray(w[k]) && w[k].length;
+  if (has('madori')) {
+    const ok = w.madori.some(m => m === '3LDK以上' ? /^([3-9]|\d\d)/.test(p.madori || '') : m === p.madori);
+    if (!ok) return false;
+  }
+  if (has('type') && !w.type.includes(p.type)) return false;
+  if (has('priceMax')) {
+    const max = Math.max(...w.priceMax.map(v => (+String(v).replace(/[^\d.]/g, '') || 0) * 10000));
+    if (max && (+p.price || 0) > max) return false;
+  }
+  if (has('features') && !w.features.every(f => (p.features || []).includes(f))) return false;
+  return true;
+}
+function newMatches() {
+  if (!currentUser) return [];
+  let seen;
+  try { seen = localStorage.getItem(seenKey()); } catch (e) { seen = null; }
+  const maxId = PROPS.reduce((m, p) => Math.max(m, +p.id || 0), 0);
+  if (seen === null) { try { localStorage.setItem(seenKey(), String(maxId)); } catch (e) {} return []; }
+  return PROPS.filter(p => +p.id > +seen && matchesWish(p) && p.ownerEmail !== currentUser.email).sort((a, b) => b.id - a.id);
+}
+function addNavButtons() {
+  document.querySelectorAll('.screen > nav').forEach(nav => {
+    if (nav.querySelector('.fx-nav-tools')) return;
+    const right = nav.querySelector('.nav-r') || nav.lastElementChild;
+    if (!right) return;
+    const wrap = document.createElement('span');
+    wrap.className = 'fx-nav-tools';
+    wrap.innerHTML = `<button class="btn btn-sm btn-p fx-login-btn" onclick="fxRequireLogin()"><i class="ti ti-login"></i> ${t('ログイン')}</button><button class="btn btn-sm fx-lang" onclick="fxToggleLang()" title="English / 日本語">${fxLang === 'en' ? '日本語' : 'EN'}</button>
+      <button class="btn btn-sm fx-bell" onclick="fxOpenNotif(event)" title="お知らせ"><i class="ti ti-bell"></i><span class="fx-bell-n" style="display:none">0</span></button>`;
+    right.prepend(wrap);
+  });
+}
+let lastNotifyCount = -1;
+function updateBell() {
+  if (!isLoggedIn) return;
+  const n = newMatches().length + (typeof unreadCount === 'function' ? unreadCount() : 0);
+  document.querySelectorAll('.fx-bell-n').forEach(b => { b.textContent = n > 99 ? '99+' : n; b.style.display = n ? 'inline-flex' : 'none'; });
+  if (lastNotifyCount >= 0 && n > lastNotifyCount && browserNotifyOn()) {
+    try { new Notification('VR Homes', { body: t('新しいお知らせがあります'), icon: 'icon-192.png' }); } catch (e) {}
+  }
+  lastNotifyCount = n;
+}
+function browserNotifyOn() { try { return localStorage.getItem(NOTIF_ON) === '1' && 'Notification' in window && Notification.permission === 'granted'; } catch (e) { return false; } }
+window.fxOpenNotif = async function (ev) {
+  if (ev) ev.stopPropagation();
+  let pan = $('fx-notif');
+  if (pan) { pan.remove(); return; }
+  pan = document.createElement('div'); pan.id = 'fx-notif';
+  document.body.appendChild(pan);
+  const close = e => { if (!pan.contains(e.target)) { pan.remove(); document.removeEventListener('click', close); } };
+  setTimeout(() => document.addEventListener('click', close), 0);
+  pan.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`;
+  if (currentUser && typeof fetchMessages === 'function') await fetchMessages(currentUser.email).catch(() => {});
+  const props = newMatches(), msgs = (typeof _inboxCache !== 'undefined' ? _inboxCache : []).filter(m => !m.read).slice(0, 6);
+  const w = wishOf(), hasWish = Object.values(w).some(v => Array.isArray(v) && v.length);
+  pan.innerHTML = `<div class="fx-np-h"><b>${t('お知らせ')}</b><button class="btn btn-sm" id="fx-np-read">${t('すべて既読')}</button></div>
+    <div class="fx-np-sec">${hasWish ? t('希望条件に合う新着物件') : t('新着物件')}</div>
+    ${props.length ? props.slice(0, 8).map(p => `<div class="fx-np-item" onclick="document.getElementById('fx-notif').remove();showPropDetail(${p.id})"><i class="ti ti-building"></i><div><b>${esc(p.name)}</b><small>${yen(p.price)} ・ ${esc(p.madori || '')} ・ ${esc(p.station || p.area || '')}</small></div></div>`).join('') : `<div class="fx-np-none">${t('新着はありません')}</div>`}
+    <div class="fx-np-sec">${t('未読のメッセージ')}</div>
+    ${msgs.length ? msgs.map(m => `<div class="fx-np-item" onclick="document.getElementById('fx-notif').remove();guardedScreen('mypage');setTimeout(()=>switchMp('inbox'),100)"><i class="ti ti-mail"></i><div><b>${esc(m.subject || '')}</b><small>${esc(m.fromName || m.from || '')} ・ ${esc(m.time || '')}</small></div></div>`).join('') : `<div class="fx-np-none">${t('未読はありません')}</div>`}
+    <div class="fx-np-foot">
+      ${!hasWish ? `<a onclick="document.getElementById('fx-notif').remove();guardedScreen('mypage');setTimeout(()=>switchMp('wish'),100)">${t('希望条件を登録すると、合う物件だけお知らせします')}</a>` : ''}
+      ${'Notification' in window ? `<label><input type="checkbox" id="fx-np-browser" ${browserNotifyOn() ? 'checked' : ''}> ${t('ブラウザの通知も受け取る')}</label>` : ''}
+    </div>`;
+  pan.querySelector('#fx-np-read').onclick = async () => {
+    const maxId = PROPS.reduce((m, p) => Math.max(m, +p.id || 0), 0);
+    try { localStorage.setItem(seenKey(), String(maxId)); } catch (e) {}
+    if (typeof markMessagesRead === 'function' && currentUser) await markMessagesRead(currentUser.email);
+    if (typeof updateInboxBadge === 'function') updateInboxBadge();
+    updateBell(); pan.remove();
+  };
+  const cb = pan.querySelector('#fx-np-browser');
+  if (cb) cb.onchange = async () => {
+    if (cb.checked) {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { cb.checked = false; toast(t('ブラウザの設定で通知が許可されていません'), 'warn'); return; }
+    }
+    try { localStorage.setItem(NOTIF_ON, cb.checked ? '1' : '0'); } catch (e) {}
+  };
+};
+async function refreshNotif() {
+  if (!isLoggedIn || !currentUser) return;
+  if (typeof fetchMessages === 'function') await fetchMessages(currentUser.email).catch(() => {});
+  updateBell();
+  if (isAdmin()) loadAdminResv();
+}
+setInterval(refreshNotif, 30000);
+
+/* ══════════════ 9. 英語表示 ══════════════ */
+window.fxToggleLang = function () {
+  fxLang = fxLang === 'en' ? 'ja' : 'en';
+  try { localStorage.setItem('vr_lang', fxLang); } catch (e) {}
+  document.documentElement.lang = fxLang;
+  document.querySelectorAll('.fx-lang').forEach(b => { b.textContent = fxLang === 'en' ? '日本語' : 'EN'; });
+  translateAll();
+  if (typeof pdCurrentId !== 'undefined' && $('pd-overlay').classList.contains('show')) { const p = findProp(pdCurrentId); if (p) renderPropDetail(p); }
+  renderCompareBar(); decorateCards();
+};
+function t(s) { return fxLang === 'en' && EN[s] ? EN[s] : s; }
+window.fxT = t;
+const EN = {
+  // 共通・ナビ
+  'トップ': 'Home', 'マップ': 'Map', 'マイページ': 'My page', 'お問い合わせ': 'Contact', '管理者': 'Admin', 'マスター': 'Master',
+  '物件を探す': 'Find homes', 'マップで探す': 'Search on map', 'ログアウト': 'Log out', 'ログイン': 'Log in', '新規登録': 'Sign up',
+  '← 一覧': '← List', '閉じる': 'Close', '検索': 'Search', 'リセット': 'Reset', '詳細条件': 'More filters', 'この条件で検索': 'Search with these filters',
+  'メールアドレス': 'Email', 'パスワード': 'Password', 'パスワードをお忘れですか？': 'Forgot password?', 'アカウントをお持ちでない方は': "Don't have an account?",
+  'VR内見不動産サービス': 'Real estate with VR viewing', 'VR対応物件 掲載中': 'VR-ready listings available',
+  '自宅から、360°': 'From home, 360°', 'VR内見': 'VR viewing', 'できる': '', '不動産サービス': 'real estate service',
+  '物件を選ぶだけ。スマホ・PC・VRゴーグルのブラウザで、移動なしの内見体験を。': 'Just pick a home. View it in your phone, PC or VR headset browser — no travel needed.',
+  'エリア・駅名': 'Area / station', '家賃上限（万円）': 'Max rent (×10,000 yen)', '間取り': 'Layout', '渋谷、新宿、池袋など': 'Shibuya, Shinjuku…', '1LDK、2LDKなど': '1LDK, 2LDK…', '例: 10': 'e.g. 10',
+  '検索結果': 'Results', '件の物件': 'homes', '条件で絞り込む': 'Filter', '物件を絞り込む': 'Filter homes', 'こだわり条件': 'Features', 'エリア': 'Area', '家賃上限': 'Max rent',
+  '物件種別': 'Type', '設備・条件': 'Features', 'VRで内見する': 'View in VR', '問い合わせる': 'Contact agent', '費用': 'Costs', 'アクセス': 'Access', '物件説明': 'Description',
+  '詳細情報': 'Details', '周辺情報': 'Neighborhood', '所在地': 'Location', '編集': 'Edit', '削除': 'Delete', '/月': '/mo',
+  'お気に入り': 'Favorites', '受信箱': 'Inbox', '閲覧履歴': 'History', 'プロフィール': 'Profile', '希望条件': 'Preferences', 'コード入力': 'Enter code', '内見予約': 'Viewings',
+  'お気に入り物件': 'Favorite homes', 'お気に入りはまだありません': 'No favorites yet', '受信メッセージはありません': 'No messages', '閲覧履歴はありません': 'No history yet',
+  'プロフィール設定': 'Profile settings', '氏名': 'Name', 'お名前': 'Name', 'メール': 'Email', '変更を保存': 'Save changes', 'パスワードを変更': 'Change password', 'パスワード変更': 'Change password',
+  '現在のパスワード': 'Current password', '新しいパスワード（6文字以上）': 'New password (6+ chars)', '新しいパスワード（確認）': 'Confirm new password',
+  '希望条件を登録すると、次回の検索に活用できます。': 'Save your preferences to use them in searches and alerts.', '希望間取り': 'Layout', '保存する': 'Save', 'この条件で見る': 'Show matching homes',
+  'マンション': 'Apartment (mansion)', 'アパート': 'Apartment', '一戸建て': 'House', 'テラスハウス': 'Terrace house', 'タワーマンション': 'Tower apartment', 'ヴィラ・邸宅': 'Villa',
+  'シェアハウス': 'Share house', '学生寮': 'Student dorm', '店舗・事務所': 'Shop / office',
+  'オートロック': 'Auto-lock', 'バス・トイレ別': 'Separate bath/toilet', 'エアコン': 'Air conditioner', 'インターネット無料': 'Free internet', '浴室乾燥機': 'Bathroom dryer',
+  '宅配ボックス': 'Parcel locker', '南向き': 'South-facing', 'ペット可': 'Pets OK', '独立洗面台': 'Separate vanity', '室内洗濯機置場': 'Indoor washer space', '駐車場': 'Parking',
+  '駐輪場': 'Bike parking', '即入居可': 'Move in now', 'ネット無料': 'Free internet',
+  '〜6万円': '≤ ¥60k', '〜8万円': '≤ ¥80k', '〜10万円': '≤ ¥100k', '〜15万円': '≤ ¥150k', '3LDK以上': '3LDK+',
+  'サイトの使い方': 'How to use', 'VR内見の動作環境': 'VR requirements', '運営へのお問い合わせ': 'Contact us', 'お問い合わせ内容': 'Message', '送信する': 'Send',
+  'ご質問・ご要望など': 'Questions or requests', '返信先メールアドレス': 'Reply-to email',
+  '面積': 'Size', '最寄駅': 'Station', '徒歩': 'Walk', '構造': 'Structure', '築年数': 'Age', '家賃': 'Rent', '管理費': 'Mgmt fee', '敷金': 'Deposit', '礼金': 'Key money', 'なし': 'None',
+  '入居時期': 'Move-in', '取引態様': 'Transaction', '総戸数': 'Units', '契約期間': 'Lease term', '更新料': 'Renewal fee', '保証会社': 'Guarantor', '入居条件': 'Conditions', '損保': 'Insurance', 'その他費用': 'Other fees',
+  '地図データなし': 'No map data', '物件が登録されていません': 'No homes listed', '条件に合う物件が見つかりません': 'No homes match your filters',
+  '管理者パネル': 'Admin panel', '物件管理': 'Listings', 'グループ': 'Group', 'ユーザー管理': 'Users', '分析': 'Analytics', '予約': 'Viewings', 'アクセス分析': 'Analytics', 'ユーザー数': 'Users',
+  '登録物件数': 'Listings', 'VR内見できる物件': 'VR-ready homes', 'あなたが登録した物件': 'Your listings', '平均家賃': 'Average rent', '物件を追加': 'Add listing',
+  'VR体験': 'VR', '間取りを確認': 'Floor plan', '物件を選ぶ': 'Pick a home', 'たった3ステップ': 'Just 3 steps', '4つの理由': '4 reasons', '選ばれる': 'Why us',
+  '物件一覧を見る': 'Browse homes', 'マップで見る': 'View on map', 'VR内見を今すぐ体験しよう': 'Try VR viewing now', '完全無料': 'Free', '24時間いつでも内見': 'View 24/7',
+  '精密な3D間取り': 'Accurate 3D plans', 'スマホ・PC・Quest対応': 'Phone, PC & Quest', '全国の物件に対応': 'Nationwide',
+  'スマホ・タブレット': 'Phone / tablet', '掲載物件数': 'Listings', 'いつでも内見可': 'View anytime', 'VR内見開始': 'Start VR',
+  'VR Homes をインストール': 'Install VR Homes', 'ホーム画面に追加してアプリとして使えます': 'Add to your home screen to use it like an app', '追加する': 'Add',
+  // 追加機能
+  '内見を予約する': 'Book a viewing', '一緒に内見': 'View together', 'コードで参加': 'Join with code', '比較': 'Compare', '比較中': 'Comparing', '共有': 'Share', '印刷': 'Print',
+  '担当者や家族と同じ部屋を一緒に見られます': 'Walk through with an agent or family', '回': ' views', '平均': 'avg ', '秒': 's',
+  '初期費用・月々の支払いを計算する': 'Calculate move-in & monthly costs', '入居日': 'Move-in date', '仲介手数料': 'Agent fee', '家賃0.5ヶ月': '0.5 mo rent', '家賃1ヶ月': '1 mo rent',
+  '保証会社（初回）': 'Guarantor (first)', '月額の50%': '50% of monthly', '月額の100%': '100% of monthly', '火災保険': 'Fire insurance', '鍵の交換': 'Lock change', 'その他': 'Other',
+  '日割り家賃': 'Prorated rent', '日': 'd', '翌月分の家賃・管理費': "Next month's rent + fee", '仲介手数料（税込）': 'Agent fee (incl. tax)', '初期費用の合計（目安）': 'Estimated move-in total',
+  '毎月の支払い（家賃＋管理費）': 'Monthly (rent + fee)', '家賃の目安は手取りの3分の1と言われます。この物件なら手取り': 'Rent is often kept to 1/3 of take-home pay. For this home, aim for a take-home of',
+  '以上が目安です。': 'or more.', '※ 実際の金額は不動産会社にご確認ください。': '* Please confirm actual amounts with the agent.',
+  '物件資料': 'Property sheet', '間取り図': 'Floor plan',
+  '内見の方法': 'How', '現地で内見': 'In person', 'オンラインで一緒にVR内見': 'Online VR with agent', '日にち': 'Date', '時間': 'Time', '電話番号（任意）': 'Phone (optional)',
+  'ご要望など（任意）': 'Requests (optional)', '例: 駐車場を見たいです': 'e.g. I want to see the parking', 'この日時で予約する': 'Book this time', 'で予約する': '— book', '時間を選んでください': 'Choose a time',
+  '予約済み': 'Booked', '満': 'full', '予約は担当者が確認すると「確定」になり、マイページとお知らせに届きます。': 'The agent will confirm your booking. You will be notified in My page.',
+  '予約を申し込みました。確定したらお知らせします': 'Booking sent. We will notify you when confirmed.',
+  '確認待ち': 'Pending', '確定': 'Confirmed', 'お断り': 'Declined', 'キャンセル': 'Cancelled', '完了': 'Done', '読み込み中…': 'Loading…',
+  'まだ予約はありません。物件ページの「内見を予約する」から申し込めます。': 'No bookings yet. Use "Book a viewing" on a property page.',
+  '一緒にVR内見に参加': 'Join VR viewing', 'この予約をキャンセルしますか？': 'Cancel this booking?', 'キャンセルしました': 'Cancelled',
+  '参加コード（6けた）を入力してください': 'Enter the 6-digit join code', '参加コードは6けたの数字です': 'The join code is 6 digits',
+  '比較できるのは4件までです': 'You can compare up to 4 homes', '比較リスト': 'Compare list', '件': '', '比較する': 'Compare', 'クリア': 'Clear', '外す': 'Remove', '物件を比較': 'Compare homes',
+  '毎月の支払い': 'Monthly total', '初期費用の目安': 'Est. move-in cost', '1㎡あたりの家賃': 'Rent per m²', '駅まで': 'To station', '分': ' min', '年': ' yrs', '敷金・礼金': 'Deposit / key', 'ヶ月': 'mo',
+  '実写': 'Real photo', 'VRで内見': 'View in VR',
+  '緑の数字は、比べた中でいちばん条件が良いものです。初期費用は仲介手数料1ヶ月・保証会社50%などで計算した目安です。': 'Green = best among compared homes. Move-in cost assumes 1 month agent fee, 50% guarantor, etc.',
+  'この物件を共有': 'Share this home', 'コピー': 'Copy', 'リンクを開いた人は、ログインするとこの物件のページが開きます。': 'People who open the link will see this home after logging in.',
+  'リンクをコピーしました': 'Link copied', '月': 'mo',
+  'お知らせ': 'Notifications', 'すべて既読': 'Mark all read', '希望条件に合う新着物件': 'New homes matching your preferences', '新着物件': 'New homes', '新着はありません': 'Nothing new',
+  '未読のメッセージ': 'Unread messages', '未読はありません': 'No unread messages', '希望条件を登録すると、合う物件だけお知らせします': 'Set preferences to only get matching homes',
+  'ブラウザの通知も受け取る': 'Also get browser notifications', 'ブラウザの設定で通知が許可されていません': 'Notifications are blocked in your browser', '新しいお知らせがあります': 'You have new notifications',
+  'ここに表示する予約はありません': 'No bookings to show',
+  'ログイン': 'Log in', '休み': 'Closed', '予約すると': 'By booking you agree to our', '個人情報の取り扱い': 'privacy policy', 'に同意したものとします。': '.',
+  '受け付けている日がありません': 'No available days', 'この物件は現在、内見の予約を受け付けていません': 'This home is not accepting bookings now',
+  '募集中': 'Available', '申込あり': 'Application received', '成約済み': 'Rented', '非公開': 'Private', '成約済みも表示': 'Show rented',
+  'この物件は成約済みです': 'This home has been rented', 'この物件は非公開です（編集できる人にだけ表示）': 'This home is private (visible to editors only)',
+  '通勤・通学先（駅名・学校・会社の住所）': 'Commute to (station, school or office)', '分以内': ' min or less', '時間で探す': 'Search by time', '解除': 'Clear',
+  '場所を調べています…': 'Looking up…', '場所が見つかりませんでした。駅名や住所で入れてください': 'Place not found. Try a station name or address',
+  'まで': 'to', '分以内の物件（電車は時速30km・乗り換え待ちを足した目安です）': 'min or less (estimate: train ~30 km/h plus waiting)', 'まで約': 'to: about ', '分（目安）': ' min (est.)',
+  '周辺施設': 'Nearby', '周辺のお店・学校・病院などを表示': 'Show nearby shops, schools, hospitals…', '周辺の施設を調べています…': 'Searching nearby…',
+  'コンビニ': 'Convenience store', 'スーパー': 'Supermarket', '駅': 'Station', '病院・クリニック': 'Hospital / clinic', '学校・保育園': 'School / nursery', '公園': 'Park',
+  '銀行・郵便局': 'Bank / post office', '飲食店': 'Restaurants', '800m以内にありません': 'None within 800 m',
+  '徒歩時間は直線距離から計算した目安です。地図データ © OpenStreetMap': 'Walking times are estimates from straight-line distance. Map data © OpenStreetMap'
+};
+const EN_RE = [
+  [/^徒歩(\d+)分$/, (m, a) => `${a} min walk`],
+  [/^築(\d+)年$/, (m, a) => `${a} yrs old`],
+  [/^全(\d+)件中 (\d+)〜(\d+)件を表示$/, (m, a, b, c) => `Showing ${b}–${c} of ${a}`],
+  [/^(\d+)ヶ月$/, (m, a) => `${a} mo`],
+  [/^(.+)駅$/, (m, a) => `${a} Sta.`]
+];
+const ORIG = new WeakMap(), ORIG_ATTR = new WeakMap();
+const SKIP = 'script,style,textarea,input,select,option,.pd-modal #pd-name,#pd-desc,#pd-surroundings,#pd-address,.prop-name,.fx-noi18n,#fe-iframe';
+function trText(s) {
+  const k = s.trim();
+  if (!k) return null;
+  if (EN[k] !== undefined) return s.replace(k, EN[k]);
+  for (const [re, fn] of EN_RE) if (re.test(k)) return s.replace(k, k.replace(re, fn));
+  return null;
+}
+function translateNode(root) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+    acceptNode(n) {
+      if (n.nodeType === 1) return n.matches && n.matches(SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+      return /[ぁ-んァ-ン一-龥〜]/.test(n.nodeValue) || ORIG.has(n) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    }
+  });
+  const nodes = []; let n; while ((n = walker.nextNode())) nodes.push(n);
+  nodes.forEach(node => {
+    if (fxLang === 'en') {
+      const orig = ORIG.has(node) ? ORIG.get(node) : node.nodeValue;
+      const tr = trText(orig);
+      if (tr !== null && node.nodeValue !== tr) { ORIG.set(node, orig); node.nodeValue = tr; }
+    } else if (ORIG.has(node)) { node.nodeValue = ORIG.get(node); ORIG.delete(node); }
+  });
+  const els = root.querySelectorAll ? root.querySelectorAll('[placeholder],[title]') : [];
+  els.forEach(el => {
+    ['placeholder', 'title'].forEach(a => {
+      if (!el.hasAttribute(a)) return;
+      const store = ORIG_ATTR.get(el) || {};
+      if (fxLang === 'en') {
+        const orig = store[a] !== undefined ? store[a] : el.getAttribute(a);
+        const tr = EN[orig.trim()];
+        if (tr !== undefined) { store[a] = orig; ORIG_ATTR.set(el, store); el.setAttribute(a, tr); }
+      } else if (store[a] !== undefined) { el.setAttribute(a, store[a]); delete store[a]; }
+    });
+  });
+}
+let trBusy = false;
+function translateAll() { trBusy = true; try { translateNode(document.body); } finally { mo.takeRecords(); trBusy = false; } }
+const mo = new MutationObserver(muts => {
+  if (fxLang !== 'en' || trBusy) return;
+  trBusy = true;
+  try {
+    muts.forEach(m => {
+      if (m.type === 'characterData') { const p = m.target.parentNode; if (p && !(p.closest && p.closest(SKIP))) { ORIG.delete(m.target); translateNode(p); } }
+      else m.addedNodes.forEach(nd => {
+        if (nd.nodeType === 3) { const p = nd.parentNode; if (p && !(p.closest && p.closest(SKIP))) translateNode(p); }
+        else if (nd.nodeType === 1 && !(nd.closest && nd.closest(SKIP))) translateNode(nd);
+      });
+    });
+  } finally { mo.takeRecords(); trBusy = false; }
+});
+
+/* ══════════════ 11. ログインしなくても見られる（ゲスト閲覧）══════════════ */
+let afterLogin = null;
+function showGate(msg) {
+  const g = $('login-gate'); if (!g) return;
+  g.classList.remove('hidden'); g.style.display = '';
+  if (msg && typeof showGateMsg === 'function') setTimeout(() => showGateMsg(msg, false), 0);
+}
+function hideGate() { const g = $('login-gate'); if (g) { g.style.display = 'none'; g.classList.add('hidden'); } afterLogin = null; }
+function requireLogin(reason, fn) {
+  if (isLoggedIn) return true;
+  afterLogin = fn || null;
+  showGate(reason || 'この機能を使うにはログインしてください');
+  return false;
+}
+window.fxRequireLogin = requireLogin;
+window.fxHideGate = hideGate;
+function setGuestClass() { document.documentElement.classList.toggle('fx-guest', !isLoggedIn); }
+const _restoreSession = window.restoreSession;
+window.restoreSession = function () {
+  const ok = _restoreSession.apply(this, arguments);
+  if (!ok) { hideGate(); setGuestClass(); }
+  return ok;
+};
+(function addGateClose() {
+  const card = document.querySelector('#login-gate .login-card');
+  if (!card || $('fx-gate-skip')) return;
+  const b = document.createElement('button');
+  b.id = 'fx-gate-skip'; b.type = 'button'; b.className = 'fx-gate-skip';
+  b.innerHTML = '<i class="ti ti-arrow-left"></i> ログインせずに物件を見る';
+  b.onclick = hideGate;
+  card.appendChild(b);
+  const links = document.createElement('div');
+  links.className = 'fx-gate-links';
+  links.innerHTML = '<a href="terms.html" target="_blank">利用規約</a>・<a href="privacy.html" target="_blank">個人情報の取り扱い</a>';
+  card.appendChild(links);
+})();
+const _guarded = window.guardedScreen;
+window.guardedScreen = function (id) {
+  if (!isLoggedIn) {
+    if (['top', 'map', 'help'].includes(id)) { showScreen(id); if (id === 'map') setTimeout(initLeafletMap, 150); return; }
+    requireLogin(id === 'mypage' ? 'マイページを使うにはログインしてください' : 'ログインしてください', () => _guarded(id));
+    return;
+  }
+  return _guarded.apply(this, arguments);
+};
+const _toggleFav = window.toggleFav;
+window.toggleFav = function (id, el) {
+  if (!isLoggedIn) { requireLogin('お気に入りに追加するにはログインしてください', () => _toggleFav(id, document.querySelector(`.fav-btn[data-prop-id="${id}"]`))); return; }
+  return _toggleFav.apply(this, arguments);
+};
+const _openContact = window.openContactForm;
+window.openContactForm = function (propId) {
+  if (!isLoggedIn) { requireLogin('問い合わせるにはログインしてください', () => _openContact(propId)); return; }
+  return _openContact.apply(this, arguments);
+};
+/* 新規登録のときは、規約と個人情報の取り扱いへの同意を必須にする */
+const _switchGateAuth = window.switchGateAuth;
+window.switchGateAuth = function (tab) {
+  const r = _switchGateAuth.apply(this, arguments);
+  if (tab === 'reg') setTimeout(() => {
+    const form = $('gate-form'); if (!form || $('fx-agree')) return;
+    const btn = form.querySelector('button.lbtn, button[onclick*="gateRegister"]');
+    const lab = document.createElement('label');
+    lab.className = 'fx-agree';
+    lab.innerHTML = '<input type="checkbox" id="fx-agree"> <span><a href="terms.html" target="_blank">利用規約</a>と<a href="privacy.html" target="_blank">個人情報の取り扱い</a>に同意します</span>';
+    if (btn) btn.parentNode.insertBefore(lab, btn); else form.appendChild(lab);
+  }, 0);
+  return r;
+};
+const _gateRegister = window.gateRegister;
+window.gateRegister = function () {
+  const a = $('fx-agree');
+  if (a && !a.checked) { if (typeof showGateMsg === 'function') showGateMsg('利用規約と個人情報の取り扱いに同意してください', true); return; }
+  return _gateRegister.apply(this, arguments);
+};
+
+/* ══════════════ 12. 物件の状態（募集中・申込あり・成約済み・非公開）══════════════ */
+const PSTATUS = { open: ['募集中', '#16a34a'], applied: ['申込あり', '#f59e0b'], closed: ['成約済み', '#64748b'], hidden: ['非公開', '#7c3aed'] };
+let showClosed = false;
+const _getFiltered = window.getFilteredProps;
+window.getFilteredProps = function () {
+  let list = _getFiltered.apply(this, arguments);
+  if (!showClosed) list = list.filter(p => p.status !== 'closed' || canEdit(p));
+  if (commute) {
+    list = list.filter(p => { const m = commuteMin(p); return m != null && m <= commute.max; });
+    list.sort((a, b) => commuteMin(a) - commuteMin(b));
+  }
+  return list;
+};
+function addListControls() {
+  const cnt = $('results-count');
+  if (!cnt || $('fx-list-ctl')) return;
+  const host = cnt.parentNode;
+  const box = document.createElement('span');
+  box.id = 'fx-list-ctl';
+  box.innerHTML = `<label class="fx-chk"><input type="checkbox" id="fx-show-closed"> ${t('成約済みも表示')}</label>`;
+  host.appendChild(box);
+  $('fx-show-closed').onchange = e => { showClosed = e.target.checked; currentPage = 1; renderCards(); updateResultsCount(); };
+}
+
+/* ══════════════ 13. 物件フォーム：状態・内見できる日時・360°写真 ══════════════ */
+const fxForm = { status: 'open', days: [0, 1, 2, 3, 4, 5, 6], start: 10, end: 18, closed: [], panos: [] };
+function addFormExtras() {
+  const splat = $('af-splat'); if (!splat || $('fx-af-extra')) return;
+  const field = splat.closest('.field');
+  const box = document.createElement('div');
+  box.className = 'field'; box.style.gridColumn = '1/-1'; box.id = 'fx-af-extra';
+  const hours = []; for (let h = 6; h <= 23; h++) hours.push(h);
+  box.innerHTML = `
+    <div class="fx-af-grid">
+      <div><div class="flabel">掲載状態</div>
+        <select class="finput" id="af-status">${Object.entries(PSTATUS).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>
+        <div class="fx-mini">「非公開」は自分（とグループ）にだけ見えます。「成約済み」は一覧から外れ、予約もできなくなります。</div></div>
+      <div><div class="flabel">内見を受け付ける曜日・時間</div>
+        <div class="fx-wdays" id="af-wdays">${WEEK.map((w, i) => `<button type="button" data-d="${i}">${w}</button>`).join('')}</div>
+        <div class="fx-row"><select class="finput fx-hsel" id="af-hstart">${hours.map(h => `<option value="${h}">${h}:00</option>`).join('')}</select> 〜
+          <select class="finput fx-hsel" id="af-hend">${hours.map(h => `<option value="${h}">${h}:00</option>`).join('')}<option value="24">24:00</option></select></div></div>
+    </div>
+    <div class="flabel" style="margin-top:10px">休みの日（この日は予約を受け付けない）</div>
+    <div class="fx-row"><input type="date" class="finput" id="af-closed-date" style="max-width:180px"><button type="button" class="btn btn-sm" id="af-closed-add">追加</button></div>
+    <div class="fx-chips" id="af-closed-list"></div>
+    <div class="flabel" style="margin-top:12px">360°写真（任意）<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">THETAなどの全天球カメラで撮った写真。部屋ごとに入れるとVR内見で切り替えられます</span></div>
+    <input type="file" id="af-pano" accept="image/jpeg,image/png,image/webp" multiple class="finput" style="padding:7px 11px">
+    <div id="af-pano-list" class="fx-pano-list"></div>`;
+  field.parentNode.insertBefore(box, field.nextSibling);
+  box.querySelectorAll('#af-wdays button').forEach(b => b.onclick = () => { const d = +b.dataset.d; fxForm.days = fxForm.days.includes(d) ? fxForm.days.filter(x => x !== d) : fxForm.days.concat([d]).sort(); renderFormExtras(); });
+  $('af-status').onchange = e => { fxForm.status = e.target.value; };
+  $('af-hstart').onchange = e => { fxForm.start = +e.target.value; if (fxForm.end <= fxForm.start) fxForm.end = fxForm.start + 1; renderFormExtras(); };
+  $('af-hend').onchange = e => { fxForm.end = +e.target.value; if (fxForm.end <= fxForm.start) fxForm.start = fxForm.end - 1; renderFormExtras(); };
+  $('af-closed-add').onclick = () => { const v = $('af-closed-date').value; if (v && !fxForm.closed.includes(v)) { fxForm.closed.push(v); fxForm.closed.sort(); renderFormExtras(); } };
+  $('af-pano').onchange = async e => {
+    for (const f of e.target.files) {
+      try {
+        const dataURL = await resizeImageToDataURL(f, 4096, 0.85);
+        fxForm.panos.push({ dataURL, name: f.name.replace(/\.[^.]+$/, '').slice(0, 30) || '360°写真' });
+      } catch (err) { toast('画像を読み込めませんでした: ' + f.name, 'error'); }
+    }
+    e.target.value = '';
+    renderFormExtras();
+  };
+  renderFormExtras();
+}
+function renderFormExtras() {
+  if (!$('fx-af-extra')) return;
+  $('af-status').value = fxForm.status;
+  $('af-hstart').value = fxForm.start; $('af-hend').value = fxForm.end;
+  document.querySelectorAll('#af-wdays button').forEach(b => b.classList.toggle('on', fxForm.days.includes(+b.dataset.d)));
+  $('af-closed-list').innerHTML = fxForm.closed.map(d => `<span class="fx-chip">${d}<b data-d="${d}">×</b></span>`).join('');
+  $('af-closed-list').querySelectorAll('b').forEach(b => b.onclick = () => { fxForm.closed = fxForm.closed.filter(x => x !== b.dataset.d); renderFormExtras(); });
+  $('af-pano-list').innerHTML = fxForm.panos.map((p, i) => `<div class="fx-pano"><div class="fx-pano-img" style="background-image:url('${esc(p.url || p.dataURL)}')"></div>
+    <input class="finput" data-i="${i}" value="${esc(p.name)}" maxlength="30" placeholder="部屋の名前"><button type="button" class="btn btn-sm" data-del="${i}" style="color:var(--red)">削除</button></div>`).join('');
+  $('af-pano-list').querySelectorAll('input[data-i]').forEach(inp => inp.onchange = () => { fxForm.panos[+inp.dataset.i].name = inp.value.trim(); });
+  $('af-pano-list').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { fxForm.panos.splice(+b.dataset.del, 1); renderFormExtras(); });
+}
+function resetFormExtras(prop) {
+  const r = (prop && prop.viewingRule) || {};
+  fxForm.status = (prop && prop.status) || 'open';
+  fxForm.days = Array.isArray(r.days) ? r.days.slice() : [0, 1, 2, 3, 4, 5, 6];
+  fxForm.start = r.start != null ? +r.start : 10; fxForm.end = r.end != null ? +r.end : 18;
+  fxForm.closed = Array.isArray(r.closed) ? r.closed.slice() : [];
+  fxForm.panos = ((prop && prop.panoramas) || []).map(p => ({ url: p.url, name: p.name || '' }));
+  renderFormExtras();
+}
+const _startEdit = window.startEditProp;
+window.startEditProp = function (id) { const r = _startEdit.apply(this, arguments); resetFormExtras(findProp(id)); return r; };
+const _clearAdd = window.clearAddForm;
+window.clearAddForm = function () { const r = _clearAdd.apply(this, arguments); resetFormExtras(null); return r; };
+let pendingExtras = null;
+const extrasById = {};
+const _addProperty = window.addProperty;
+window.addProperty = async function () {
+  if (!(($('af-name') || {}).value || '').trim()) return _addProperty.apply(this, arguments);
+  // 360°写真を先にアップロードする
+  const panos = [];
+  for (const p of fxForm.panos) {
+    if (p.url) { panos.push({ url: p.url, name: p.name }); continue; }
+    toast('360°写真をアップロード中…', 'info');
+    const url = await uploadPhotoToS3(p.dataURL);
+    if (!/^https:\/\//.test(url)) { toast('360°写真をアップロードできませんでした', 'error'); return; }
+    p.url = url; delete p.dataURL;
+    panos.push({ url, name: p.name });
+  }
+  pendingExtras = { status: fxForm.status, viewingRule: { days: fxForm.days.slice(), start: fxForm.start, end: fxForm.end, closed: fxForm.closed.slice() }, panoramas: panos };
+  try { return await _addProperty.apply(this, arguments); } finally { pendingExtras = null; }
+};
+const _uploadToAWS = window.uploadToAWS;
+window.uploadToAWS = async function (prop) {
+  const ex = pendingExtras; pendingExtras = null;
+  if (ex) Object.assign(prop, ex);
+  const sid = await _uploadToAWS.apply(this, arguments);
+  if (ex && sid != null) { extrasById[sid] = ex; setTimeout(() => { const p = findProp(sid); if (p) Object.assign(p, ex); renderCards(); }, 0); }
+  return sid;
+};
+const _updateOnAWS = window.updatePropertyOnAWS;
+window.updatePropertyOnAWS = function (prop) {
+  const ex = pendingExtras; pendingExtras = null;
+  if (ex) Object.assign(prop, ex);
+  else if (prop && prop.status === undefined && extrasById[prop.id]) Object.assign(prop, extrasById[prop.id]);
+  return _updateOnAWS.apply(this, arguments);
+};
+
+/* ══════════════ 14. 通勤・通学時間で探す ══════════════ */
+let commute = null;   // { name, lat, lng, max }
+function kmBetween(a, b, c, d) {
+  const R = 6371, r = x => x * Math.PI / 180;
+  const dLat = r(c - a), dLng = r(d - b);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// 目安: 近ければ徒歩(分速80m)、遠ければ「駅まで徒歩＋待ち時間＋電車(時速約30km)」
+function commuteMin(p) {
+  if (!commute || !p.lat || !p.lng) return null;
+  const km = kmBetween(+p.lat, +p.lng, commute.lat, commute.lng) * 1.25;   // 道のりは直線の約1.25倍
+  const walk = km * 1000 / 80;
+  const train = (+p.walkMin || 10) + 8 + km / 30 * 60;
+  return Math.round(Math.min(walk, train));
+}
+function addCommuteUI() {
+  const sb = document.querySelector('#s-top .search-bar');
+  if (!sb || $('fx-commute')) return;
+  const box = document.createElement('div');
+  box.id = 'fx-commute';
+  box.innerHTML = `<div class="fx-cm-row"><i class="ti ti-train"></i>
+    <input class="finput" id="fx-cm-place" placeholder="${t('通勤・通学先（駅名・学校・会社の住所）')}">
+    <select class="finput" id="fx-cm-max">${[15, 20, 30, 45, 60, 90].map(m => `<option value="${m}" ${m === 30 ? 'selected' : ''}>${m}${t('分以内')}</option>`).join('')}</select>
+    <button class="btn btn-sm btn-p" id="fx-cm-go">${t('時間で探す')}</button><button class="btn btn-sm" id="fx-cm-clear" style="display:none">${t('解除')}</button></div>
+    <div class="fx-mini" id="fx-cm-msg"></div>`;
+  sb.appendChild(box);
+  $('fx-cm-go').onclick = async () => {
+    const q = $('fx-cm-place').value.trim(); if (!q) return;
+    $('fx-cm-msg').textContent = t('場所を調べています…');
+    let c = await geocodeAddress(q);
+    if (!c && !/駅$/.test(q)) c = await geocodeAddress(q + '駅');
+    if (!c) { $('fx-cm-msg').textContent = t('場所が見つかりませんでした。駅名や住所で入れてください'); return; }
+    commute = { name: q, lat: c.lat, lng: c.lng, max: +$('fx-cm-max').value };
+    $('fx-cm-msg').textContent = `${q} ${t('まで')} ${commute.max}${t('分以内の物件（電車は時速30km・乗り換え待ちを足した目安です）')}`;
+    $('fx-cm-clear').style.display = '';
+    currentPage = 1; renderCards(); updateResultsCount();
+  };
+  $('fx-cm-place').onkeydown = e => { if (e.key === 'Enter') $('fx-cm-go').click(); };
+  $('fx-cm-max').onchange = () => { if (commute) { commute.max = +$('fx-cm-max').value; renderCards(); updateResultsCount(); } };
+  $('fx-cm-clear').onclick = () => { commute = null; $('fx-cm-msg').textContent = ''; $('fx-cm-clear').style.display = 'none'; renderCards(); updateResultsCount(); };
+}
+
+/* ══════════════ 15. 周辺施設 ══════════════ */
+const POI = [
+  ['コンビニ', 'ti-building-store', '#ef4444', '["shop"="convenience"]'],
+  ['スーパー', 'ti-shopping-cart', '#f97316', '["shop"="supermarket"]'],
+  ['駅', 'ti-train', '#2563eb', '["railway"="station"]'],
+  ['病院・クリニック', 'ti-first-aid-kit', '#dc2626', '["amenity"~"hospital|clinic|doctors"]'],
+  ['学校・保育園', 'ti-school', '#7c3aed', '["amenity"~"school|kindergarten|childcare"]'],
+  ['公園', 'ti-trees', '#16a34a', '["leisure"="park"]'],
+  ['銀行・郵便局', 'ti-building-bank', '#0891b2', '["amenity"~"bank|post_office"]'],
+  ['飲食店', 'ti-tools-kitchen-2', '#a16207', '["amenity"~"restaurant|cafe|fast_food"]']
+];
+const poiCache = {};
+async function loadPoi(p) {
+  const key = (+p.lat).toFixed(4) + ',' + (+p.lng).toFixed(4);
+  if (poiCache[key]) return poiCache[key];
+  try { const c = JSON.parse(sessionStorage.getItem('vr_poi_' + key) || 'null'); if (c) return (poiCache[key] = c); } catch (e) {}
+  const R = 800;
+  const q = '[out:json][timeout:20];(' + POI.map(x => `node${x[3]}(around:${R},${p.lat},${p.lng});way${x[3]}(around:${R},${p.lat},${p.lng});`).join('') + ');out center 300;';
+  const res = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+  if (!res.ok) throw new Error('周辺情報を取得できませんでした');
+  const data = await res.json();
+  const out = POI.map(() => []);
+  (data.elements || []).forEach(el => {
+    const lat = el.lat || (el.center && el.center.lat), lng = el.lon || (el.center && el.center.lon);
+    if (!lat) return;
+    const tg = el.tags || {};
+    const i = POI.findIndex(x => {
+      const m = x[3].match(/\["(\w+)"(=|~)"([^"]+)"\]/);
+      return m && (m[2] === '=' ? tg[m[1]] === m[3] : new RegExp('^(' + m[3] + ')$').test(tg[m[1]] || ''));
+    });
+    if (i < 0) return;
+    out[i].push({ name: tg.name || POI[i][0], lat, lng, m: Math.round(kmBetween(+p.lat, +p.lng, lat, lng) * 1000) });
+  });
+  out.forEach(a => a.sort((x, y) => x.m - y.m));
+  poiCache[key] = out;
+  try { sessionStorage.setItem('vr_poi_' + key, JSON.stringify(out)); } catch (e) {}
+  return out;
+}
+let poiLayer = null;
+window.fxShowPoi = async function (propId) {
+  const p = findProp(propId); const box = $('fx-poi'); if (!p || !box) return;
+  box.innerHTML = `<div class="fx-mini">${t('周辺の施設を調べています…')}</div>`;
+  try {
+    const list = await loadPoi(p);
+    box.innerHTML = `<div class="fx-poi-grid">${POI.map((x, i) => {
+      const a = list[i], n = a[0];
+      return `<div class="fx-poi-item"><i class="ti ${x[1]}" style="color:${x[2]}"></i><div><b>${t(x[0])}</b> <small>${a.length}${t('件')}</small>
+        ${n ? `<span>${esc(n.name)}　${t('徒歩')}${Math.max(1, Math.round(n.m / 80))}${t('分')}（${n.m}m）</span>` : `<span class="none">${t('800m以内にありません')}</span>`}</div></div>`;
+    }).join('')}</div><div class="fx-mini">${t('徒歩時間は直線距離から計算した目安です。地図データ © OpenStreetMap')}</div>`;
+    if (typeof pdMiniMap !== 'undefined' && pdMiniMap && typeof L !== 'undefined') {
+      if (poiLayer) poiLayer.remove();
+      poiLayer = L.layerGroup().addTo(pdMiniMap);
+      POI.forEach((x, i) => list[i].slice(0, 5).forEach(n => L.circleMarker([n.lat, n.lng], { radius: 5, color: '#fff', weight: 1.5, fillColor: x[2], fillOpacity: .95 }).bindTooltip(esc(n.name)).addTo(poiLayer)));
+      pdMiniMap.setZoom(15);
+    }
+  } catch (e) { box.innerHTML = `<div class="fx-mini">${esc(e.message)}</div>`; }
+};
+function addPoiSection(prop) {
+  let sec = $('fx-poi-sec');
+  if (!sec) {
+    sec = document.createElement('div'); sec.id = 'fx-poi-sec';
+    const addr = $('pd-address'); addr.parentNode.insertBefore(sec, addr.nextSibling);
+  }
+  if (!prop.lat || !prop.lng) { sec.innerHTML = ''; return; }
+  sec.innerHTML = `<div class="pd-section-title">${t('周辺施設')}</div><div id="fx-poi"><button class="btn btn-sm" onclick="fxShowPoi(${prop.id})"><i class="ti ti-map-search"></i> ${t('周辺のお店・学校・病院などを表示')}</button></div>`;
+  if (poiLayer) { poiLayer.remove(); poiLayer = null; }
+  if (commute) {
+    const m = commuteMin(prop);
+    if (m != null) sec.insertAdjacentHTML('afterbegin', `<div class="fx-cm-badge"><i class="ti ti-train"></i> ${esc(commute.name)} ${t('まで約')}${m}${t('分（目安）')}</div>`);
+  }
+}
+
+/* ══════════════ 16. CSVでまとめて登録（管理者）══════════════ */
+const CSV_COLS = [['name', '物件名'], ['price', '家賃'], ['mgmt', '管理費'], ['deposit', '敷金'], ['key', '礼金'], ['madori', '間取り'], ['size', '面積'],
+  ['type', '物件種別'], ['structure', '構造'], ['age', '築年数'], ['address', '住所'], ['area', 'エリア'], ['station', '最寄駅'], ['walkMin', '徒歩分'],
+  ['features', '設備'], ['description', '説明'], ['status', '状態']];
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+window.fxCsvTemplate = function () {
+  const head = CSV_COLS.map(c => c[1]).join(',');
+  const ex = 'ハイツ渋谷,85000,5000,1,1,1LDK,38,マンション,RC,8,東京都渋谷区道玄坂1-10-8,東京都渋谷区,渋谷,5,オートロック;エアコン;バス・トイレ別,駅近の1LDKです,募集中';
+  const blob = new Blob(['﻿' + head + '\n' + ex + '\n'], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'vrhomes_物件テンプレート.csv'; a.click();
+};
+window.fxOpenCsv = function () {
+  const body = openModal('fx-csv', '<i class="ti ti-file-spreadsheet"></i> CSVでまとめて登録', `
+    <p class="fx-mini" style="margin-top:0">1行目に見出し（物件名・家賃・管理費・敷金・礼金・間取り・面積・物件種別・構造・築年数・住所・エリア・最寄駅・徒歩分・設備・説明・状態）を入れたCSVを選んでください。設備は「;」区切り、状態は「募集中／申込あり／成約済み／非公開」です。Excelで作って「CSV UTF-8」で保存できます。</p>
+    <div class="fx-row"><button class="btn btn-sm" onclick="fxCsvTemplate()"><i class="ti ti-download"></i> テンプレートをダウンロード</button>
+      <input type="file" id="fx-csv-file" accept=".csv,text/csv" class="finput" style="flex:1;padding:6px 10px"></div>
+    <div id="fx-csv-prev"></div>`, { width: 900 });
+  let items = [];
+  body.querySelector('#fx-csv-file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    let text = await f.text();
+    if (text.includes('�')) {   // Shift_JIS で保存されたCSV
+      try { text = new TextDecoder('shift_jis').decode(await f.arrayBuffer()); } catch (er) {}
+    }
+    const rows = parseCSV(text);
+    if (rows.length < 2) { $('fx-csv-prev').innerHTML = '<div class="fx-mini">データがありません</div>'; return; }
+    const head = rows[0].map(h => h.trim());
+    const idx = CSV_COLS.map(([k, ja]) => { const i = head.findIndex(h => h === ja || h === k); return i; });
+    const stMap = { '募集中': 'open', '申込あり': 'applied', '成約済み': 'closed', '非公開': 'hidden' };
+    items = rows.slice(1).map(r => {
+      const o = {}; CSV_COLS.forEach(([k], i) => { if (idx[i] >= 0) o[k] = (r[idx[i]] || '').trim(); });
+      const num = v => { const n = parseFloat(String(v || '').replace(/[,円¥\s]/g, '')); return isFinite(n) ? n : 0; };
+      const p = { name: o.name, price: num(o.price), mgmt: num(o.mgmt), deposit: num(o.deposit), key: num(o.key), madori: o.madori || '−', size: num(o.size),
+        type: o.type || 'マンション', structure: o.structure || '', age: num(o.age), address: o.address || '', area: o.area || '', station: (o.station || '').replace(/駅$/, ''),
+        walkMin: num(o.walkMin), features: (o.features || '').split(/[;；、]/).map(s => s.trim()).filter(Boolean), tags: [], description: o.description || '',
+        status: stMap[o.status] || o.status || 'open', photoURLs: [], details: {}, access: '', lat: null, lng: null };
+      p._err = !p.name ? '物件名がありません' : !p.price ? '家賃がありません' : '';
+      return p;
+    });
+    const ok = items.filter(p => !p._err).length;
+    $('fx-csv-prev').innerHTML = `<div class="fx-cmp-wrap" style="max-height:320px;margin-top:10px"><table class="fx-cmp"><tr><th>#</th><th>物件名</th><th>家賃</th><th>間取り</th><th>面積</th><th>最寄駅</th><th>状態</th><th>確認</th></tr>
+      ${items.map((p, i) => `<tr><th>${i + 1}</th><td>${esc(p.name)}</td><td>${yen(p.price)}</td><td>${esc(p.madori)}</td><td>${p.size}㎡</td><td>${esc(p.station)}</td><td>${(PSTATUS[p.status] || ['?'])[0]}</td><td style="color:${p._err ? '#dc2626' : '#16a34a'};font-weight:700">${p._err || 'OK'}</td></tr>`).join('')}</table></div>
+      <button class="btn btn-p fx-wide" id="fx-csv-go" ${ok ? '' : 'disabled'}><i class="ti ti-upload"></i> ${ok}件を登録する</button><div class="fx-mini" id="fx-csv-msg">住所があれば、登録後に地図の位置を自動で調べます。</div>`;
+    $('fx-csv-go').onclick = async () => {
+      const btn = $('fx-csv-go'); btn.disabled = true;
+      let done = 0, fail = 0;
+      for (const p of items.filter(x => !x._err)) {
+        const { _err, ...send } = p;
+        send.ownerEmail = currentUser.email; send.ownerName = currentUser.name;
+        try { await api('add', { body: send }); done++; } catch (er) { fail++; }
+        $('fx-csv-msg').textContent = `登録中… ${done + fail}/${ok}`;
+      }
+      $('fx-csv-msg').textContent = `${done}件を登録しました${fail ? `（${fail}件は失敗）` : ''}`;
+      toast(`${done}件を登録しました`, 'success');
+      await fetchAndRenderProps();
+      if (typeof scheduleAutoGeocode === 'function') scheduleAutoGeocode();
+    };
+  };
+};
+function addCsvButton() {
+  const head = document.querySelector('#admin-props button[onclick="toggleAddForm()"]');
+  if (!head || $('fx-csv-btn')) return;
+  const b = document.createElement('button');
+  b.id = 'fx-csv-btn'; b.className = 'btn btn-sm'; b.style.marginRight = '6px';
+  b.innerHTML = '<i class="ti ti-file-spreadsheet"></i>CSVで登録';
+  b.onclick = window.fxOpenCsv;
+  head.parentNode.insertBefore(b, head);
+}
+
+/* ══════════════ 17. カードに状態・通勤時間を出す ══════════════ */
+function decorateCardsMore() {
+  document.querySelectorAll('#card-grid .prop-card').forEach(card => {
+    const fb = card.querySelector('.fav-btn'); if (!fb) return;
+    const p = findProp(fb.dataset.propId); if (!p) return;
+    const img = card.querySelector('.prop-img');
+    let b = card.querySelector('.fx-pst-card');
+    if (p.status && p.status !== 'open') {
+      if (!b) { b = document.createElement('span'); b.className = 'fx-pst fx-pst-card'; img.appendChild(b); }
+      b.textContent = t(PSTATUS[p.status][0]); b.style.background = PSTATUS[p.status][1];
+    } else if (b) b.remove();
+    card.classList.toggle('fx-dim', p.status === 'closed');
+    let c = card.querySelector('.fx-cm-card');
+    const m = commuteMin(p);
+    if (m != null) {
+      if (!c) { c = document.createElement('div'); c.className = 'fx-cm-card'; card.querySelector('.prop-body').appendChild(c); }
+      c.innerHTML = `<i class="ti ti-train"></i> ${esc(commute.name)} ${t('まで約')}${m}${t('分')}`;
+    } else if (c) c.remove();
+    if (p.panoramas && p.panoramas.length && !p.floorplanData && !p.splatURL && !card.querySelector('.prop-vr-badge')) {
+      img.insertAdjacentHTML('beforeend', '<div class="prop-vr-badge"><i class="ti ti-vr"></i> 360°</div>');
+    }
+  });
+}
+
+/* ══════════════ 10. 見た目 ══════════════ */
+const css = document.createElement('style');
+css.textContent = `
+.fx-overlay{position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,.55);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:28px 12px;overflow-y:auto}
+.fx-modal{width:100%;background:var(--surface,#fff);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden}
+.fx-mhead{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:linear-gradient(135deg,var(--blue,#2563eb),var(--blue2,#1d4ed8));color:#fff}
+.fx-mhead h3{margin:0;font-size:15px;font-weight:800;display:flex;align-items:center;gap:6px}
+.fx-x{width:32px;height:32px;border-radius:50%;border:0;background:rgba(255,255,255,.2);color:#fff;cursor:pointer;font-size:16px}
+.fx-mbody{padding:16px 18px 18px;font-size:13px;color:#334155}
+.fx-prop-line{font-weight:800;color:var(--navy,#0f172a);font-size:15px;margin-bottom:10px}
+.fx-label{font-size:11.5px;font-weight:700;color:#64748b;margin:12px 0 6px}
+.fx-seg{display:flex;gap:6px;flex-wrap:wrap}
+.fx-seg button,.fx-days button,.fx-times button,.fx-tabs button{border:1.5px solid var(--border,#e2e8f0);background:var(--surface,#fff);border-radius:10px;padding:8px 12px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;color:#334155}
+.fx-seg button.on,.fx-days button.on,.fx-times button.on,.fx-tabs button.on{border-color:var(--blue,#2563eb);background:#eff6ff;color:#1d4ed8}
+.fx-days{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.fx-days button{min-width:54px;display:flex;flex-direction:column;align-items:center;padding:6px 8px;flex-shrink:0}
+.fx-days button small{font-size:11px;font-weight:600;color:#64748b}
+.fx-days button.sun{color:#dc2626}.fx-days button.sat{color:#2563eb}
+.fx-times{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px}
+.fx-times button[disabled]{opacity:.45;cursor:not-allowed;text-decoration:line-through}
+.fx-times button small{font-size:10px;margin-left:3px}
+.fx-field{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:700;color:#64748b;margin-top:12px}
+.fx-field input,.fx-field textarea{border:1.5px solid var(--border,#e2e8f0);border-radius:10px;padding:9px 11px;font-size:13px;font-family:inherit;color:#0f172a;background:var(--surface,#fff)}
+.fx-wide{width:100%;justify-content:center;padding:11px!important;margin-top:12px}
+.fx-mini{font-size:11.5px;color:#64748b;line-height:1.7;margin-top:6px}
+.fx-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.fx-grow{flex:1;justify-content:center;padding:9px 6px!important;font-size:12px!important;min-width:0}
+.fx-on{border-color:var(--blue,#2563eb)!important;color:#1d4ed8!important;background:#eff6ff!important}
+#fx-pd-actions{display:flex;flex-direction:column;gap:0}
+#fx-pd-actions .fx-wide{margin-top:0}
+.fx-sim{margin-top:12px;border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:0 12px;background:#f8fafc}
+.fx-sim summary{cursor:pointer;padding:11px 0;font-weight:800;color:#1d4ed8;font-size:13px;list-style:none}
+.fx-sim summary::-webkit-details-marker{display:none}
+.fx-sim-in{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.fx-sim-in label{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:700;color:#64748b}
+.fx-sim-in input,.fx-sim-in select{border:1.5px solid var(--border,#e2e8f0);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;background:#fff;min-width:0}
+.fx-sim-out table{width:100%;border-collapse:collapse;font-size:12.5px}
+.fx-sim-out td{padding:5px 2px;border-bottom:1px dashed #e2e8f0}
+.fx-sim-out td:last-child{text-align:right;font-weight:700;color:#0f172a}
+.fx-sim-out tr.fx-total td{font-weight:800;color:#1d4ed8;font-size:14px;border-bottom:2px solid #bfdbfe}
+.fx-sim-out .fx-mini{padding-bottom:10px}
+@media(max-width:640px){.fx-sim-in{grid-template-columns:repeat(2,minmax(0,1fr))}}
+body:has(#pd-overlay.show) #fx-cmp-bar,body:has(.fx-overlay) #fx-cmp-bar,body:has(#vr-viewer-overlay) #fx-cmp-bar{display:none}
+.fx-sim-in input,.fx-sim-in select{width:100%;box-sizing:border-box}
+.fx-badge{display:inline-block;color:#fff;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800}
+.fx-card{border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--surface,#fff)}
+.fx-card.past{opacity:.6}
+.fx-card-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;font-size:14px;color:var(--navy,#0f172a)}
+.fx-kind{margin-left:auto;font-size:11.5px;color:#64748b;font-weight:700}
+.fx-link{color:#1d4ed8;font-weight:700;cursor:pointer;font-size:13px}
+.fx-link:hover{text-decoration:underline}
+.fx-reply{background:#f8fafc;border-radius:8px;padding:7px 10px;font-size:12px;color:#475569;margin-top:6px;white-space:pre-wrap}
+.fx-empty{padding:28px 10px;text-align:center;color:#94a3b8;font-size:13px;line-height:1.8}
+.fx-empty i{font-size:30px;opacity:.5}
+.fx-sec-title{font-size:15px;font-weight:800;color:var(--navy,#0f172a);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.fx-h2{font-size:18px;font-weight:800;margin-bottom:14px;color:var(--navy,#0f172a)}
+.fx-h2 small{font-size:12px;color:#94a3b8;font-weight:600}
+.fx-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.fx-an-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:14px}
+.fx-an{border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:12px 14px;background:var(--surface,#fff)}
+.fx-an-h{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#94a3b8;margin-bottom:8px}
+.fx-an-nums{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.fx-an-nums div{background:#f8fafc;border-radius:8px;padding:6px;font-size:10.5px;color:#64748b;text-align:center;line-height:1.3}
+.fx-an-nums b{display:block;font-size:17px;color:var(--navy,#0f172a)}
+.fx-bar{display:grid;grid-template-columns:90px 1fr 48px;align-items:center;gap:6px;font-size:11.5px;margin:3px 0}
+.fx-bar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334155}
+.fx-bar i{display:block;height:10px;border-radius:5px;background:linear-gradient(90deg,#60a5fa,#2563eb)}
+.fx-bar em{font-style:normal;color:#64748b;text-align:right}
+.fx-cmp-btn{position:absolute;top:8px;left:8px;border:0;border-radius:999px;background:rgba(15,23,42,.62);color:#fff;font-size:10.5px;font-weight:700;padding:4px 9px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:3px;z-index:2}
+.fx-cmp-btn.on{background:#2563eb}
+.prop-card .prop-vr-badge{top:34px}
+#fx-cmp-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:8000;background:#0f172a;color:#fff;border-radius:999px;padding:8px 8px 8px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);font-size:13px;white-space:nowrap}
+#fx-cmp-bar .btn:not(.btn-p){background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)}
+@media(max-width:768px){#fx-cmp-bar{bottom:calc(74px + env(safe-area-inset-bottom))}}
+.fx-cmp-wrap{overflow-x:auto}
+.fx-cmp{border-collapse:collapse;width:100%;min-width:560px;font-size:12.5px}
+.fx-cmp th{text-align:left;color:#64748b;font-weight:700;padding:8px 6px;white-space:nowrap;vertical-align:top;position:sticky;left:0;background:var(--surface,#fff);font-size:11.5px}
+.fx-cmp td{padding:8px 6px;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:140px;color:#0f172a}
+.fx-cmp td.fx-best{color:#15803d;font-weight:800}
+.fx-cmp-img{height:90px;border-radius:8px;background:#e2e8f0 center/cover;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:28px;margin-bottom:6px}
+.fx-feat span{display:block;font-size:11.5px;color:#cbd5e1}
+.fx-feat span.on{color:#15803d;font-weight:700}
+.fx-share-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.fx-share-grid .btn{justify-content:center;padding:10px}
+.fx-nav-tools{display:inline-flex;gap:6px;margin-right:6px;align-items:center}
+.fx-bell{position:relative}
+.fx-bell-n{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;border-radius:9px;background:#ef4444;color:#fff;font-size:10px;font-weight:800;align-items:center;justify-content:center;padding:0 4px}
+#s-admin .fx-nav-tools .btn,#s-master .fx-nav-tools .btn{border-color:rgba(255,255,255,.15);color:#cbd5e1;background:transparent}
+#fx-notif{position:fixed;top:60px;right:12px;z-index:9400;width:min(360px,calc(100vw - 24px));max-height:70vh;overflow-y:auto;background:var(--surface,#fff);border-radius:14px;box-shadow:0 16px 50px rgba(0,0,0,.3);font-size:13px}
+.fx-np-h{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid #f1f5f9;color:var(--navy,#0f172a)}
+.fx-np-sec{font-size:11px;font-weight:800;color:#94a3b8;padding:10px 14px 4px}
+.fx-np-item{display:flex;gap:10px;padding:8px 14px;cursor:pointer;align-items:flex-start}
+.fx-np-item:hover{background:#f8fafc}
+.fx-np-item i{color:#2563eb;font-size:17px;margin-top:2px}
+.fx-np-item b{display:block;font-size:13px;color:var(--navy,#0f172a)}
+.fx-np-item small{color:#64748b;font-size:11.5px}
+.fx-np-none{padding:6px 14px 8px;color:#94a3b8;font-size:12px}
+.fx-np-foot{padding:10px 14px;border-top:1px solid #f1f5f9;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#475569}
+.fx-np-foot a{color:#1d4ed8;cursor:pointer;font-weight:700}
+#fx-print-head,#fx-print-fp{display:none}
+html:not(.fx-guest) .fx-login-btn{display:none}
+html.fx-guest .fx-bell{display:none}
+.fx-gate-skip{display:block;width:100%;margin-top:14px;background:transparent;border:1.5px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.fx-gate-skip:hover{background:rgba(255,255,255,.08)}
+.fx-gate-links{text-align:center;margin-top:10px;font-size:11px;color:#94a3b8}
+.fx-gate-links a,.fx-agree a{color:#93c5fd}
+.fx-agree{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:#cbd5e1;margin:4px 0 14px;line-height:1.6;cursor:pointer}
+.fx-agree input{margin-top:3px}
+.fx-pst{display:inline-block;color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:800;vertical-align:middle}
+.fx-pst-card{position:absolute;bottom:8px;right:8px;z-index:2}
+.prop-card.fx-dim{opacity:.6}
+.fx-closed-note{background:#f1f5f9;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#475569;font-weight:700}
+.fx-chk{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#64748b;margin-left:12px;cursor:pointer}
+.fx-days button[disabled]{opacity:.35;cursor:not-allowed}
+.fx-af-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.fx-af-grid{grid-template-columns:1fr}}
+.fx-wdays{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.fx-wdays button{width:34px;height:32px;border-radius:8px;border:1.5px solid var(--border,#e2e8f0);background:var(--surface,#fff);font-weight:700;cursor:pointer;font-family:inherit;color:#94a3b8}
+.fx-wdays button.on{border-color:#2563eb;background:#eff6ff;color:#1d4ed8}
+.fx-hsel{width:auto!important;padding:6px 8px!important}
+.fx-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.fx-chip{background:#f1f5f9;border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;display:inline-flex;gap:6px;align-items:center}
+.fx-chip b{cursor:pointer;color:#dc2626;padding:0 6px}
+.fx-pano-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.fx-pano{display:flex;gap:8px;align-items:center}
+.fx-pano-img{width:96px;height:48px;border-radius:6px;background:#e2e8f0 center/cover;flex-shrink:0}
+.fx-pano input{flex:1}
+#fx-commute{margin-top:12px;padding-top:12px;border-top:1px dashed var(--border,#e2e8f0)}
+.fx-cm-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fx-cm-row>i{color:#2563eb;font-size:18px}
+.fx-cm-row #fx-cm-place{flex:1;min-width:180px;padding:8px 11px;font-size:13px}
+.fx-cm-row select{width:auto;padding:8px;font-size:13px}
+.fx-cm-card,.fx-cm-badge{font-size:11.5px;color:#1d4ed8;font-weight:700;margin-top:6px}
+.fx-cm-badge{background:#eff6ff;border-radius:8px;padding:6px 10px;margin-bottom:8px}
+.fx-poi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media(max-width:640px){.fx-poi-grid{grid-template-columns:1fr}}
+.fx-poi-item{display:flex;gap:8px;align-items:flex-start;background:#f8fafc;border-radius:10px;padding:8px 10px;font-size:12.5px}
+.fx-poi-item i{font-size:18px;margin-top:1px}
+.fx-poi-item b{color:#0f172a}.fx-poi-item small{color:#94a3b8}
+.fx-poi-item span{display:block;color:#475569;font-size:11.5px}
+.fx-poi-item span.none{color:#cbd5e1}
+@media print{
+  body>*:not(#pd-overlay){display:none!important}
+  #pd-overlay{position:static!important;display:block!important;background:none!important;padding:0!important;overflow:visible!important;backdrop-filter:none!important}
+  #pd-overlay .pd-modal{box-shadow:none!important;max-width:none!important;width:100%!important;margin:0!important;max-height:none!important;overflow:visible!important;border-radius:0!important}
+  .pd-close,.pd-slide-btn,.pd-dots,#pd-vr-btn,#fx-pd-actions,#pd-admin-actions,.pd-side>button,.fx-sim-in,.fx-sim summary{display:none!important}
+  .pd-body{display:block!important;max-height:none!important}
+  .pd-main,.pd-side{max-height:none!important;overflow:visible!important}
+  .pd-side{border:0!important;background:none!important}
+  .pd-slider{height:260px!important}
+  #fx-print-head{display:block!important;font-size:12px;color:#334155;padding:0 0 8px;border-bottom:2px solid #2563eb;margin-bottom:10px}
+  #fx-print-fp{display:block!important}#fx-print-fp img{max-width:70%;max-height:320px;display:block;margin-top:6px}
+  .fx-sim{border:0!important;background:none!important;padding:0!important}
+  .pd-mini-map{height:200px!important;break-inside:avoid}
+}
+`;
+document.head.appendChild(css);
+
+/* ══════════════ 起動 ══════════════ */
+function boot() {
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton();
+  const help = $('s-help');
+  if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
+  setGuestClass();
+  document.documentElement.lang = fxLang;
+  if (fxLang === 'en') translateAll();
+  mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+  const iv = setInterval(() => {
+    if (!isLoggedIn) return;
+    refreshNotif(); renderCompareBar(); decorateCards();
+    clearInterval(iv);
+  }, 500);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+
+const _enterApp = window._enterApp;
+window._enterApp = function () {
+  const r = _enterApp.apply(this, arguments);
+  setGuestClass();
+  const fn = afterLogin; afterLogin = null;
+  setTimeout(() => { lastNotifyCount = -1; refreshNotif(); renderCompareBar(); decorateCards(); decorateCardsMore(); if (fn) { try { fn(); } catch (e) { console.error(e); } } }, 400);
+  return r;
+};
+const _doLogout = window.doLogout;
+window.doLogout = function () { stopLive(true); const r = _doLogout.apply(this, arguments); setGuestClass(); renderCards(); return r; };
+})();

@@ -4,7 +4,7 @@
   "description": "VRで内見できる不動産サービス",
   "start_url": "./index.html",
   "display": "standalone",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#0a0e1a",
   "theme_color": "#2563eb",
   "lang": "ja",

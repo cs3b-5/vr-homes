@@ -3,13 +3,16 @@
    キャッシュ戦略: Cache First（静的ファイル）
               + Network First（API）
 ============================================ */
-const CACHE_NAME    = 'vr-homes-v10';
+const CACHE_NAME    = 'vr-homes-v12';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './site.css',
   './app.js',
+  './features.js',
   './help.html',
+  './privacy.html',
+  './terms.html',
   './vr-viewer.html',
   './floor-editor.html',
   'https://cdn.jsdelivr.net/npm/babylonjs@9.29.0/babylon.js',
