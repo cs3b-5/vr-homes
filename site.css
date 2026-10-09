@@ -1032,3 +1032,15 @@ select.finput{cursor:pointer}
   }
   .map-filter-sheet-foot .btn{ padding:13px; font-size:14px; }
 }
+
+/* ── スマホで管理画面の表が詰まって読めない問題の対策 ── */
+@media (max-width: 640px){
+  .admin-table-head{display:none !important}
+  .admin-table-row{grid-template-columns:1fr auto !important;row-gap:6px !important;column-gap:10px !important;padding:12px 14px !important}
+  .admin-table-row>span:first-child{grid-column:1 / -1;font-size:13px}
+  .admin-table-row>span{min-width:0;overflow-wrap:anywhere}
+  .admin-table-row>span:last-child{justify-self:end}
+  .master-nav .logo{font-size:15px;white-space:nowrap}
+  .master-nav .btn{white-space:nowrap}
+  .master-badge{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}

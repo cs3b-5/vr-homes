@@ -519,6 +519,9 @@ async function fetchUsers(){
   }catch(e){ console.warn('ユーザー取得失敗（デモモードで続行）:',e.message); }
   // AWS取得後、ローカルキャッシュを必ずマージ（データ消失を防ぐ）
   mergeUserCache();
+  // サーバー上の最新の権限・グループで自分の情報を更新して、表示を描き直す
+  if(currentUser){ const me=userStore.find(u=>u.email===currentUser.email); if(me && me!==currentUser){ ['role','active','groupId','groupName','groupOwner','adUnlocked'].forEach(k=>{ if(me[k]!==undefined) currentUser[k]=me[k]; }); } try{ applyRoleUI(); }catch(e){} }
+  refreshPermissionViews();
 }
 
 /* AWSとローカル両方に保存（ローカルは即時・確実） */
@@ -531,17 +534,22 @@ async function saveUserToAWS(user){
     if(!res.ok){
       const d=await res.json().catch(()=>({}));
       console.warn('ユーザー保存がサーバーで拒否されました:',d.error||res.status);
-      if(res.status===401) showToast&&showToast('ログインの有効期限が切れました。もう一度ログインしてください','warn');
+      if(res.status===401) showToast('ログインの有効期限が切れました。もう一度ログインしてください','warn');
+      else if(user.email!==currentUser?.email) showToast('保存できませんでした: '+(d.error||res.status),'error');
+      return false;
     }
-  }catch(e){console.warn('ユーザー保存失敗（ローカルには保存済み）:',e.message);}
+    return true;
+  }catch(e){console.warn('ユーザー保存失敗（ローカルには保存済み）:',e.message);return false;}
 }
 
 async function deleteUserFromAWS(email){
   removeCachedUser(email); // ローカルからも削除
-  if(!AWS_API_URL||email===MASTER_EMAIL) return;
+  if(!AWS_API_URL||email===MASTER_EMAIL) return true;
   try{
-    await fetch(AWS_API_URL+'?action=deleteUser&email='+encodeURIComponent(email),{method:'DELETE'});
-  }catch(e){console.warn('ユーザー削除失敗:',e.message);}
+    const res=await fetch(AWS_API_URL+'?action=deleteUser&email='+encodeURIComponent(email),{method:'DELETE'});
+    if(!res.ok){ const d=await res.json().catch(()=>({})); showToast('削除できませんでした: '+(d.error||res.status),'error'); return false; }
+    return true;
+  }catch(e){console.warn('ユーザー削除失敗:',e.message);showToast('削除できませんでした','error');return false;}
 }
 
 /* ══════════════════════════════════════
@@ -718,6 +726,21 @@ function canEditProp(prop){
   return false;
 }
 function isRegular(u){return (u||currentUser)?.role==='user';}
+/* デモアカウントは端末の中だけの存在なので、管理画面の一覧には出さない */
+function isDemoUser(u){return !!u && (u.email===DEMO_USER.email||u.email===DEMO_ADMIN.email);}
+function realUsers(){return userStore.filter(u=>!isDemoUser(u) && u!==MASTER_USER);}
+/* 他のユーザーを停止・削除できるか(サーバー側のルールと同じ) */
+function canManageUser(u){
+  if(!u||!currentUser||u.email===currentUser.email||u.role==='master') return false;
+  if(isMaster()) return true;
+  return isAdmin() && u.role==='user';
+}
+/* ログイン・ログアウト・権限変更のたびに、編集できるかどうかで変わる表示を描き直す */
+function refreshPermissionViews(){
+  try{ renderAdminPropTable(); }catch(e){}
+  try{ renderCards(); updateResultsCount(); }catch(e){}
+  try{ if(pdCurrentId!=null && document.getElementById('pd-overlay').classList.contains('show')){ const p=PROPS.find(x=>x.id===pdCurrentId); if(p) renderPropDetail(p); } }catch(e){}
+}
 function roleLabel(role){
   if(role==='master') return '<span class="tag tmaster">マスター</span>';
   if(role==='admin')  return '<span class="tag tgold">管理者</span>';
@@ -742,6 +765,7 @@ function applyRoleUI(){
   document.getElementById('mp-nav-code').classList.remove('hidden'); // 全ユーザーに表示
   document.getElementById('nav-admin-btn').classList.toggle('hidden',!isAdmin());
   document.getElementById('admin-email-display').textContent=u.email;
+  const mb=document.getElementById('master-name-badge'); if(mb) mb.textContent=u.name||u.email;
   refreshStats();
   if(u.wishlist) renderWishlistUI(u.wishlist);
 }
@@ -756,10 +780,16 @@ function updateAvatarDisplay(){
 }
 
 function refreshStats(){
-  const total=userStore.filter(u=>u.role!=='master').length;
-  const admins=userStore.filter(u=>u.role==='admin').length;
-  const regulars=userStore.filter(u=>u.role==='user').length;
-  [['admin-user-count',total],['master-user-count',userStore.length],['master-admin-count',admins],['master-regular-count',regulars]]
+  const users=realUsers();
+  const total=users.filter(u=>u.role!=='master').length;
+  const admins=users.filter(u=>u.role==='admin').length;
+  const regulars=users.filter(u=>u.role==='user').length;
+  const vr=PROPS.filter(p=>p.floorplanData).length;
+  const mine=currentUser?PROPS.filter(p=>p.ownerEmail===currentUser.email).length:0;
+  const rents=PROPS.map(p=>+p.price).filter(v=>v>0);
+  const avg=rents.length?Math.round(rents.reduce((a,b)=>a+b,0)/rents.length):0;
+  [['admin-user-count',total],['admin-user-count2',total],['master-user-count',users.length],['master-admin-count',admins],['master-regular-count',regulars],
+   ['stat-prop-count',PROPS.length],['stat-vr-count',vr],['stat-my-count',mine],['stat-avg-rent',avg?'¥'+avg.toLocaleString():'−']]
     .forEach(([id,v])=>{const el=document.getElementById(id);if(el) el.textContent=v;});
 }
 
@@ -931,6 +961,9 @@ function _enterApp(user){
   gate.style.display='none';
   applyRoleUI();
   refreshAllFilters();
+  refreshPermissionViews();   // ログイン前に描いた「鍵マーク」のままにならないように描き直す
+  // お問い合わせフォームに自分の名前とメールを入れておく
+  [['mc-name',user.name],['mc-email',user.email]].forEach(([id,v])=>{const el=document.getElementById(id);if(el&&!el.value) el.value=v||'';});
   if(isMaster()){
     renderMasterUserTable();renderRoleTable();renderFieldManagement();
     if(isAdUnlocked()){_showAdTab();renderAdManagement();}
@@ -1069,6 +1102,7 @@ function doLogout(){
   isLoggedIn=false;currentUser=null;
   try{ localStorage.removeItem('vr_session_email'); }catch(e){}
   setToken('');
+  setTimeout(refreshPermissionViews,0);
   document.documentElement.classList.remove('has-session');
   // 履歴をクリア（ログアウト後に戻るで中に入れないように）
   try{ history.replaceState({screen:'top'}, '', location.pathname+location.search); }catch(e){}
@@ -1131,6 +1165,7 @@ async function submitCode(){
   cacheUserLocal(currentUser);
   showMsg(`✓ ${isNewMaster?'マスター':'管理者'}として認証されました！`,true);
   applyRoleUI();
+  refreshPermissionViews();
   if(isNewMaster){renderFieldManagement();if(isAdUnlocked()){_showAdTab();renderAdManagement();}}
   setTimeout(()=>{guardedScreen(isNewMaster?'master':'admin');},1500);
 }
@@ -1274,7 +1309,7 @@ function renderUserTable(){
   const q=(document.getElementById('user-search')||{}).value?.toLowerCase()||'';
   const f=(document.getElementById('user-filter')||{}).value||'';
   const tbody=document.getElementById('user-table-body');if(!tbody) return;
-  const list=userStore.filter(u=>u.role!=='master')
+  const list=realUsers().filter(u=>u.role!=='master')
     .filter(u=>!q||(u.name.toLowerCase().includes(q)||u.email.toLowerCase().includes(q)))
     .filter(u=>!f||u.role===f);
   tbody.innerHTML=list.map(u=>`<div class="admin-table-row" style="grid-template-columns:1.5fr 2fr 1fr 1fr 1fr">
@@ -1283,9 +1318,9 @@ function renderUserTable(){
     <span>${roleLabel(u.role)}</span>
     <span><span class="tag ${u.active?'tg':'tr'}" style="font-size:9px">${u.active?'有効':'停止中'}</span></span>
     <span style="display:flex;gap:4px">
-      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="showUserDetail('${u.email}')"><i class="ti ti-info-circle"></i></button>
-      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="confirmToggleActive('${u.email}')"><i class="ti ti-${u.active?'ban':'check'}" style="color:var(--${u.active?'amber':'green'})"></i></button>
-      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>
+      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="詳細" onclick="showUserDetail('${u.email}')"><i class="ti ti-info-circle"></i></button>
+      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'停止する':'有効にする'}" onclick="confirmToggleActive('${u.email}')"><i class="ti ti-${u.active?'ban':'check'}" style="color:var(--${u.active?'amber':'green'})"></i></button>
+      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="削除" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>`:''}
     </span>
   </div>`).join('')||'<div style="padding:14px;font-size:13px;color:#94a3b8;text-align:center">該当するユーザーはいません</div>';
 }
@@ -1294,7 +1329,7 @@ function renderMasterUserTable(){
   const q=(document.getElementById('master-search')||{}).value?.toLowerCase()||'';
   const f=(document.getElementById('master-filter')||{}).value||'';
   const tbody=document.getElementById('master-user-table-body');if(!tbody) return;
-  const list=userStore.filter(u=>!q||(u.name.toLowerCase().includes(q)||u.email.toLowerCase().includes(q))).filter(u=>!f||u.role===f);
+  const list=realUsers().filter(u=>!q||(u.name.toLowerCase().includes(q)||u.email.toLowerCase().includes(q))).filter(u=>!f||u.role===f);
   tbody.innerHTML=list.map(u=>`<div class="admin-table-row" style="grid-template-columns:1.5fr 2fr 1fr 1fr 1fr">
     <span style="font-weight:600;color:var(--navy)">${u.name}${u.email===MASTER_EMAIL?'<span class="master-badge" style="font-size:9px;margin-left:4px"><i class="ti ti-crown" style="font-size:9px"></i></span>':''}</span>
     <span style="color:#64748b;font-size:11px">${u.email}</span>
@@ -1302,14 +1337,15 @@ function renderMasterUserTable(){
     <span><span class="tag ${u.active?'tg':'tr'}" style="font-size:9px">${u.active?'有効':'停止中'}</span></span>
     <span style="display:flex;gap:4px">
       <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="showUserDetail('${u.email}')"><i class="ti ti-info-circle"></i></button>
-      ${u.role!=='master'?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="confirmToggleActive('${u.email}')">${u.active?'<i class="ti ti-ban" style="color:var(--amber)"></i>':'<i class="ti ti-check" style="color:var(--green)"></i>'}</button>`:'' }
-      ${u.email!==MASTER_EMAIL?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>`:'' }
+      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'停止する':'有効にする'}" onclick="confirmToggleActive('${u.email}')">${u.active?'<i class="ti ti-ban" style="color:var(--amber)"></i>':'<i class="ti ti-check" style="color:var(--green)"></i>'}</button>
+      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="削除" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>`:''}
     </span>
   </div>`).join('')||'<div style="padding:14px;font-size:13px;color:#94a3b8;text-align:center">該当するユーザーはいません</div>';
 }
 
 function confirmDeleteUser(email){
   const u=userStore.find(u=>u.email===email);if(!u) return;
+  if(!canManageUser(u)){alert('このユーザーを削除する権限がありません');return;}
   if(email===MASTER_EMAIL){alert('マスターアカウントは削除できません');return;}
   if(email===currentUser?.email){alert('自分自身は削除できません');return;}
   if(!confirm(`ユーザー「${u.name}」（${email}）を完全に削除しますか？`)) return;
@@ -1317,22 +1353,36 @@ function confirmDeleteUser(email){
 }
 function confirmToggleActive(email){
   const u=userStore.find(u=>u.email===email);if(!u) return;
+  if(!canManageUser(u)){alert('このユーザーを変更する権限がありません');return;}
   if(email===MASTER_EMAIL){alert('マスターアカウントは変更できません');return;}
   if(email===currentUser?.email){alert('自分自身のアカウントは変更できません');return;}
   if(!confirm(`ユーザー「${u.name}」を${u.active?'停止':'有効化'}しますか？`)) return;
   toggleUserActive(email);
 }
-function deleteUser(email){
+async function deleteUser(email){
+  if(!(await deleteUserFromAWS(email))) return;   // サーバーで消せた時だけ一覧からも消す
   const idx=userStore.findIndex(u=>u.email===email);if(idx>-1) userStore.splice(idx,1);
-  deleteUserFromAWS(email);
   renderUserTable();renderMasterUserTable();renderRoleTable();refreshStats();
+  showToast('ユーザーを削除しました','success');
 }
-function toggleUserActive(email){
+async function toggleUserActive(email){
   const u=userStore.find(u=>u.email===email);if(!u) return;
-  u.active=!u.active;saveUserToAWS(u);
+  u.active=!u.active;
+  if(!(await saveUserToAWS(u))) u.active=!u.active;   // 失敗したら元に戻す
   renderUserTable();renderMasterUserTable();renderRoleTable();refreshStats();
   if(document.getElementById('user-detail-modal').style.display==='block') showUserDetail(email);
 }
+/* ロール変更(マスターのみ)。サーバーに保存できたときだけ反映する */
+async function setUserRole(email,role){
+  const u=userStore.find(u=>u.email===email);
+  if(!u||u.role==='master'||!isMaster()) return false;
+  const prev=u.role; u.role=role;
+  const ok=await saveUserToAWS(u);
+  if(!ok) u.role=prev; else showToast(`${u.name} のロールを変更しました`,'success');
+  renderRoleTable();renderMasterUserTable();renderUserTable();refreshStats();refreshPermissionViews();
+  return ok;
+}
+window.setUserRole=setUserRole;
 
 /* ══════════════════════════════════════
    USER DETAIL MODAL
@@ -1509,8 +1559,7 @@ function changeRoleFromDetail(email){
   const role=document.getElementById('user-detail-role').value;
   const u=userStore.find(u=>u.email===email);if(!u||u.role==='master') return;
   if(!confirm(`「${u.name}」のロールを変更しますか？`)) return;
-  u.role=role;saveUserToAWS(u);
-  renderUserTable();renderMasterUserTable();renderRoleTable();refreshStats();showUserDetail(email);
+  setUserRole(email,role).then(()=>showUserDetail(email));
 }
 
 /* ══════════════════════════════════════
@@ -1518,7 +1567,7 @@ function changeRoleFromDetail(email){
 ══════════════════════════════════════ */
 function renderRoleTable(){
   const tbody=document.getElementById('role-table-body');if(!tbody) return;
-  tbody.innerHTML=userStore.filter(u=>u.role!=='master').map(u=>`<div class="admin-table-row" style="grid-template-columns:1.5fr 2fr 1fr 1fr">
+  tbody.innerHTML=realUsers().filter(u=>u.role!=='master').map(u=>`<div class="admin-table-row" style="grid-template-columns:1.5fr 2fr 1fr 1fr">
     <span style="font-weight:600;color:var(--navy)">${u.name}</span>
     <span style="color:#64748b;font-size:11px">${u.email}</span>
     <span>${roleLabel(u.role)}</span>
@@ -1536,10 +1585,9 @@ function changeUserRole(){
   const show=(msg,ok)=>{msgEl.style.cssText=`display:block;background:${ok?'var(--green-l)':'var(--red-l)'};border:1px solid ${ok?'#86efac':'var(--red-b)'};color:${ok?'var(--green)':'var(--red)'};border-radius:var(--r-md);padding:9px 13px;font-size:13px;margin-bottom:14px`;msgEl.textContent=msg;setTimeout(()=>msgEl.style.display='none',3000);};
   if(!u){show('該当するユーザーが見つかりません',false);return;}
   if(u.role==='master'){show('マスターアカウントのロールは変更できません',false);return;}
-  u.role=role;show(`${u.name} のロールを変更しました`,true);
-  renderRoleTable();renderMasterUserTable();renderUserTable();refreshStats();
+  setUserRole(email,role).then(ok=>show(ok?`${u.name} のロールを変更しました`:'変更できませんでした',ok));
 }
-function quickSetRole(email,role){const u=userStore.find(u=>u.email===email);if(!u||u.role==='master') return;u.role=role;saveUserToAWS(u);renderRoleTable();renderMasterUserTable();renderUserTable();refreshStats();}
+function quickSetRole(email,role){setUserRole(email,role);}
 
 /* ══════════════════════════════════════
    SCREEN NAV
@@ -1647,7 +1695,7 @@ function _applyScreen(id){
   const tab=document.getElementById('tab-'+id);if(tab) tab.classList.add('active');
   window.scrollTo(0,0);
   // 画面ごとの再描画
-  if(id==='admin') renderUserTable();
+  if(id==='admin'){ renderUserTable(); renderAdminPropTable(); }
   if(id==='mypage'){ renderFavorites(); updateInboxBadge(); }
   if(id==='master'){ renderMasterUserTable();renderRoleTable();renderFieldManagement(); }
   if(id==='map') setTimeout(()=>{ if(leafletMap) leafletMap.invalidateSize(); else initLeafletMap(); },150);
@@ -1680,7 +1728,7 @@ function guardedScreen(id){
   if(!isLoggedIn){const g=document.getElementById('login-gate');g.classList.remove('hidden');g.style.display='';return;}
   if(id==='admin'&&!isAdmin()){alert('管理者権限が必要です');return;}
   if(id==='master'&&!isMaster()){alert('マスター権限が必要です');return;}
-  if(id==='admin') renderUserTable();
+  if(id==='admin'){ renderUserTable(); renderAdminPropTable(); }
   if(id==='mypage'){ renderFavorites(); updateInboxBadge(); } // マイページを開いたらお気に入りとバッジ更新
   if(id==='master'){
     renderMasterUserTable();renderRoleTable();renderFieldManagement();
@@ -1981,18 +2029,20 @@ async function autoFillFromAddress(){
    AWS PROPERTY
 ══════════════════════════════════════ */
 async function uploadToAWS(prop){
-  if(!AWS_API_URL) return;
+  if(!AWS_API_URL) return null;
   try{
     const res=await fetch(AWS_API_URL+'?action=add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...prop})});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(d.error||`HTTP ${res.status}`);
     showDataSourceBadge('AWS');
-  }catch(e){console.error('AWS POST失敗:',e.message);}
+    return d.id!=null?d.id:null;   // サーバーが付けた物件番号
+  }catch(e){console.error('AWS POST失敗:',e.message);showToast('物件の保存に失敗しました: '+e.message,'error');return null;}
 }
 
 async function updatePropertyOnAWS(prop){
   if(!AWS_API_URL) return;
   const res=await fetch(AWS_API_URL+'?action=update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...prop})});
-  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.error||`HTTP ${res.status}`); }
   return res.json();
 }
 
@@ -2158,7 +2208,8 @@ async function fetchAndRenderProps(){
 let _autoGeocodeRunning=false;
 async function scheduleAutoGeocode(){
   if(_autoGeocodeRunning) return;
-  const targets=PROPS.filter(p=>!p.lat||!p.lng).filter(p=>normalizeAddress(p.address)||normalizeAddress(p.area));
+  // 位置の保存は編集できる人だけ(他の人の物件を書き換えようとしてエラーになるのを防ぐ)
+  const targets=PROPS.filter(p=>!p.lat||!p.lng).filter(p=>canEditProp(p)).filter(p=>normalizeAddress(p.address)||normalizeAddress(p.area));
   if(!targets.length) return;
   _autoGeocodeRunning=true;
   for(const p of targets){
@@ -2313,9 +2364,10 @@ async function submitContact(propId){
     time:new Date().toISOString(), read:false
   };
   // サイト内メール保存
-  await saveMessage(msg);
-  // 実メール送信
   show('送信中...',true);
+  const saved=await saveMessage(msg);
+  if(!saved){show('送信できませんでした。通信状態を確認して、もう一度お試しください',false);return;}
+  // 実メール送信
   const mailOk=await sendRealMail(to, msg.subject, `${name} 様（${email}）からお問い合わせがありました。\n\n物件：${prop.name}\n\n${text}`);
   show(mailOk?'✓ 送信しました（サイト内メール＋メール送信）':'✓ サイト内メールに送信しました',true);
   updateInboxBadge();
@@ -2335,8 +2387,9 @@ async function submitMasterContact(){
     subject:'【運営へのお問い合わせ】', body:text,
     time:new Date().toISOString(), read:false
   };
-  await saveMessage(msg);
   show('送信中...',true);
+  const saved=await saveMessage(msg);
+  if(!saved){show('送信できませんでした。通信状態を確認して、もう一度お試しください',false);return;}
   const mailOk=await sendRealMail(MASTER_EMAIL,'【運営へのお問い合わせ】',`${name} 様（${email}）\n\n${text}`);
   show(mailOk?'✓ 送信しました':'✓ サイト内メールに送信しました',true);
   updateInboxBadge();
@@ -2559,12 +2612,15 @@ function renderAdminPropTable(){
   }).join('');
 }
 
-function deleteProp(id){
+async function deleteProp(id){
   const prop=PROPS.find(p=>p.id===id);
   if(!canEditProp(prop)){showToast('この物件を削除する権限がありません','warn');return;}
+  // 先にサーバーで消して、成功したら画面からも消す(失敗したのに消えて見えるのを防ぐ)
+  const ok=await deletePropFromAWS(id);
+  if(!ok) return;
   PROPS=PROPS.filter(p=>p.id!==id);removeMapMarker(id);favs.delete(id);
   renderCards();renderAdminPropTable();renderMapSidebar();updateResultsCount();
-  deletePropFromAWS(id);
+  showToast('「'+prop.name+'」を削除しました','success');
 }
 
 /* ══════════════════════════════════════
@@ -2576,6 +2632,9 @@ function startEditProp(id){
   const prop=PROPS.find(p=>p.id===id);if(!prop){alert('物件が見つかりません');return;}
   if(!canEditProp(prop)){showToast('この物件を編集する権限がありません','warn');return;}
   editingPropId=id;editingExistingPhotos=[...(prop.photoURLs||[])];
+  // 管理画面の「物件管理」タブを開いてからフォームを出す(別のタブにいると見えないため)
+  if(!document.getElementById('s-admin').classList.contains('active')) guardedScreen('admin');
+  switchAdmin('props',document.querySelector('#s-admin .admin-nav-item[onclick*="\'props\'"]'));
   const form=document.getElementById('add-form');
   if(form&&!form.classList.contains('show')) toggleAddForm();
   document.getElementById('af-form-title').textContent='物件を編集: '+prop.name;
@@ -2649,13 +2708,28 @@ function resetEditMode(){
   const hint=document.getElementById('af-new-photos-hint');if(hint) hint.style.display='none';
 }
 window.startEditProp=startEditProp;window.resetEditMode=resetEditMode;
+/* 物件詳細から編集・削除(権限のある人だけボタンが出る) */
+function editFromDetail(){
+  const id=pdCurrentId; if(id==null) return;
+  closePropDetail();
+  guardedScreen('admin');
+  setTimeout(()=>startEditProp(id),250);
+}
+function deleteFromDetail(){
+  const id=pdCurrentId; const p=PROPS.find(x=>x.id===id); if(!p) return;
+  if(!confirm(`「${p.name}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+  closePropDetail();
+  deleteProp(id);
+}
+window.editFromDetail=editFromDetail;window.deleteFromDetail=deleteFromDetail;
 
 async function deletePropFromAWS(id){
-  if(!AWS_API_URL) return;
+  if(!AWS_API_URL) return true;
   try{
     const res=await fetch(AWS_API_URL+'?action=delete&id='+encodeURIComponent(id),{method:'DELETE'});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  }catch(e){console.error('AWS物件削除失敗:',e.message);}
+    if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.error||`HTTP ${res.status}`); }
+    return true;
+  }catch(e){console.error('AWS物件削除失敗:',e.message);showToast('削除できませんでした: '+e.message,'error');return false;}
 }
 
 function startPolling(){
@@ -2666,7 +2740,11 @@ function startPolling(){
       if(!res.ok) return;
       const data=await res.json();
       const np=Array.isArray(data)?data:(data.items||data.properties||[]);
-      if(np.length!==PROPS.length){
+      // 件数だけでなく中身も比べて、他の人の編集も反映する(自分が編集フォームを開いている間は上書きしない)
+      const sig=JSON.stringify(np);
+      const changed=startPolling._last!==undefined && sig!==startPolling._last;
+      startPolling._last=sig;
+      if(editingPropId==null && (changed || np.length!==PROPS.length)){
         PROPS=np;PROPS.forEach(p=>{if(!p.photoURLs) p.photoURLs=[];if(!p.features) p.features=p.tags||[];});
         renderCards();renderAdminPropTable();updateResultsCount();showDataSourceBadge('AWS');
       }
@@ -2777,6 +2855,8 @@ function renderPropDetail(prop){
   </div>`;
   const vrBtn=document.getElementById('pd-vr-btn');
   if(vrBtn) vrBtn.style.display=prop.floorplanData?'flex':'none';
+  const pdAdmin=document.getElementById('pd-admin-actions');
+  if(pdAdmin) pdAdmin.style.display=canEditProp(prop)?'flex':'none';
   setTimeout(()=>{
     const miniEl=document.getElementById('pd-mini-map');
     if(!miniEl||typeof L==='undefined') return;
@@ -2984,11 +3064,20 @@ async function addProperty(){
   }
   // 「駅を自動取得」で取得済みの座標があれば流用
   const preCoords=window._afGeoCoords||null;
-  const newProp={id:nextPropId++,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,features:[],tags:[],description:desc,access,details,
+  const newProp={id:null,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,features:[],tags:[],description:desc,access,details,
     ownerEmail:(currentUser&&currentUser.email)||null, ownerName:(currentUser&&currentUser.name)||null,
     photoURLs:newPhotoURLs,floorplanURL:window.editedFloorplanThumb||null,floorplanData:window.editedFloorplanData||null,
     lat:preCoords?preCoords.lat:null,lng:preCoords?preCoords.lng:null};
+  window._afGeoCoords=null;
+  clearAddForm();toggleAddForm();
+  // 先にサーバーへ保存して、サーバーが付けた番号を使う(番号がずれると別の物件を上書きしてしまうため)
+  showToast('「'+name+'」を登録しています...','info',2000);
+  const {id:_omit,...toSend}=newProp;
+  const sid=await uploadToAWS(toSend);
+  if(sid==null) return;
+  newProp.id=sid;
   PROPS.push(newProp);renderCards();renderAdminPropTable();updateResultsCount();renderMapSidebar();
+  showToast('「'+name+'」を登録しました','success');
   if(newProp.lat&&newProp.lng){
     addMapMarker(newProp);renderMapSidebar();
   } else {
@@ -3000,8 +3089,6 @@ async function addProperty(){
       });
     }
   }
-  window._afGeoCoords=null;
-  uploadToAWS(newProp);clearAddForm();toggleAddForm();
 }
 
 function clearAddForm(){
@@ -3028,7 +3115,7 @@ document.head.appendChild(_style);
 
 function switchMp(id,el){
   ['fav','inbox','hist','prof','wish','code'].forEach(k=>{const e=document.getElementById('mp-'+k);if(e) e.style.display=k===id?'block':'none';});
-  document.querySelectorAll('.mp-nav-item').forEach(i=>i.classList.remove('on'));el.classList.add('on');
+  document.querySelectorAll('.mp-nav-item').forEach(i=>i.classList.remove('on'));if(!el) el=document.querySelector(`.mp-nav-item[onclick*="'${id}'"]`);if(el) el.classList.add('on');
   if(id==='fav') renderFavorites();
   if(id==='inbox') renderInbox();
   if(id==='hist') renderHistory();
@@ -3038,6 +3125,7 @@ function switchAdmin(id,el){
   document.querySelectorAll('#s-admin .admin-nav-item').forEach(i=>i.classList.remove('on'));if(el&&el.classList) el.classList.add('on');
   if(id==='users') renderUserTable();
   if(id==='group') renderGroupManagement();
+  if(id==='stats') refreshStats();
 }
 
 /* ══════════════════════════════════════

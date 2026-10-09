@@ -505,7 +505,7 @@ function buildPlan(plan) {
   for (let i = 0; i < 16; i++) {
     const a = i * Math.PI / 8;
     const ray = new BABYLON.Ray(new BABYLON.Vector3(currentSpawn.x, 1.2, currentSpawn.z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
-    const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls" || m.name.indexOf("furniture") === 0; });
+    const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls" || m.name === "glass" || m.name.indexOf("furniture") === 0; });
     const d = hit && hit.hit ? hit.distance : 60;
     if (d > bestDist + 0.01) { bestDist = d; currentSpawn.rotY = a; }
   }

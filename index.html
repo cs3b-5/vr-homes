@@ -845,6 +845,9 @@
         <h2 style="font-size:18px;font-weight:800;margin-bottom:18px;color:var(--navy)">アクセス分析</h2>
         <div class="stat-card-grid">
           <div class="stat-card"><div class="stat-card-label">登録物件数</div><div class="stat-card-val" id="stat-prop-count">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">VR内見できる物件</div><div class="stat-card-val" id="stat-vr-count">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">あなたが登録した物件</div><div class="stat-card-val" id="stat-my-count">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">平均家賃</div><div class="stat-card-val" id="stat-avg-rent">−</div></div>
           <div class="stat-card"><div class="stat-card-label">ユーザー数</div><div class="stat-card-val" id="admin-user-count2">0</div></div>
         </div>
       </div>
@@ -862,7 +865,7 @@
       マスターパネル
     </div>
     <div style="display:flex;align-items:center;gap:10px">
-      <span class="master-badge"><i class="ti ti-crown" style="font-size:10px"></i>nori1216chopper</span>
+      <span class="master-badge"><i class="ti ti-crown" style="font-size:10px"></i><span id="master-name-badge">マスター</span></span>
       <button class="btn btn-sm" onclick="doLogout()" style="border-color:rgba(255,255,255,.15);color:#e0c97a">ログアウト</button>
     </div>
   </nav>
@@ -1021,6 +1024,10 @@
         <button class="btn" style="width:100%;justify-content:center;padding:11px" onclick="openContactForm(pdCurrentId)">
           <i class="ti ti-mail"></i> 問い合わせる
         </button>
+        <div id="pd-admin-actions" style="display:none;gap:8px">
+          <button class="btn" style="flex:1;justify-content:center;padding:9px" onclick="editFromDetail()"><i class="ti ti-pencil"></i> 編集</button>
+          <button class="btn" style="flex:1;justify-content:center;padding:9px;color:var(--red)" onclick="deleteFromDetail()"><i class="ti ti-trash"></i> 削除</button>
+        </div>
       </div>
     </div>
   </div>
