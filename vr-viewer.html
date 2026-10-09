@@ -17,7 +17,23 @@
 
   .pill { background: rgba(10,14,26,.62); color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 999px; }
   #topbar { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); display: flex; align-items: center; gap: 8px; z-index: 12; pointer-events: none; }
-  #closeBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  #modeBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  #alignPanel { position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20; width: min(330px, calc(100vw - 20px)); background: rgba(255,255,255,.97); color: #0f172a; border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 12.5px; display: none; }
+  #alignPanel.show { display: block; }
+  #alignPanel h4 { margin: 0 0 4px; font-size: 14px; }
+  #alignPanel .sub { color: #64748b; font-size: 11.5px; margin-bottom: 10px; line-height: 1.5; }
+  #alignPanel .r { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; flex-wrap: wrap; }
+  #alignPanel .r > span { width: 52px; color: #475569; }
+  #alignPanel button { height: 28px; min-width: 32px; padding: 0 8px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }
+  #alignPanel button.pri { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
+  #alignPanel input[type=number] { width: 64px; height: 28px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 6px; font-family: inherit; }
+  #alignPanel .acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  #closeBtn, #rotateBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  body.touch #rotateBtn { display: block; }
+  #rotateHint { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(10,14,26,.85); color: #fff; font-size: 15px; text-align: center; padding: 24px; }
+  #rotateHint.show { display: flex; }
+  #rotateHint .ic { font-size: 46px; animation: tilt 1.6s ease-in-out infinite; }
+  @keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
   #title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; }
   #roomName { margin-left: auto; white-space: nowrap; }
   #roomName:empty, #title:empty { display: none; }
@@ -37,10 +53,24 @@
 <div id="loading"><div class="spinner"></div><div id="loadingText">読み込み中…</div></div>
 <div id="topbar">
   <button id="closeBtn" class="pill">✕ 閉じる</button>
+  <button id="rotateBtn" class="pill" title="全画面・横向きで見る">⤢ 横向き</button>
+  <button id="modeBtn" class="pill" title="実写と間取りを切り替える">🏠 間取りで見る</button>
   <div id="title" class="pill"></div>
   <div id="roomName" class="pill"></div>
 </div>
 <div id="hint" class="pill"></div>
+<div id="alignPanel">
+  <h4>実写の位置合わせ</h4>
+  <div class="sub">上から見た図です。半透明の壁(間取り)に、実写の部屋が重なるように合わせてください。ドラッグで見る角度、ホイール・ピンチで拡大できます。</div>
+  <div class="r"><span>回転</span><button data-rot="-90">-90°</button><button data-rot="-5">-5</button><button data-rot="-1">-1</button><input type="number" id="aRot" step="1"><button data-rot="1">+1</button><button data-rot="5">+5</button><button data-rot="90">+90°</button></div>
+  <div class="r"><span>位置</span><button data-mv="-1,0">←</button><button data-mv="0,1">↑</button><button data-mv="0,-1">↓</button><button data-mv="1,0">→</button>
+    <label style="display:flex;gap:4px;align-items:center;color:#64748b"><input type="checkbox" id="aFine"> 細かく</label></div>
+  <div class="r"><span>床の高さ</span><button data-up="-1">下げる</button><button data-up="1">上げる</button><input type="number" id="aY" step="0.01"></div>
+  <div class="r"><span>大きさ</span><input type="number" id="aScale" step="0.01" min="0.1"><span style="width:auto;color:#94a3b8">倍(通常は1)</span></div>
+  <div class="r"><span>向き</span><label style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="aFlip"> 上下が逆さまのとき</label></div>
+  <div class="acts"><button id="aAuto">自動で合わせ直す</button><button id="aCancel">やめる</button><button id="aSave" class="pri">保存</button></div>
+</div>
+<div id="rotateHint"><div class="ic">📱</div><div>スマホを横向きにしてください<br><small style="opacity:.7">回転しない場合は、画面の向きのロックを解除してください</small></div><button class="pill" id="rotateHintClose" style="border:0;font-size:13px;margin-top:6px">このまま見る</button></div>
 <div id="joystick"><div id="stick"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/babylonjs@9.29.0/babylon.js"></script>
@@ -66,6 +96,7 @@ const EYE_HEIGHT = 1.55;     // 目の高さ (m)
 const WALK_SPEED = 1.8;      // 歩く速さ (m/秒)
 const BODY_RADIUS = 0.22;    // 体の半径 (m)
 
+let allowEmptyPlan = false;
 const SAMPLE_PLAN = {
   rooms: [
     { id: 0, name: "リビング", wx: 0, wy: 0, ww: 250, wh: 200, color: "#1D9E75",
@@ -108,7 +139,7 @@ function postToParent(msg) {
 
 if (isEmbedded) {
   closeBtn.style.display = "block";
-  closeBtn.addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
+  closeBtn.addEventListener("click", function () { if (typeof exitLandscape === "function") exitLandscape(); postToParent({ type: "vr-viewer-close" }); });
   window.addEventListener("keydown", function (e) { if (e.key === "Escape") postToParent({ type: "vr-viewer-close" }); });
 }
 
@@ -436,7 +467,7 @@ function buildPlan(plan) {
   const freeWalls = (plan.walls || []).map(function (w) {
     return { a: toWorld(num(w.x1, 0), num(w.y1, 0)), b: toWorld(num(w.x2, 0), num(w.y2, 0)) };
   });
-  if (rooms.length === 0 && freeWalls.length === 0) throw new Error("間取りデータに部屋がありません");
+  if (rooms.length === 0 && freeWalls.length === 0 && !allowEmptyPlan) throw new Error("間取りデータに部屋がありません");
   shareOpenings(rooms);
 
   if (planRoot) planRoot.dispose(false, false);
@@ -495,9 +526,11 @@ function buildPlan(plan) {
     free.sort(function (p, q) { return Math.hypot(p.x - big.info.x, p.z - big.info.z) - Math.hypot(q.x - big.info.x, q.z - big.info.z); });
     spawn = free[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, big.pts); }) || cands[0];
     currentSpawn = { x: spawn.x, z: spawn.z, rotY: Math.atan2(big.info.x - spawn.x, big.info.z - spawn.z) || 0 };
-  } else {
+  } else if (freeWalls.length) {
     const w = freeWalls[0];
     currentSpawn = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 + 1, rotY: 0 };
+  } else {
+    currentSpawn = { x: 0, z: 0, rotY: 0 };   // 間取りなし(実写だけ)
   }
   // 一番奥まで見通せる向きで始める
   scene.meshes.forEach(function (m) { m.computeWorldMatrix(true); });
@@ -520,6 +553,7 @@ function buildPlan(plan) {
 let yaw = 0, pitch = 0;
 const look = { id: null, x: 0, y: 0 };
 canvas.addEventListener("pointerdown", function (e) {
+  if (alignMode) return;
   if (look.id !== null) return;
   look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY;
   canvas.setPointerCapture(e.pointerId);
@@ -624,6 +658,184 @@ async function setupXR() {
   }
 }
 
+/* ---------- 実写(ガウシアンスプラット) ---------- */
+// 実写データは見た目だけに使い、壁の当たり判定は間取りのまま残す。
+let alignMode = false;
+let splatRoot = null, splatMesh = null, splatTf = null, viewMode = "plan";
+const LOADERS_URL = "https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.29.0/babylonjs.loaders.min.js";
+function loadScriptOnce(src) {
+  return new Promise(function (resolve, reject) {
+    if (BABYLON.SceneLoader && BABYLON.SceneLoader.IsPluginForExtensionAvailable && BABYLON.SceneLoader.IsPluginForExtensionAvailable(".spz")) return resolve();
+    const s = document.createElement("script");
+    s.src = src; s.onload = function () { resolve(); }; s.onerror = function () { reject(new Error("読み込み用の部品を取得できませんでした")); };
+    document.head.appendChild(s);
+  });
+}
+async function loadSplat(url, ext) {
+  await loadScriptOnce(LOADERS_URL);
+  loadingEl.classList.remove("hide");
+  loadingText.textContent = "実写データを読み込み中…";
+  const res = await BABYLON.SceneLoader.ImportMeshAsync("", "", url, scene, function (ev) {
+    if (ev && ev.lengthComputable && ev.total) loadingText.textContent = "実写データを読み込み中… " + Math.round(ev.loaded / ev.total * 100) + "%";
+  }, ext || ".spz");
+  splatRoot = new BABYLON.TransformNode("splatRoot", scene);
+  splatMesh = res.meshes[0];
+  res.meshes.forEach(function (m) { if (!m.parent) m.parent = splatRoot; m.isPickable = false; });
+}
+function planCenter() {
+  if (roomAreas.length) {
+    let x1 = Infinity, z1 = Infinity, x2 = -Infinity, z2 = -Infinity;
+    roomAreas.forEach(function (r) { r.pts.forEach(function (p) { x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); z1 = Math.min(z1, p.z); z2 = Math.max(z2, p.z); }); });
+    return { x: (x1 + x2) / 2, z: (z1 + z2) / 2 };
+  }
+  return { x: 0, z: 0 };
+}
+// 位置合わせの初期値: 実写の床を y=0 に、中心を間取りの中心にそろえる
+// (床は「低い位置で点がいちばん密集している高さ」、中心は点の中央値で求める。遠くの点に引っぱられないように)
+function sampleSplatWorld(maxN) {
+  const arr = splatMesh && (splatMesh._splatPositions || splatMesh.splatPositions);
+  if (!arr || !arr.length) return null;
+  const stride = arr.length % 4 === 0 ? 4 : 3;
+  const n = Math.min(Math.floor(arr.length / stride), splatMesh._vertexCount || Infinity), step = Math.max(1, Math.floor(n / (maxN || 60000)));
+  splatRoot.computeWorldMatrix(true); splatMesh.computeWorldMatrix(true);
+  const W = splatMesh.getWorldMatrix(), v = new BABYLON.Vector3(), out = [];
+  for (let i = 0; i < n; i += step) {
+    v.set(arr[i * stride], arr[i * stride + 1], arr[i * stride + 2]);
+    out.push(BABYLON.Vector3.TransformCoordinates(v, W));
+  }
+  return out;
+}
+function median(a) { const b = a.slice().sort(function (p, q) { return p - q; }); return b[b.length >> 1] || 0; }
+// 床はふつう一番点が密集した水平面。それが上半分にあれば、上下が逆さまに読み込まれている
+function looksUpsideDown() {
+  const pts = sampleSplatWorld(40000); if (!pts || pts.length < 50) return false;
+  const ys = pts.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
+  const lo = ys[Math.floor(ys.length * 0.02)], hi = ys[Math.floor(ys.length * 0.98)];
+  const bin = 0.05, nb = Math.max(1, Math.ceil((hi - lo) / bin)), cnt = new Array(nb + 1).fill(0);
+  ys.forEach(function (y) { if (y >= lo && y <= hi) cnt[Math.min(nb, Math.floor((y - lo) / bin))]++; });
+  let best = 0; for (let k = 0; k <= nb; k++) if (cnt[k] > cnt[best]) best = k;
+  return best > nb / 2;
+}
+function guessSplatTransform(base) {
+  const t = Object.assign({ x: 0, y: 0, z: 0, rotY: 0, scale: 1, flip: false }, base || {});
+  t.x = 0; t.y = 0; t.z = 0;
+  applySplatTransform(t);
+  if (!base || base.flip === undefined) {   // 最初の1回だけ、上下の向きを自動で判定
+    if (looksUpsideDown()) { t.flip = !t.flip; applySplatTransform(t); }
+  }
+  const pts = sampleSplatWorld();
+  const c = planCenter();
+  if (pts && pts.length > 50) {
+    const ys = pts.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
+    const lo = ys[Math.floor(ys.length * 0.01)], hi = ys[Math.floor(ys.length * 0.99)];
+    const bin = 0.05, nb = Math.max(1, Math.ceil((hi - lo) / bin)), cnt = new Array(nb + 1).fill(0);
+    ys.forEach(function (y) { if (y >= lo && y <= hi) cnt[Math.min(nb, Math.floor((y - lo) / bin))]++; });
+    // 下から4割の範囲で一番点が多い高さ = 床
+    let best = 0; for (let k = 0; k <= Math.floor(nb * 0.4); k++) if (cnt[k] > cnt[best]) best = k;
+    t.y = -(lo + (best + 0.5) * bin);
+    t.x = c.x - median(pts.map(function (p) { return p.x; }));
+    t.z = c.z - median(pts.map(function (p) { return p.z; }));
+  } else {
+    const b = splatRoot.getHierarchyBoundingVectors(true);
+    t.x = c.x - (b.min.x + b.max.x) / 2; t.z = c.z - (b.min.z + b.max.z) / 2; t.y = -b.min.y;
+  }
+  return t;
+}
+function applySplatTransform(t) {
+  if (!splatRoot) return;
+  splatRoot.position.set(+t.x || 0, +t.y || 0, +t.z || 0);
+  splatRoot.rotation.set(t.flip ? Math.PI : 0, (+t.rotY || 0) * Math.PI / 180, 0);
+  const sc = +t.scale || 1;
+  splatRoot.scaling.set(sc, sc, sc);
+  splatRoot.computeWorldMatrix(true);
+}
+function planMeshes() { return planRoot ? planRoot.getChildMeshes(false) : []; }
+function setViewMode(mode) {
+  viewMode = mode;
+  const real = mode === "real" && !!splatRoot;
+  if (splatRoot) splatRoot.setEnabled(real || alignMode);
+  // 実写のときは間取りの見た目を隠す(当たり判定はそのまま残る)
+  planMeshes().forEach(function (m) { m.isVisible = !real; });
+  scene.clearColor = real ? new BABYLON.Color4(0.08, 0.09, 0.12, 1) : new BABYLON.Color4(0.72, 0.85, 0.96, 1);
+  const btn = document.getElementById("modeBtn");
+  btn.textContent = real ? "🏠 間取りで見る" : "📷 実写で見る";
+}
+document.getElementById("modeBtn").addEventListener("click", function () { setViewMode(viewMode === "real" ? "plan" : "real"); });
+
+/* 位置合わせモード(管理者用) */
+let arcCam = null;
+function enterAlignMode() {
+  alignMode = true;
+  document.getElementById("joystick").style.display = "none";
+  document.getElementById("alignPanel").classList.add("show");
+  document.getElementById("modeBtn").style.display = "none";
+  hintEl.classList.add("hide");
+  const c = planCenter();
+  let size = 8;
+  if (roomAreas.length) { const xs = [], zs = []; roomAreas.forEach(function (r) { r.pts.forEach(function (p) { xs.push(p.x); zs.push(p.z); }); }); size = Math.max(Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, zs) - Math.min.apply(null, zs), 4); }
+  arcCam = new BABYLON.ArcRotateCamera("alignCam", -Math.PI / 2, 0.001, size * 1.6, new BABYLON.Vector3(c.x, 0, c.z), scene);
+  arcCam.lowerRadiusLimit = 1; arcCam.upperRadiusLimit = 80; arcCam.wheelPrecision = 20; arcCam.pinchPrecision = 30;
+  arcCam.minZ = 0.05;
+  arcCam.attachControl(canvas, true);
+  scene.activeCamera = arcCam;
+  // 間取りは半透明の壁だけ見せる
+  planMeshes().forEach(function (m) {
+    const keep = m.name === "walls";
+    m.isVisible = keep;
+    if (keep) { m.material = m.material.clone("wallAlign"); m.material.alpha = 0.5; m.material.diffuseColor = new BABYLON.Color3(0.15, 0.4, 1); }
+  });
+  if (splatRoot) splatRoot.setEnabled(true);
+  scene.clearColor = new BABYLON.Color4(0.08, 0.09, 0.12, 1);
+  syncAlignInputs();
+}
+function syncAlignInputs() {
+  document.getElementById("aRot").value = Math.round(splatTf.rotY * 10) / 10;
+  document.getElementById("aY").value = (+splatTf.y).toFixed(2);
+  document.getElementById("aScale").value = (+splatTf.scale).toFixed(2);
+  document.getElementById("aFlip").checked = !!splatTf.flip;
+}
+function updateAlign() { applySplatTransform(splatTf); syncAlignInputs(); }
+document.querySelectorAll("#alignPanel [data-rot]").forEach(function (b) { b.addEventListener("click", function () { splatTf.rotY = ((splatTf.rotY + (+b.dataset.rot)) % 360 + 540) % 360 - 180; updateAlign(); }); });
+document.querySelectorAll("#alignPanel [data-mv]").forEach(function (b) { b.addEventListener("click", function () {
+  const st = document.getElementById("aFine").checked ? 0.02 : 0.1, v = b.dataset.mv.split(",").map(Number);
+  // 画面の上下左右に合わせて動かす(上から見たカメラの向き基準)
+  const a = arcCam ? arcCam.alpha : -Math.PI / 2;
+  const rx = -Math.sin(a), rz = Math.cos(a);            // 画面の右方向
+  const ux = -Math.cos(a), uz = -Math.sin(a);           // 画面の上方向
+  splatTf.x += (rx * v[0] + ux * v[1]) * st; splatTf.z += (rz * v[0] + uz * v[1]) * st; updateAlign();
+}); });
+document.querySelectorAll("#alignPanel [data-up]").forEach(function (b) { b.addEventListener("click", function () { splatTf.y += (+b.dataset.up) * (document.getElementById("aFine").checked ? 0.01 : 0.05); updateAlign(); }); });
+document.getElementById("aRot").addEventListener("change", function (e) { splatTf.rotY = +e.target.value || 0; updateAlign(); });
+document.getElementById("aY").addEventListener("change", function (e) { splatTf.y = +e.target.value || 0; updateAlign(); });
+document.getElementById("aScale").addEventListener("change", function (e) { const v = +e.target.value; if (v > 0.05) splatTf.scale = v; updateAlign(); });
+document.getElementById("aFlip").addEventListener("change", function (e) { splatTf.flip = e.target.checked; const g = guessSplatTransform(splatTf); g.rotY = splatTf.rotY; g.flip = splatTf.flip; splatTf = g; updateAlign(); });
+document.getElementById("aAuto").addEventListener("click", function () { splatTf = guessSplatTransform({ rotY: splatTf.rotY, flip: splatTf.flip, scale: splatTf.scale }); updateAlign(); });
+document.getElementById("aCancel").addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
+document.getElementById("aSave").addEventListener("click", function () {
+  const t = { x: +splatTf.x.toFixed(3), y: +splatTf.y.toFixed(3), z: +splatTf.z.toFixed(3), rotY: +(+splatTf.rotY).toFixed(2), scale: +(+splatTf.scale).toFixed(3), flip: !!splatTf.flip };
+  postToParent({ type: "vr-viewer-align-save", transform: t });
+});
+
+async function setupSplat(opts) {
+  if (!opts || !opts.splat || !opts.splat.url) return;
+  try {
+    await loadSplat(opts.splat.url, opts.splat.ext);
+  } catch (err) {
+    console.error(err);
+    if (opts.align) throw err;
+    hintEl.textContent = "実写データを読み込めなかったので、間取りで表示しています";
+    hintEl.classList.remove("hide");
+    return;
+  }
+  // 点の位置データは読み込み後に少し遅れて用意されるので待つ(最大8秒)
+  for (let i = 0; i < 80 && !(splatMesh._splatPositions && splatMesh._splatPositions.length); i++) await new Promise(function (r) { setTimeout(r, 100); });
+  splatTf = opts.splat.transform ? Object.assign({ x: 0, y: 0, z: 0, rotY: 0, scale: 1, flip: false }, opts.splat.transform) : guessSplatTransform();
+  applySplatTransform(splatTf);
+  if (opts.align) { enterAlignMode(); return; }
+  document.getElementById("modeBtn").style.display = "block";
+  setViewMode("real");
+}
+
 /* ---------- 読み込み ---------- */
 function showHint() {
   hintEl.textContent = isTouch
@@ -634,16 +846,19 @@ function showHint() {
 }
 
 let started = false;
-async function startWith(plan, propName) {
-  buildPlan(plan);
+async function startWith(plan, propName, opts) {
+  opts = opts || {};
+  allowEmptyPlan = !!(opts.splat && opts.splat.url);
+  buildPlan(plan || { rooms: [], walls: [] });
   titleEl.textContent = propName || "";
   if (!started) {
     started = true;
-    await setupXR();
+    if (!opts.align) await setupXR();
     engine.runRenderLoop(function () { scene.render(); });
   }
+  await setupSplat(opts);
   loadingEl.classList.add("hide");
-  showHint();
+  if (!opts.align) showHint();
 }
 function fail(err) {
   console.error(err);
@@ -657,12 +872,17 @@ window.addEventListener("message", function (e) {
   const msg = e.data;
   if (!msg || typeof msg !== "object" || msg.type !== "vr-viewer-init") return;
   gotInit = true;
-  startWith(msg.data, msg.propName).catch(fail);
+  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align }).catch(fail);
 });
 
 let gotInit = false;
 (async function boot() {
-  const planUrl = new URLSearchParams(location.search).get("plan");
+  const qs = new URLSearchParams(location.search);
+  const planUrl = qs.get("plan"), splatUrl = qs.get("splat");
+  if (splatUrl && !planUrl) {   // 実写だけを試すとき: vr-viewer.html?splat=URL
+    await startWith(null, "", { splat: { url: splatUrl }, align: qs.get("align") === "1" });
+    return;
+  }
   if (planUrl) {
     loadingText.textContent = "間取りデータを読み込み中…";
     const res = await fetch(planUrl);
@@ -680,6 +900,43 @@ let gotInit = false;
 })().catch(fail);
 
 window.addEventListener("resize", function () { engine.resize(); updateFov(); });
+
+/* ---------- スマホを横向きで見る ---------- */
+// 全画面にして横向きに固定する(Androidなど対応端末)。固定できない端末(iPhoneなど)では
+// 「横向きにしてください」と案内し、回転したら自動で消す。
+const rotateBtn = document.getElementById("rotateBtn");
+const rotateHint = document.getElementById("rotateHint");
+const isLandscape = () => window.innerWidth > window.innerHeight;
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+async function enterLandscape() {
+  try {
+    const el = document.documentElement;
+    if (!fsElement()) {
+      if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: "hide" });
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+  } catch (e) { /* 全画面にできない端末もある */ }
+  let locked = false;
+  try { if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock("landscape"); locked = true; } } catch (e) { locked = false; }
+  if (!locked && !isLandscape()) rotateHint.classList.add("show");
+  rotateBtn.textContent = "⤡ 縦に戻す";
+}
+async function exitLandscape() {
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+  try { if (fsElement()) { if (document.exitFullscreen) await document.exitFullscreen(); else if (document.webkitExitFullscreen) document.webkitExitFullscreen(); } } catch (e) {}
+  rotateHint.classList.remove("show");
+  rotateBtn.textContent = "⤢ 横向き";
+}
+rotateBtn.addEventListener("click", function () { (rotateBtn.textContent.indexOf("横向き") >= 0 ? enterLandscape : exitLandscape)(); });
+document.getElementById("rotateHintClose").addEventListener("click", function () { rotateHint.classList.remove("show"); });
+function onOrientation() {
+  if (isLandscape()) rotateHint.classList.remove("show");
+  // 回転直後は画面サイズがまだ変わっていないことがあるので、少し待ってから合わせ直す
+  setTimeout(function () { engine.resize(); updateFov(); }, 250);
+}
+window.addEventListener("orientationchange", onOrientation);
+if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener("change", onOrientation);
+document.addEventListener("fullscreenchange", function () { if (!fsElement()) { rotateBtn.textContent = "⤢ 横向き"; } setTimeout(function () { engine.resize(); }, 200); });
 </script>
 </body>
 </html>

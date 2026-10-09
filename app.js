@@ -580,9 +580,13 @@ let _vrPendingInit=null;
 function viewInVR(propId){
   const prop=PROPS.find(p=>p.id===propId);
   if(!prop){alert('物件が見つかりません');return;}
-  if(!prop.floorplanData){alert('この物件には間取りデータがありません');return;}
+  if(!prop.floorplanData&&!prop.splatURL){alert('この物件には間取りデータがありません');return;}
+  openVRViewer({data:prop.floorplanData||null,propName:prop.name||'',
+    splat:prop.splatURL?{url:prop.splatURL,transform:prop.splatTransform||null,ext:'.spz'}:null});
+}
+function openVRViewer(init){
   closeVRViewer();
-  _vrPendingInit={type:'vr-viewer-init',data:prop.floorplanData,propName:prop.name||''};
+  _vrPendingInit=Object.assign({type:'vr-viewer-init'},init);
   const overlay=document.createElement('div');
   overlay.id='vr-viewer-overlay';
   overlay.style.cssText='position:fixed;inset:0;z-index:100000;background:#0a0e1a';
@@ -611,7 +615,163 @@ window.addEventListener('message',function(e){
     const iframe=document.getElementById('vr-viewer-iframe');
     if(_vrPendingInit&&iframe&&iframe.contentWindow) iframe.contentWindow.postMessage(_vrPendingInit,'*');
   } else if(msg.type==='vr-viewer-close'){closeVRViewer();}
+  else if(msg.type==='vr-viewer-align-save'){
+    // 実写の位置合わせの結果を、編集中の物件に入れておく(保存ボタンで物件と一緒に保存)
+    if(window.editedSplat){ window.editedSplat.transform=msg.transform||null; _renderSplatStatus(); }
+    closeVRViewer();
+    showToast('位置合わせを反映しました。「登録する/変更を保存」で保存されます','success');
+  }
 });
+
+/* ===== 実写データ(.spz)の下ごしらえ =====
+   撮影データには部屋の外の遠くの点(空や外の景色)が混ざっていて、重くて位置合わせもしにくい。
+   アップロード前にブラウザの中で
+     1) 点が集まっている範囲(=部屋)だけを残す
+     2) 色の細かい情報(球面調和)を落としてファイルを小さくする
+   をして、同じ .spz 形式で保存し直す。 */
+async function gunzipBytes(buf) {
+  const ds = new DecompressionStream('gzip');
+  return new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(ds)).arrayBuffer());
+}
+async function gzipBytes(u8) {
+  const cs = new CompressionStream('gzip');
+  return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer());
+}
+// 1軸ぶん: 点が密集している連続区間(中央値を含む)を探す
+function denseRange(vals, bin, minFrac) {
+  const n = vals.length; if (!n) return [0, 0];
+  const sorted = Float32Array.from(vals).sort();
+  const med = sorted[n >> 1];
+  const lo = sorted[Math.floor(n * 0.001)], hi = sorted[Math.floor(n * 0.999)];
+  const nb = Math.max(1, Math.min(4000, Math.ceil((hi - lo) / bin)));
+  const cnt = new Uint32Array(nb + 1);
+  for (let i = 0; i < n; i++) { const v = vals[i]; if (v < lo || v > hi) continue; cnt[Math.min(nb, Math.floor((v - lo) / bin))]++; }
+  const th = n * minFrac, mb = Math.min(nb, Math.max(0, Math.floor((med - lo) / bin)));
+  let a = mb, b = mb, gap = 0;
+  // 少しの隙間(2ビン)は許して広げる
+  for (let k = mb - 1; k >= 0; k--) { if (cnt[k] >= th) { a = k; gap = 0; } else if (++gap > 2) break; }
+  gap = 0;
+  for (let k = mb + 1; k <= nb; k++) { if (cnt[k] >= th) { b = k; gap = 0; } else if (++gap > 2) break; }
+  return [lo + a * bin, lo + (b + 1) * bin];
+}
+async function processSpz(arrayBuffer, opts) {
+  opts = Object.assign({ margin: 0.3, keepSH: false, maxPoints: 600000 }, opts || {});
+  const d = await gunzipBytes(arrayBuffer);
+  const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const magic = dv.getUint32(0, true), version = dv.getUint32(4, true), n = dv.getUint32(8, true);
+  const shDeg = d[12], frac = d[13], flags = d[14];
+  if (magic !== 0x5053474e) throw new Error('.spz ファイルではないようです');
+  if (version < 2 || version > 3) throw new Error('この .spz のバージョン(' + version + ')には対応していません');
+  const shCoef = [0, 3, 8, 15][shDeg] || 0, rotB = version >= 3 ? 4 : 3;
+  let off = 16;
+  const posOff = off; off += n * 9;
+  const alphaOff = off; off += n;
+  const colOff = off; off += n * 3;
+  const sclOff = off; off += n * 3;
+  const rotOff = off; off += n * rotB;
+  const shOff = off; off += n * shCoef * 3;
+  if (off > d.length) throw new Error('.spz ファイルが壊れているようです');
+  // 位置を読む(24bit固定小数)
+  const P = [new Float32Array(n), new Float32Array(n), new Float32Array(n)], sc = 1 / (1 << frac);
+  for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) {
+    const o = posOff + i * 9 + a * 3;
+    let v = d[o] | (d[o + 1] << 8) | (d[o + 2] << 16); if (v & 0x800000) v -= 0x1000000;
+    P[a][i] = v * sc;
+  }
+  const rx = denseRange(P[0], 0.25, 0.0015), ry = denseRange(P[1], 0.25, 0.0015), rz = denseRange(P[2], 0.25, 0.0015);
+  const m = opts.margin;
+  const keep = [];
+  for (let i = 0; i < n; i++) {
+    if (P[0][i] < rx[0] - m || P[0][i] > rx[1] + m || P[1][i] < ry[0] - m || P[1][i] > ry[1] + m || P[2][i] < rz[0] - m || P[2][i] > rz[1] + m) continue;
+    if (d[alphaOff + i] < 8) continue;   // ほぼ透明な点も捨てる
+    keep.push(i);
+  }
+  // 多すぎるときは間引く(スマホ向け)
+  let idx = keep;
+  if (keep.length > opts.maxPoints) { const step = keep.length / opts.maxPoints; idx = []; for (let k = 0; k < keep.length; k += step) idx.push(keep[Math.floor(k)]); }
+  const m2 = idx.length, outSh = opts.keepSH ? shCoef : 0, outShDeg = opts.keepSH ? shDeg : 0;
+  const out = new Uint8Array(16 + m2 * (9 + 1 + 3 + 3 + rotB + outSh * 3));
+  const ov = new DataView(out.buffer);
+  ov.setUint32(0, magic, true); ov.setUint32(4, version, true); ov.setUint32(8, m2, true);
+  out[12] = outShDeg; out[13] = frac; out[14] = flags; out[15] = 0;
+  let o = 16;
+  const copy = (srcOff, size) => { for (let k = 0; k < m2; k++) { out.set(d.subarray(srcOff + idx[k] * size, srcOff + idx[k] * size + size), o); o += size; } };
+  copy(posOff, 9); copy(alphaOff, 1); copy(colOff, 3); copy(sclOff, 3); copy(rotOff, rotB);
+  if (outSh) copy(shOff, outSh * 3);
+  const gz = await gzipBytes(out);
+  return {
+    blob: new Blob([gz], { type: 'application/octet-stream' }),
+    info: { pointsIn: n, pointsOut: m2, bytesIn: arrayBuffer.byteLength, bytesOut: gz.byteLength,
+      box: { x: [rx[0] - m, rx[1] + m], y: [ry[0] - m, ry[1] + m], z: [rz[0] - m, rz[1] + m] } }
+  };
+}
+
+/* ── 物件フォーム: 実写データ(.spz) ── */
+window.editedSplat=null;   // {blob?, url, transform, info?}
+async function onSplatFileChange(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const st=document.getElementById('af-splat-status');
+  if(!/\.spz$/i.test(f.name)){ showToast('.spz ファイルを選んでください','warn'); input.value=''; return; }
+  if(typeof DecompressionStream==='undefined'){ showToast('このブラウザでは実写データを扱えません。最新のChrome・Edge・Safariを使ってください','error'); return; }
+  st.style.display='block'; st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
+  try{
+    const r=await processSpz(await f.arrayBuffer());
+    if(window.editedSplat&&window.editedSplat.url&&window.editedSplat.blob) URL.revokeObjectURL(window.editedSplat.url);
+    window.editedSplat={blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info};
+    _renderSplatStatus();
+    showToast('実写データを読み込みました。「位置合わせ」で間取りに重ねてください','success');
+  }catch(e){ console.error(e); st.textContent='読み込めませんでした: '+e.message; }
+  input.value='';
+}
+function _renderSplatStatus(){
+  const st=document.getElementById('af-splat-status'), acts=document.getElementById('af-splat-actions');
+  if(!st||!acts) return;
+  const sp=window.editedSplat;
+  if(!sp){ st.style.display='none'; acts.style.display='none'; return; }
+  st.style.display='block'; acts.style.display='flex';
+  const mb=b=>(b/1024/1024).toFixed(1)+'MB';
+  const i=sp.info;
+  st.innerHTML=(i?`📷 実写データ: ${(i.pointsOut/10000).toFixed(1)}万点・${mb(i.bytesOut)}(元: ${(i.pointsIn/10000).toFixed(1)}万点・${mb(i.bytesIn)})`:'📷 実写データあり')
+    +'<br>'+(sp.transform?'<span style="color:var(--green)">✓ 位置合わせ済み</span>':'<span style="color:var(--amber)">位置合わせがまだです(自動の推定で表示されます)</span>');
+}
+function alignSplat(){
+  const sp=window.editedSplat; if(!sp){ showToast('先に実写データを選んでください','warn'); return; }
+  const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
+  const plan=window.editedFloorplanData||(editing&&editing.floorplanData)||null;
+  if(!plan) showToast('間取りがないので、実写の床と中心だけ合わせます','info');
+  openVRViewer({data:plan,propName:'位置合わせ',align:true,splat:{url:sp.url,transform:sp.transform,ext:'.spz'}});
+}
+function previewSplat(){
+  const sp=window.editedSplat; if(!sp) return;
+  const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
+  openVRViewer({data:window.editedFloorplanData||(editing&&editing.floorplanData)||null,propName:'プレビュー',splat:{url:sp.url,transform:sp.transform,ext:'.spz'}});
+}
+function clearSplat(){
+  if(window.editedSplat&&window.editedSplat.blob&&window.editedSplat.url) URL.revokeObjectURL(window.editedSplat.url);
+  window.editedSplat=null; _renderSplatStatus();
+}
+window.onSplatFileChange=onSplatFileChange;window.alignSplat=alignSplat;window.previewSplat=previewSplat;window.clearSplat=clearSplat;
+// 実写データをS3に置いて、公開URLを返す
+async function uploadSplatToS3(blob){
+  const filename='photos/splat_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+'.spz';
+  const signRes=await fetch(AWS_API_URL+'?action=upload&filename='+encodeURIComponent(filename));
+  if(!signRes.ok){ const d=await signRes.json().catch(()=>({})); throw new Error(d.error||'アップロードの準備に失敗しました'); }
+  const {url}=await signRes.json();
+  const putRes=await fetch(url,{method:'PUT',body:blob,headers:{'Content-Type':'application/octet-stream'}});
+  if(!putRes.ok) throw new Error('S3へのアップロードに失敗しました ('+putRes.status+')');
+  return S3_PUBLIC_BASE+filename;
+}
+// フォームの実写データを保存用の値にする({splatURL, splatTransform})
+async function resolveSplatForSave(){
+  const sp=window.editedSplat;
+  if(!sp) return {splatURL:null,splatTransform:null};
+  if(sp.blob){
+    showToast('実写データをアップロード中…(数MBあります)','info',4000);
+    const url=await uploadSplatToS3(sp.blob);
+    return {splatURL:url,splatTransform:sp.transform||null};
+  }
+  return {splatURL:sp.url,splatTransform:sp.transform||null};
+}
 
 /* 旧方式: Unity(FloorPlayVR6)を動かしているQuest 3へ間取りを送信する。ボタンからは呼んでいない(予備) */
 function sendFloorplanToQuest(propId){
@@ -2508,7 +2668,7 @@ function renderCards(){
     return `<div class="prop-card" onclick="showPropDetail(${p.id})">
       <div class="prop-img" style="${photoStyle}">
         ${!photos[0]?'<i class="ti ti-building prop-img-placeholder"></i>':''}
-        ${p.floorplanData?'<div class="prop-vr-badge"><i class="ti ti-vr"></i> VR対応</div>':''}
+        ${(p.floorplanData||p.splatURL)?`<div class="prop-vr-badge"><i class="ti ti-vr"></i> ${p.splatURL?'実写VR':'VR対応'}</div>`:''}
         ${photos.length>1?`<div style="position:absolute;bottom:6px;left:8px;background:rgba(0,0,0,.5);color:#fff;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600"><i class="ti ti-photo"></i> ${photos.length}</div>`:''}
         <div class="fav-btn${isFav?' on':''}" data-prop-id="${p.id}" onclick="event.stopPropagation();toggleFav(${p.id},this)">
           <i class="ti ti-heart"></i>
@@ -2601,7 +2761,7 @@ function renderAdminPropTable(){
       <button class="btn btn-sm" style="font-size:10px;padding:3px 8px;color:var(--red)" onclick="if(confirm('削除しますか？')) deleteProp(${p.id})"><i class="ti ti-trash"></i></button>`
       :`<span style="font-size:10px;color:#cbd5e1;padding:3px 8px" title="編集権限がありません"><i class="ti ti-lock"></i></span>`;
     return `<div class="admin-table-row" style="grid-template-columns:2fr 1fr 1fr 130px">
-    <span style="font-weight:700;color:var(--navy)">${p.name}${p.floorplanData?'<span class="tag tb" style="font-size:9px;margin-left:4px">VR</span>':''}<br>${ownerLabel}</span>
+    <span style="font-weight:700;color:var(--navy)">${p.name}${p.floorplanData?'<span class="tag tb" style="font-size:9px;margin-left:4px">VR</span>':''}${p.splatURL?'<span class="tag tb" style="font-size:9px;margin-left:4px">実写</span>':''}<br>${ownerLabel}</span>
     <span style="color:#64748b">${p.area}</span>
     <span style="color:var(--blue);font-weight:700">¥${Number(p.price).toLocaleString()}</span>
     <span style="display:flex;gap:5px">
@@ -2660,6 +2820,8 @@ function startEditProp(id){
   renderExistingPhotosPreview();
   window.editedFloorplanData=prop.floorplanData||null;
   window.editedFloorplanThumb=prop.floorplanURL||null;
+  window.editedSplat=prop.splatURL?{url:prop.splatURL,transform:prop.splatTransform||null}:null;
+  _renderSplatStatus();
   if(typeof _applyFloorplanThumbnail==='function') _applyFloorplanThumbnail();
   const photoInput=document.getElementById('af-photo');if(photoInput) photoInput.value='';
   setTimeout(()=>form.scrollIntoView({behavior:'smooth',block:'start'}),50);
@@ -2854,7 +3016,7 @@ function renderPropDetail(prop){
     <span style="font-size:11px;color:#94a3b8">${prop.area||''} ${prop.station?'・'+prop.station+'駅 徒歩'+(prop.walkMin||'?')+'分':''}</span>
   </div>`;
   const vrBtn=document.getElementById('pd-vr-btn');
-  if(vrBtn) vrBtn.style.display=prop.floorplanData?'flex':'none';
+  if(vrBtn) vrBtn.style.display=(prop.floorplanData||prop.splatURL)?'flex':'none';
   const pdAdmin=document.getElementById('pd-admin-actions');
   if(pdAdmin) pdAdmin.style.display=canEditProp(prop)?'flex':'none';
   setTimeout(()=>{
@@ -3042,13 +3204,17 @@ async function addProperty(){
     showToast('写真をアップロード中...','info',3000);
     newPhotoURLs=await uploadPhotosToS3(newPhotoDataURLs);
   }
+  let splatFields;
+  try{ splatFields=await resolveSplatForSave(); }
+  catch(e){ showToast('実写データを保存できませんでした: '+e.message,'error'); return; }
   if(editingPropId!=null){
     const propIdx=PROPS.findIndex(p=>p.id===editingPropId);
     if(propIdx<0){alert('編集対象が見つかりませんでした');resetEditMode();return;}
     const existing=PROPS[propIdx];
     const mergedPhotos=[...editingExistingPhotos,...newPhotoURLs];
     const updated={...existing,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,description:desc,access,details,photoURLs:mergedPhotos,
-      floorplanURL:window.editedFloorplanThumb||existing.floorplanURL||null,floorplanData:window.editedFloorplanData||existing.floorplanData||null};
+      floorplanURL:window.editedFloorplanThumb||existing.floorplanURL||null,floorplanData:window.editedFloorplanData||existing.floorplanData||null,
+      splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform};
     const addrChanged=(normalizeAddress(address)!==normalizeAddress(existing.address||')'))|| (normalizeAddress(area)!==normalizeAddress(existing.area||''));
     if(addrChanged){updated.lat=null;updated.lng=null;}
     PROPS[propIdx]=updated;removeMapMarker(editingPropId);
@@ -3067,6 +3233,7 @@ async function addProperty(){
   const newProp={id:null,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,features:[],tags:[],description:desc,access,details,
     ownerEmail:(currentUser&&currentUser.email)||null, ownerName:(currentUser&&currentUser.name)||null,
     photoURLs:newPhotoURLs,floorplanURL:window.editedFloorplanThumb||null,floorplanData:window.editedFloorplanData||null,
+    splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform,
     lat:preCoords?preCoords.lat:null,lng:preCoords?preCoords.lng:null};
   window._afGeoCoords=null;
   clearAddForm();toggleAddForm();
@@ -3103,6 +3270,7 @@ function clearAddForm(){
   const geoStatus=document.getElementById('af-geo-status');if(geoStatus) geoStatus.style.display='none';
   window._afGeoCoords=null;
   if(window.clearFloorplan) window.clearFloorplan();
+  if(window.clearSplat) window.clearSplat();
   if(typeof resetEditMode==='function') resetEditMode();
 }
 

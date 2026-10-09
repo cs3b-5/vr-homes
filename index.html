@@ -805,6 +805,16 @@
                 </div>
               </div>
             </div>
+            <div class="field" style="grid-column:1/-1">
+              <div class="flabel">実写データ（任意・.spz）<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">スマホアプリ Scaniverse などで撮影した部屋の3D</span></div>
+              <input type="file" id="af-splat" accept=".spz" class="finput" style="padding:7px 11px" onchange="onSplatFileChange(this)">
+              <div id="af-splat-status" style="display:none;font-size:11.5px;color:#475569;margin-top:8px;line-height:1.7"></div>
+              <div id="af-splat-actions" style="display:none;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn btn-sm" type="button" onclick="alignSplat()"><i class="ti ti-arrows-move"></i>位置合わせ</button>
+                <button class="btn btn-sm" type="button" onclick="previewSplat()"><i class="ti ti-eye"></i>プレビュー</button>
+                <button class="btn btn-sm" type="button" style="color:var(--red)" onclick="clearSplat()"><i class="ti ti-trash"></i>削除</button>
+              </div>
+            </div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:var(--surface);padding:14px 0;border-top:1px solid var(--border);margin-top:8px">
             <button class="btn btn-sm" onclick="toggleAddForm()">キャンセル</button>
