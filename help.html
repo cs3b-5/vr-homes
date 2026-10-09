@@ -52,7 +52,12 @@
 <body>
 
 <h1><i class="ti ti-book" style="color:#2563eb"></i> VR Homes 使い方ガイド</h1>
-<p class="lead">VRで内見できる不動産サービスの使い方をご案内します。</p>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <span id="yk-help"></span>
+  <p class="lead" style="margin:0">VRで内見できる不動産サービスの使い方をご案内します。<br>案内役は、おうちを背負ったヤドカリの「やどかりん」。名前は「宿借り（やどかり）」＝おうちを借りる人から来ています。</p>
+</div>
+<script src="mascot.js"></script>
+<script>if (window.Yadokarin) document.getElementById('yk-help').innerHTML = Yadokarin.svg({ size: 90, face: 'happy' });</script>
 
 <div class="sec-title"><i class="ti ti-rocket"></i> 基本の流れ</div>
 

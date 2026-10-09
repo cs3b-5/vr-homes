@@ -116,7 +116,15 @@
 <body>
 <canvas id="canvas"></canvas>
 
-<div id="loading"><div class="spinner"></div><div id="loadingText">読み込み中…</div></div>
+<div id="loading"><div id="ykLoad" class="yk-bob"></div><div class="spinner"></div><div id="loadingText">おうちを準備中…</div></div>
+<script src="mascot.js"></script>
+<script>
+  (function () {
+    if (!window.Yadokarin) return;
+    document.getElementById("ykLoad").innerHTML = Yadokarin.svg({ size: 130, face: "vr", wave: false, title: "" });
+    document.querySelector("#loading .spinner").style.display = "none";
+  })();
+</script>
 <div id="topbar">
   <button id="closeBtn" class="pill" data-t="✕ 閉じる">✕ 閉じる</button>
   <button id="rotateBtn" class="pill" title="全画面・横向きで見る" data-t="⤢ 横向き">⤢ 横向き</button>
@@ -250,6 +258,8 @@ if (isTouch) document.body.classList.add("touch");
 function showError(msg) {
   loadingEl.classList.remove("hide");
   loadingEl.querySelector(".spinner").style.display = "none";
+  const yk = document.getElementById("ykLoad");
+  if (yk && window.Yadokarin) { yk.className = ""; yk.innerHTML = Yadokarin.svg({ size: 120, face: "sad", wave: false, title: "" }); }
   loadingText.textContent = msg;
 }
 
@@ -1201,6 +1211,8 @@ toolBtns.live.addEventListener("click", function () {
 
 function initTools(opts) {
   propKey = String(opts.propKey || "");
+  furnStore = opts.furnStore || (isEmbedded ? "session" : "local");
+  furnInit = Array.isArray(opts.furniture) ? opts.furniture : null;
   toolsReady = true;
   document.body.classList.add("ready");
   if (!isEmbedded || !opts.liveOk) toolBtns.live.classList.add("hidden");
@@ -1615,15 +1627,21 @@ function endFurnDrag(e) {
   furnDrag = null;
   if (moved) { saveMyFurniture(); renderFurnPanel(); }
 }
+// 家具の保存先: ログイン中 → アカウント(親画面がサーバーに保存) / ゲスト → このタブの間だけ / 単体で開いたとき → この端末
+let furnStore = "local", furnInit = null;
 function furnKey() { return "vr_myfurn_" + (propKey || "sample"); }
+function furnStorage() { return furnStore === "session" ? sessionStorage : localStorage; }
 function saveMyFurniture() {
-  try { localStorage.setItem(furnKey(), JSON.stringify(myFurn.map(function (f) { return { n: f.n, w: f.w, d: f.d, h: f.h, c: f.c, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rot: f.rot }; }))); } catch (e) {}
+  const list = myFurn.map(function (f) { return { n: f.n, w: +(+f.w).toFixed(3), d: +(+f.d).toFixed(3), h: +(+f.h).toFixed(3), c: f.c, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rot: f.rot }; });
+  if (furnStore === "parent") { furnInit = list; postToParent({ type: "vr-furn-save", propKey: propKey, items: list }); return; }
+  try { furnStorage().setItem(furnKey(), JSON.stringify(list)); } catch (e) {}
 }
 function loadMyFurniture() {
   myFurn.forEach(function (f) { if (f.mesh) f.mesh.dispose(); removeLabel(f.label); });
   myFurn = []; selFurn = null;
   let list = [];
-  try { list = JSON.parse(localStorage.getItem(furnKey()) || "[]"); } catch (e) { list = []; }
+  if (furnStore === "parent") list = furnInit || [];
+  else { try { list = JSON.parse(furnStorage().getItem(furnKey()) || "[]"); } catch (e) { list = []; } }
   (Array.isArray(list) ? list : []).slice(0, 60).forEach(function (o) {
     const f = { id: furnSeq++, n: String(o.n || ""), w: +o.w || 1, d: +o.d || 1, h: +o.h || 0.8, c: o.c, x: +o.x || 0, z: +o.z || 0, rot: +o.rot || 0 };
     myFurn.push(f); makeFurnMesh(f);
@@ -2134,7 +2152,7 @@ window.addEventListener("message", function (e) {
   if (!msg || typeof msg !== "object" || msg.type !== "vr-viewer-init") return;
   gotInit = true;
   if (msg.lang) setLang(msg.lang);
-  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo }).catch(fail);
+  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture }).catch(fail);
 });
 
 let gotInit = false;

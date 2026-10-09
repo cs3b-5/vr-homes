@@ -3,13 +3,14 @@
    キャッシュ戦略: Cache First（静的ファイル）
               + Network First（API）
 ============================================ */
-const CACHE_NAME    = 'vr-homes-v12';
+const CACHE_NAME    = 'vr-homes-v14';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './site.css',
   './app.js',
   './features.js',
+  './mascot.js',
   './help.html',
   './privacy.html',
   './terms.html',

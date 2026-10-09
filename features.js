@@ -62,9 +62,10 @@ function newUid() { const c = 'abcdefghijkmnpqrstuvwxyz23456789'; let s = ''; fo
 function viewerWin() { const f = $('vr-viewer-iframe'); return f && f.contentWindow; }
 function toViewer(msg) { const w = viewerWin(); if (w) w.postMessage(msg, '*'); }
 
-window.viewInVR = function (propId, extra) {
+window.viewInVR = async function (propId, extra) {
   const prop = findProp(propId);
   if (!prop) { alert('物件が見つかりません'); return; }
+  if (prop.floorplanData && prop.floorplanData._stub && !(await ensureFull(prop.id))) return;
   if (!prop.floorplanData && !prop.splatURL && !(prop.panoramas && prop.panoramas.length)) { alert('この物件にはVR内見のデータがありません'); return; }
   if (extra && extra.live && !isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.viewInVR(propId, extra)); return; }
   stopLive(false);
@@ -74,6 +75,8 @@ window.viewInVR = function (propId, extra) {
     splat: prop.splatURL ? { url: prop.splatURL, transform: prop.splatTransform || null, ext: '.spz' } : null,
     propKey: String(prop.id), liveOk: !!isLoggedIn, lang: fxLang,
     panoramas: prop.panoramas || [], geo: { lat: +prop.lat || 35.68, lng: +prop.lng || 139.76 },
+    furnStore: isLoggedIn && currentUser ? 'parent' : 'session',
+    furniture: isLoggedIn && currentUser ? (((currentUser.myFurniture || {})[prop.id]) || []) : null,
     live: extra && extra.live ? extra.live : null
   });
 };
@@ -138,6 +141,7 @@ window.addEventListener('message', e => {
       if (m.stats && m.stats.seconds >= 2 && m.propKey)
         api('trackView', { body: Object.assign({ propId: +m.propKey }, m.stats) }).catch(() => {});
       break;
+    case 'vr-furn-save': saveFurniture(m.propKey, m.items); break;
     case 'vr-live-start': liveStart(); break;
     case 'vr-live-join': liveJoin(String(m.code || '')); break;
     case 'vr-live-pose': live.pose = m.pose; break;
@@ -148,6 +152,24 @@ window.addEventListener('message', e => {
       break;
   }
 });
+/* VR内見で置いた家具は、ログイン中ならアカウントに保存する（別の端末でも同じ家具が出る） */
+let furnTimer = null;
+function saveFurniture(propKey, items) {
+  if (!isLoggedIn || !currentUser || !propKey) return;
+  const all = Object.assign({}, currentUser.myFurniture || {});
+  const list = (Array.isArray(items) ? items : []).slice(0, 60);
+  if (list.length) all[propKey] = list; else delete all[propKey];
+  const keys = Object.keys(all);
+  if (keys.length > 30) keys.slice(0, keys.length - 30).forEach(k => delete all[k]);
+  currentUser.myFurniture = all;
+  const s = (typeof userStore !== 'undefined') && userStore.find(u => u.email === currentUser.email);
+  if (s) s.myFurniture = all;
+  clearTimeout(furnTimer);
+  furnTimer = setTimeout(() => { if (isLoggedIn && currentUser) saveUserToAWS(currentUser); }, 1200);
+}
+// 以前の「端末に保存」の家具は、ほかの人に見えてしまうので消す
+try { Object.keys(localStorage).filter(k => k.indexOf('vr_myfurn_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+
 /* 参加コードを入れて一緒に内見する（物件ページ・マイページから） */
 window.fxJoinByCode = async function (code) {
   if (!isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.fxJoinByCode(code)); return; }
@@ -166,6 +188,27 @@ window.fxStartLive = function (propId) {
   window.viewInVR(propId, { live: { start: true } });
 };
 
+/* ══════════════ 1.5 一覧は軽く、必要なときだけ1件を全部読む ══════════════ */
+// 物件一覧では重い間取りデータを省いて取得する（物件が増えても速く開ける）
+const _fxFetch = window.fetch;
+window.fetch = function (input, init) {
+  if (typeof input === 'string' && input.indexOf(AWS_API_URL) === 0 && /[?&]action=list(&|$)/.test(input) && !/[?&]light=/.test(input)) input += '&light=1';
+  return _fxFetch.call(this, input, init);
+};
+async function ensureFull(id) {
+  const p = findProp(id); if (!p) return null;
+  if (p.floorplanData && p.floorplanData._stub) {
+    try { const full = await api('get', { query: { id: p.id } }); Object.assign(p, full); }
+    catch (e) { toast('物件のデータを読み込めませんでした: ' + e.message, 'error'); return null; }
+  }
+  return p;
+}
+window.fxEnsureFull = ensureFull;
+['openFloorEditor', 'downloadFloorplan', 'sendFloorplanToQuest'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = async function (id) { if (id != null && !(await ensureFull(id))) return; return orig.apply(this, arguments); };
+});
+
 /* ══════════════ 2. URLから開く（?p=物件ID / ?live=参加コード）══════════════ */
 const deep = (() => { const q = new URLSearchParams(location.search); return { p: q.get('p'), live: q.get('live') }; })();
 if (deep.p || deep.live) {
@@ -183,7 +226,7 @@ if (deep.p || deep.live) {
 const _renderPropDetail = window.renderPropDetail;
 window.renderPropDetail = function (prop) {
   _renderPropDetail.apply(this, arguments);
-  try { decorateDetail(prop); } catch (e) { console.error(e); }
+  try { decorateDetail(prop); a11yStatic(); } catch (e) { console.error(e); }
 };
 function decorateDetail(prop) {
   const side = document.querySelector('#pd-overlay .pd-side');
@@ -379,7 +422,7 @@ async function renderMyResv() {
   box.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`;
   try {
     const list = await api('myReservations');
-    if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-off"></i><br>${t('まだ予約はありません。物件ページの「内見を予約する」から申し込めます。')}</div>`; return; }
+    if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-off"></i><br>${t('まだ予約はありません。物件ページの「内見を予約する」から申し込めます。')}</div>`; ykEmpties(); return; }
     const now = nowSlot();
     box.innerHTML = list.map(r => {
       const future = r.slot > now, active = r.status === 'pending' || r.status === 'confirmed';
@@ -458,7 +501,9 @@ async function renderAdminResv(reload) {
   if (resvFilter === 'todo') list = list.filter(r => r.status === 'pending' || (r.status === 'confirmed' && r.slot > now));
   if (resvFilter === 'future') list = list.filter(r => r.slot > now && r.status !== 'cancelled' && r.status !== 'declined');
   if (resvFilter === 'all') list.reverse();
-  if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-check"></i><br>${t('ここに表示する予約はありません')}</div>`; return; }
+  if (calDay) list = adminResvCache.filter(r => r.slot.slice(0, 10) === calDay);
+  renderResvCalendar();
+  if (!list.length) { box.innerHTML = `<div class="fx-empty"><i class="ti ti-calendar-check"></i><br>${t('ここに表示する予約はありません')}</div>`; ykEmpties(); return; }
   box.innerHTML = list.map(r => {
     const future = r.slot > now;
     return `<div class="fx-card ${future ? '' : 'past'}">
@@ -523,8 +568,11 @@ async function renderAnalytics() {
 
 /* ══════════════ 6. 物件の比較 ══════════════ */
 const CMP_KEY = 'vr_compare';
-function compareIds() { try { return (JSON.parse(localStorage.getItem(CMP_KEY) || '[]') || []).filter(id => findProp(id)); } catch (e) { return []; } }
-function saveCompare(ids) { try { localStorage.setItem(CMP_KEY, JSON.stringify(ids)); } catch (e) {} renderCompareBar(); decorateCards(); }
+function cmpStore() { return isLoggedIn && currentUser ? localStorage : sessionStorage; }
+function cmpKey() { return CMP_KEY + '_' + (isLoggedIn && currentUser ? currentUser.email : 'guest'); }
+function compareIds() { try { return (JSON.parse(cmpStore().getItem(cmpKey()) || '[]') || []).filter(id => findProp(id)); } catch (e) { return []; } }
+function saveCompare(ids) { try { cmpStore().setItem(cmpKey(), JSON.stringify(ids)); } catch (e) {} renderCompareBar(); decorateCards(); }
+try { localStorage.removeItem(CMP_KEY); } catch (e) {}
 window.fxToggleCompare = function (id) {
   let ids = compareIds();
   if (ids.includes(id)) ids = ids.filter(x => x !== id);
@@ -650,7 +698,7 @@ function addNavButtons() {
     if (!right) return;
     const wrap = document.createElement('span');
     wrap.className = 'fx-nav-tools';
-    wrap.innerHTML = `<button class="btn btn-sm btn-p fx-login-btn" onclick="fxRequireLogin()"><i class="ti ti-login"></i> ${t('ログイン')}</button><button class="btn btn-sm fx-lang" onclick="fxToggleLang()" title="English / 日本語">${fxLang === 'en' ? '日本語' : 'EN'}</button>
+    wrap.innerHTML = `<button class="btn btn-sm btn-p fx-login-btn" onclick="fxRequireLogin()" aria-label="ログイン"><i class="ti ti-login"></i><span class="fx-lbl"> ${t('ログイン')}</span></button><button class="btn btn-sm fx-lang" onclick="fxToggleLang()" title="English / 日本語">${fxLang === 'en' ? '日本語' : 'EN'}</button>
       <button class="btn btn-sm fx-bell" onclick="fxOpenNotif(event)" title="お知らせ"><i class="ti ti-bell"></i><span class="fx-bell-n" style="display:none">0</span></button>`;
     right.prepend(wrap);
   });
@@ -720,6 +768,7 @@ window.fxToggleLang = function () {
   translateAll();
   if (typeof pdCurrentId !== 'undefined' && $('pd-overlay').classList.contains('show')) { const p = findProp(pdCurrentId); if (p) renderPropDetail(p); }
   renderCompareBar(); decorateCards();
+  const say = $('fx-yk-say'); if (say) ykSay(say, ykTip);
 };
 function t(s) { return fxLang === 'en' && EN[s] ? EN[s] : s; }
 window.fxT = t;
@@ -1023,7 +1072,12 @@ function resetFormExtras(prop) {
   renderFormExtras();
 }
 const _startEdit = window.startEditProp;
-window.startEditProp = function (id) { const r = _startEdit.apply(this, arguments); resetFormExtras(findProp(id)); return r; };
+window.startEditProp = async function (id) {
+  if (!(await ensureFull(id))) return;
+  const r = _startEdit.apply(this, arguments);
+  resetFormExtras(findProp(id)); addPhotoBulkDelete();
+  return r;
+};
 const _clearAdd = window.clearAddForm;
 window.clearAddForm = function () { const r = _clearAdd.apply(this, arguments); resetFormExtras(null); return r; };
 let pendingExtras = null;
@@ -1281,6 +1335,265 @@ function decorateCardsMore() {
   });
 }
 
+/* ══════════════ 18. 写真のサムネイル（一覧を軽くする）══════════════ */
+function makeThumb(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const w = Math.min(480, img.naturalWidth), h = Math.round(img.naturalHeight * w / img.naturalWidth);
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(cv.toDataURL('image/jpeg', 0.72));
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('画像を読み込めませんでした'));
+    img.src = src + (/^https?:/.test(src) && src.indexOf('?') < 0 ? '?thumb=1' : '');
+  });
+}
+async function ensureThumb(prop) {
+  const first = (prop.photoURLs || [])[0];
+  if (!first) { delete prop.thumbURL; delete prop.thumbOf; return; }
+  if (prop.thumbURL && prop.thumbOf === first) return;
+  try {
+    const url = await uploadPhotoToS3(await makeThumb(first));
+    if (/^https:\/\//.test(url)) { prop.thumbURL = url; prop.thumbOf = first; }
+  } catch (e) { console.warn('サムネイルを作れませんでした', e.message); }
+}
+const _upAWS2 = window.uploadToAWS;
+window.uploadToAWS = async function (prop) { await ensureThumb(prop); return _upAWS2.apply(this, arguments); };
+const _updAWS2 = window.updatePropertyOnAWS;
+window.updatePropertyOnAWS = async function (prop) { await ensureThumb(prop); return _updAWS2.apply(this, arguments); };
+// 一覧のカードは小さい写真を使う（詳細ページは元の写真のまま）
+const _getFiltered2 = window.getFilteredProps;
+window.getFilteredProps = function () {
+  return _getFiltered2.apply(this, arguments).map(p => (p.thumbURL && p.photoURLs && p.thumbOf === p.photoURLs[0]) ? Object.assign({}, p, { photoURLs: [p.thumbURL].concat(p.photoURLs.slice(1)) }) : p);
+};
+window.fxMakeThumbs = async function () {
+  const list = PROPS.filter(p => canEdit(p) && (p.photoURLs || [])[0] && !(p.thumbURL && p.thumbOf === p.photoURLs[0]));
+  if (!list.length) { toast('サムネイルはすべて作成済みです', 'success'); return; }
+  let n = 0;
+  for (const p of list) {
+    toast(`サムネイルを作成中… ${++n}/${list.length}`, 'info', 1500);
+    try { await api('update', { body: await (async () => { await ensureThumb(p); return p; })() }); } catch (e) {}
+  }
+  toast(`${list.length}件のサムネイルを作りました`, 'success');
+  renderCards();
+};
+
+/* ══════════════ 19. 退会 ══════════════ */
+function addDeleteAccount() {
+  const prof = $('mp-prof'); if (!prof || $('fx-delacc')) return;
+  const box = document.createElement('div');
+  box.id = 'fx-delacc'; box.className = 'fx-danger';
+  box.innerHTML = `<div class="fx-sec-title" style="color:#b91c1c"><i class="ti ti-user-x"></i> アカウントの削除（退会）</div>
+    <p class="fx-mini" style="margin:0 0 10px">アカウントと、お気に入り・閲覧履歴・受信箱・VRで置いた家具を削除します。これからの内見予約はキャンセルになります。元に戻せません。</p>
+    <button class="btn btn-sm" style="color:#b91c1c;border-color:#fecaca" onclick="fxDeleteAccount()">アカウントを削除する</button>`;
+  prof.appendChild(box);
+}
+window.fxDeleteAccount = function () {
+  if (!isLoggedIn) return;
+  if (isMaster()) { toast('マスターアカウントは削除できません', 'warn'); return; }
+  const body = openModal('fx-del', '<i class="ti ti-user-x"></i> アカウントを削除', `
+    <p style="margin:0 0 10px;line-height:1.7">本当に削除しますか？ <b>元に戻せません。</b><br>確認のため、パスワードを入力してください。</p>
+    <label class="fx-field">パスワード<input type="password" id="fx-del-pass" autocomplete="current-password"></label>
+    <button class="btn fx-wide" id="fx-del-go" style="background:#dc2626;color:#fff;border-color:#dc2626">削除する</button>`, { width: 420 });
+  body.querySelector('#fx-del-go').onclick = async () => {
+    const btn = body.querySelector('#fx-del-go'); btn.disabled = true;
+    try {
+      await api('deleteMe', { body: { password: body.querySelector('#fx-del-pass').value } });
+      const email = currentUser.email;
+      closeModal('fx-del');
+      try { removeCachedUser(email); localStorage.removeItem('vr_seen_prop_' + email); localStorage.removeItem('vr_compare_' + email); } catch (e) {}
+      if (typeof userStore !== 'undefined') { const i = userStore.findIndex(u => u.email === email); if (i >= 0) userStore.splice(i, 1); }
+      doLogout(); hideGate();
+      toast('アカウントを削除しました。ご利用ありがとうございました', 'success', 5000);
+    } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+  };
+};
+
+/* ══════════════ 20. 物件の複製・写真の一括削除 ══════════════ */
+window.fxDuplicateProp = async function (id) {
+  const p = await ensureFull(id); if (!p) return;
+  if (!confirm(`「${p.name}」を複製しますか？\n複製は「非公開」で作られるので、直してから公開できます。`)) return;
+  const skip = ['id', 'reservations', 'viewStats', 'bookedSlots', 'ownerEmail', 'ownerName', 'lat', 'lng'];
+  const copy = {};
+  Object.keys(p).forEach(k => { if (!skip.includes(k)) copy[k] = JSON.parse(JSON.stringify(p[k])); });
+  copy.name = p.name + '（コピー）'; copy.status = 'hidden';
+  copy.lat = p.lat || null; copy.lng = p.lng || null;
+  try { const r = await api('add', { body: copy }); toast('複製しました（非公開）', 'success'); await fetchAndRenderProps(); renderAdminPropTable(); if (r && r.id) startEditProp(r.id); }
+  catch (e) { toast('複製できませんでした: ' + e.message, 'error'); }
+};
+const _renderAdminTable = window.renderAdminPropTable;
+window.renderAdminPropTable = function () {
+  const r = _renderAdminTable.apply(this, arguments);
+  document.querySelectorAll('#prop-table-body button[onclick^="startEditProp("]').forEach(b => {
+    if (b.nextElementSibling && b.nextElementSibling.classList.contains('fx-dup')) return;
+    const id = +(b.getAttribute('onclick').match(/\d+/) || [0])[0];
+    const d = document.createElement('button');
+    d.className = 'btn btn-sm fx-dup'; d.title = '複製'; d.setAttribute('aria-label', '複製');
+    d.style.cssText = 'font-size:10px;padding:3px 8px';
+    d.innerHTML = '<i class="ti ti-copy"></i>';
+    d.onclick = () => window.fxDuplicateProp(id);
+    b.after(d);
+  });
+  const head = document.querySelector('#admin-props .admin-table-head');
+  if (head && !$('fx-thumb-btn') && isAdmin()) {
+    const tb = document.createElement('button');
+    tb.id = 'fx-thumb-btn'; tb.className = 'btn btn-sm'; tb.style.margin = '0 0 8px';
+    tb.innerHTML = '<i class="ti ti-photo-down"></i> 一覧用の小さい写真を作る';
+    tb.title = '前に登録した物件の写真から、一覧用の軽いサムネイルを作ります';
+    tb.onclick = window.fxMakeThumbs;
+    head.parentNode.insertBefore(tb, head);
+  }
+  return r;
+};
+function addPhotoBulkDelete() {
+  const wrap = $('af-existing-photos'); if (!wrap || $('fx-photo-clear')) return;
+  const b = document.createElement('button');
+  b.type = 'button'; b.id = 'fx-photo-clear'; b.className = 'btn btn-sm';
+  b.style.cssText = 'color:var(--red);margin-bottom:6px';
+  b.innerHTML = '<i class="ti ti-trash"></i> 写真をすべて外す';
+  b.onclick = () => { if (!confirm('この物件の写真をすべて外しますか？（「変更を保存」を押すまでは元に戻せます）')) return; editingExistingPhotos.length = 0; renderExistingPhotosPreview(); };
+  wrap.insertBefore(b, wrap.firstChild);
+}
+
+/* ══════════════ 21. 予約のカレンダー（管理画面）══════════════ */
+let calMonth = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })(), calDay = null;
+function renderResvCalendar() {
+  let box = $('fx-resv-cal');
+  const list = $('admin-resv-list'); if (!list) return;
+  if (!box) { box = document.createElement('div'); box.id = 'fx-resv-cal'; list.parentNode.insertBefore(box, list); }
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+  const count = {};
+  adminResvCache.filter(r => r.status === 'pending' || r.status === 'confirmed').forEach(r => { const d = r.slot.slice(0, 10); count[d] = count[d] || { p: 0, c: 0 }; count[d][r.status === 'pending' ? 'p' : 'c']++; });
+  const today = ymd(new Date());
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<div></div>';
+  for (let d = 1; d <= days; d++) {
+    const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`, c = count[key];
+    cells += `<button type="button" data-d="${key}" class="${key === today ? 'today ' : ''}${key === calDay ? 'on ' : ''}${c ? 'has' : ''}" aria-label="${m + 1}月${d}日 ${c ? (c.p + c.c) + '件の予約' : '予約なし'}"><b>${d}</b>${c ? `<span>${c.c ? `<i class="ok">確定${c.c}</i>` : ''}${c.p ? `<i class="wait">待ち${c.p}</i>` : ''}</span>` : ''}</button>`;
+  }
+  box.innerHTML = `<div class="fx-cal-h"><button type="button" class="btn btn-sm" id="fx-cal-prev" aria-label="前の月">‹</button><b>${y}年${m + 1}月</b><button type="button" class="btn btn-sm" id="fx-cal-next" aria-label="次の月">›</button>
+    ${calDay ? `<button type="button" class="btn btn-sm" id="fx-cal-all">${calDay.slice(5).replace('-', '/')} の絞り込みを解除</button>` : '<span class="fx-mini" style="margin:0">日付を押すと、その日の予約だけ表示します</span>'}</div>
+    <div class="fx-cal">${WEEK.map((w, i) => `<div class="wd ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('')}${cells}</div>`;
+  $('fx-cal-prev').onclick = () => { calMonth = new Date(y, m - 1, 1); renderResvCalendar(); };
+  $('fx-cal-next').onclick = () => { calMonth = new Date(y, m + 1, 1); renderResvCalendar(); };
+  const all = $('fx-cal-all'); if (all) all.onclick = () => { calDay = null; renderResvCalendar(); renderAdminResv(); };
+  box.querySelectorAll('.fx-cal button[data-d]').forEach(b => b.onclick = () => { calDay = calDay === b.dataset.d ? null : b.dataset.d; renderResvCalendar(); renderAdminResv(); });
+}
+
+/* ══════════════ 22. 使いやすさ（キーボード・読み上げ・見やすさ）══════════════ */
+function a11yCards() {
+  document.querySelectorAll('#card-grid .prop-card').forEach(card => {
+    if (card.dataset.a11y) return;
+    card.dataset.a11y = '1';
+    const name = (card.querySelector('.prop-name') || {}).textContent || '';
+    const price = (card.querySelector('.prop-price') || {}).textContent || '';
+    card.setAttribute('tabindex', '0'); card.setAttribute('role', 'link');
+    card.setAttribute('aria-label', `${name} ${price}`.trim());
+    card.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === card) { e.preventDefault(); card.click(); } });
+    const fav = card.querySelector('.fav-btn');
+    if (fav) {
+      fav.setAttribute('role', 'button'); fav.setAttribute('tabindex', '0'); fav.setAttribute('aria-label', 'お気に入りに追加・解除');
+      fav.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); fav.click(); } });
+    }
+  });
+}
+function a11yStatic() {
+  const lab = (sel, text) => document.querySelectorAll(sel).forEach(el => { if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', text); });
+  lab('.pd-close', '閉じる'); lab('.add-form-close', '閉じる'); lab('.fx-bell', 'お知らせ'); lab('.fx-lang', 'English / 日本語'); lab('.eye-btn', 'パスワードを表示');
+  lab('#pd-slider .pd-slide-btn.prev', '前の写真'); lab('#pd-slider .pd-slide-btn.next', '次の写真');
+  document.querySelectorAll('#pd-slider img').forEach(img => { const n = ($('pd-name') || {}).textContent || ''; img.alt = n + ' の写真'; });
+  document.querySelectorAll('.tab[onclick]').forEach(tb => { tb.setAttribute('role', 'button'); tb.setAttribute('tabindex', '0'); });
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const ov = [...document.querySelectorAll('.fx-overlay')].pop();
+    if (ov) { closeModal(ov.id); return; }
+    const np = $('fx-notif'); if (np) { np.remove(); return; }
+  }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && (e.target.classList.contains('tab') || e.target.classList.contains('mp-nav-item') || e.target.classList.contains('admin-nav-item'))) { e.preventDefault(); e.target.click(); }
+});
+new MutationObserver(() => { a11yCards(); }).observe(document.getElementById('card-grid') || document.body, { childList: true, subtree: false });
+const _openModal = openModal;
+openModal = function () { const b = _openModal.apply(this, arguments); setTimeout(() => { const f = b.querySelector('input,select,textarea,button:not(.fx-x)'); if (f) f.focus({ preventScroll: true }); }, 50); return b; };
+
+/* ══════════════ 23. キャラクター「やどかりん」══════════════ */
+const YK = window.Yadokarin;
+const YK_TIPS = [
+  ['ぼく、やどかりん。おうちを背負って、新しいおうちを探してるんだ。', "I'm Yadokarin! I carry my house and I'm looking for a new one."],
+  ['VR内見の「測る」で、冷蔵庫が入るか確かめられるよ。', 'Use "Measure" in VR to check if your fridge fits.'],
+  ['「日当たり」で、冬の朝に日が入るかも見られるんだ。', '"Sunlight" shows if the sun comes in on winter mornings.'],
+  ['気になる物件は「比較」で並べてみよう。', 'Line up homes you like with "Compare".'],
+  ['通勤・通学先を入れると、時間で探せるよ。', 'Enter your commute destination to search by travel time.'],
+  ['「一緒に内見」なら、家族と同じ部屋を見ながら話せるよ。', '"View together" lets you walk a room with family and chat.'],
+  ['「家具」で、ベッドやソファを置いてみよう。はみ出すと赤くなるよ。', 'Try placing a bed or sofa with "Furniture". It turns red if it doesn\'t fit.'],
+  ['ぼくの名前は「宿借り」から。おうちを借りる仲間だね。', 'My name comes from "yado-kari" — someone who rents a home. Like you!']
+];
+let ykTip = 0;
+function ykSay(el, i) {
+  const tip = YK_TIPS[(i + YK_TIPS.length) % YK_TIPS.length];
+  el.textContent = fxLang === 'en' ? tip[1] : tip[0];
+}
+function addHeroMascot() {
+  const hero = document.querySelector('#s-top .hero > div[style*="max-width"]') || document.querySelector('#s-top .hero');
+  if (!YK || !hero || $('fx-yk-hero')) return;
+  const box = document.createElement('div');
+  box.id = 'fx-yk-hero';
+  box.innerHTML = `<div class="fx-yk-bubble fx-noi18n" id="fx-yk-say" aria-live="polite"></div><button type="button" class="fx-yk-btn" aria-label="やどかりんのひとこと（押すと次のヒント）">${YK.svg({ size: 150, face: 'happy' })}</button>`;
+  hero.appendChild(box);
+  const say = $('fx-yk-say');
+  ykSay(say, 0);
+  const next = () => { ykTip++; ykSay(say, ykTip); };
+  box.querySelector('.fx-yk-btn').onclick = () => {
+    next();
+    const s = box.querySelector('svg');
+    s.classList.remove('yk-hop'); void s.getBoundingClientRect(); s.classList.add('yk-hop');
+  };
+  setInterval(() => { if (!document.hidden && $('s-top').classList.contains('active')) next(); }, 9000);
+}
+function addGateMascot() {
+  const card = document.querySelector('#login-gate .login-card');
+  if (!YK || !card || $('fx-yk-gate')) return;
+  const d = document.createElement('div');
+  d.id = 'fx-yk-gate'; d.setAttribute('aria-hidden', 'true');
+  d.innerHTML = YK.svg({ size: 78, face: 'wink', title: '' });
+  card.appendChild(d);
+}
+const YK_EMPTY = [
+  ['card-grid', 'ti-building-off', 'sad', ['条件を少しゆるめてみてね。', 'Try loosening your filters.']],
+  ['mp-fav-list', 'ti-heart', 'wow', ['気になるおうちの♡を押してね。', 'Tap ♡ on homes you like.']],
+  ['mp-hist-list', 'ti-history', 'happy', ['見た物件がここに並ぶよ。', 'Homes you view will show up here.']],
+  ['mp-inbox-list', 'ti-inbox', 'happy', ['お知らせが届くとここに出るよ。', 'Messages will appear here.']],
+  ['mp-resv-list', 'ti-calendar-off', 'happy', ['気になるおうちを予約してみよう。', 'Book a viewing for a home you like.']],
+  ['admin-resv-list', 'ti-calendar-check', 'happy', ['いまは対応する予約はないよ。', 'No bookings to handle right now.']]
+];
+function ykEmpties() {
+  if (!YK) return;
+  YK_EMPTY.forEach(([id, icon, face, msg]) => {
+    const el = $(id); if (!el) return;
+    const i = el.querySelector('i.ti.' + icon);
+    if (!i || i.closest('.prop-card')) return;
+    const holder = document.createElement('div');
+    holder.className = 'fx-yk-empty';
+    holder.innerHTML = YK.svg({ size: 110, face, wave: face !== 'sad', title: '' });
+    i.replaceWith(holder);
+    const hint = document.createElement('div');
+    hint.className = 'fx-yk-hint';
+    hint.textContent = fxLang === 'en' ? msg[1] : msg[0];
+    holder.parentNode.appendChild(hint);
+  });
+}
+['renderCards', 'renderFavorites', 'renderHistory'].forEach(fn => {
+  const orig = window[fn]; if (typeof orig !== 'function') return;
+  window[fn] = function () { const r = orig.apply(this, arguments); try { ykEmpties(); } catch (e) {} return r; };
+});
+const _renderInbox = window.renderInbox;
+if (typeof _renderInbox === 'function') window.renderInbox = async function () { const r = await _renderInbox.apply(this, arguments); try { ykEmpties(); } catch (e) {} return r; };
+
 /* ══════════════ 10. 見た目 ══════════════ */
 const css = document.createElement('style');
 css.textContent = `
@@ -1381,6 +1694,36 @@ body:has(#pd-overlay.show) #fx-cmp-bar,body:has(.fx-overlay) #fx-cmp-bar,body:ha
 .fx-np-foot{padding:10px 14px;border-top:1px solid #f1f5f9;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#475569}
 .fx-np-foot a{color:#1d4ed8;cursor:pointer;font-weight:700}
 #fx-print-head,#fx-print-fp{display:none}
+.btn.hidden,.mp-nav-item.hidden{display:none!important}
+@media(max-width:640px){.nav .nav-r>button[onclick^="guardedScreen"]{display:none!important}.fx-login-btn .fx-lbl{display:none}.fx-nav-tools{gap:4px;margin-right:0}}
+#fx-yk-hero{position:absolute;right:0;top:-6px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:2px;pointer-events:none}
+.fx-yk-bubble{pointer-events:auto;max-width:250px;background:#fff;color:#0f172a;font-size:12.5px;font-weight:700;line-height:1.6;padding:9px 13px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.25);position:relative;margin-right:46px}
+.fx-yk-bubble::after{content:'';position:absolute;bottom:-8px;right:30px;border:8px solid transparent;border-top-color:#fff;border-bottom:0}
+.fx-yk-btn{pointer-events:auto;background:none;border:0;padding:0;cursor:pointer;line-height:0}
+@media(max-width:1060px){#fx-yk-hero{position:static;flex-direction:row-reverse;align-items:center;justify-content:flex-end;gap:8px;margin:4px 0 14px}#fx-yk-hero .yadokarin{width:96px;height:96px}.fx-yk-bubble{margin-right:0;max-width:none;flex:1}.fx-yk-bubble::after{bottom:auto;right:-8px;top:50%;margin-top:-8px;border:8px solid transparent;border-left-color:#fff;border-right:0}}
+#fx-yk-gate{position:absolute;top:10px;right:12px;pointer-events:none}
+@media(max-width:480px){#fx-yk-gate{display:none}}
+#login-gate .login-card{position:relative}
+.fx-yk-empty{display:flex;justify-content:center;margin-bottom:6px}
+.fx-yk-hint{font-size:12px;color:#64748b;margin-top:6px}
+:focus-visible{outline:3px solid #2563eb!important;outline-offset:2px}
+.prop-card:focus-visible{outline-offset:3px}
+.fx-mini{color:#55657a}
+.fx-danger{margin-top:28px;border:1.5px solid #fecaca;background:#fff7f7;border-radius:12px;padding:14px 16px}
+#fx-resv-cal{margin-bottom:14px;border:1.5px solid var(--border,#e2e8f0);border-radius:12px;padding:10px 12px;background:var(--surface,#fff)}
+.fx-cal-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.fx-cal-h b{min-width:90px;text-align:center;color:var(--navy,#0f172a)}
+.fx-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.fx-cal .wd{font-size:11px;color:#64748b;text-align:center;font-weight:700}
+.fx-cal .wd.sun{color:#dc2626}.fx-cal .wd.sat{color:#2563eb}
+.fx-cal button{min-height:54px;border:1px solid #eef2f7;border-radius:8px;background:#fff;cursor:pointer;font-family:inherit;display:flex;flex-direction:column;align-items:flex-start;padding:4px 5px;gap:2px;text-align:left}
+.fx-cal button b{font-size:12px;color:#334155}
+.fx-cal button.today{border-color:#93c5fd}
+.fx-cal button.has{background:#f8fbff}
+.fx-cal button.on{border:2px solid #2563eb}
+.fx-cal i{font-style:normal;font-size:10px;font-weight:700;border-radius:4px;padding:0 4px;display:block}
+.fx-cal i.ok{background:#dcfce7;color:#166534}.fx-cal i.wait{background:#fef3c7;color:#92400e}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}#hero-particles{display:none}}
 html:not(.fx-guest) .fx-login-btn{display:none}
 html.fx-guest .fx-bell{display:none}
 .fx-gate-skip{display:block;width:100%;margin-top:14px;background:transparent;border:1.5px solid rgba(255,255,255,.25);color:#e2e8f0;border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
@@ -1441,7 +1784,7 @@ document.head.appendChild(css);
 
 /* ══════════════ 起動 ══════════════ */
 function boot() {
-  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton();
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); addHeroMascot(); addGateMascot();
   const help = $('s-help');
   if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
   setGuestClass();
@@ -1465,5 +1808,14 @@ window._enterApp = function () {
   return r;
 };
 const _doLogout = window.doLogout;
-window.doLogout = function () { stopLive(true); const r = _doLogout.apply(this, arguments); setGuestClass(); renderCards(); return r; };
+window.doLogout = function () {
+  stopLive(true);
+  clearTimeout(furnTimer);
+  if (isLoggedIn && currentUser && currentUser.myFurniture) saveUserToAWS(currentUser);   // まだ送っていない家具を保存してから
+  const r = _doLogout.apply(this, arguments);
+  ['nav-admin-btn', 'tab-admin', 'tab-master'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  try { sessionStorage.clear(); } catch (e) {}
+  setGuestClass(); renderCards(); renderCompareBar();
+  return r;
+};
 })();
