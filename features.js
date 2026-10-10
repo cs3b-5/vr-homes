@@ -2168,9 +2168,155 @@ function initHero() {
   if (document.readyState === 'complete') start(); else window.addEventListener('load', start);
 }
 
+
+/* ══════════════ 27. やどかりんに相談（チャット）══════════════
+   悩みや希望を書くと、やどかりんがおすすめの物件を3件まで出す。
+   サーバーの ykChat が答える（AIモード / かんたんモード）。会話はこのタブの中だけに残る */
+Object.assign(EN, {
+  'やどかりんに相談': 'Ask Yadokarin', '住まいの悩みを聞かせてね': 'Tell me your housing worries', '相談する': 'Ask',
+  '最初から': 'Start over', '詳しく見る': 'Details', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
+  '自分の悩みを相談してみる': 'Ask about your own situation', 'かんたん': 'Basic', '送る': 'Send',
+  'やどかりんAIが読み取った条件': 'What Yadokarin AI understood', '生成AI': 'Gen AI',
+  'やどかりんはまちがえることもあるよ。くわしくは物件ページや担当者に確認してね。名前や電話番号などは書かないでね。': 'Yadokarin can make mistakes — check the listing and the agent for details. Please do not share your name or phone number.'
+});
+const YKC_KEY = 'yk_chat_v1';
+const YKC_HELLO = ['ぼく、やどかりん。住まいのことで困っていること、気になっていることを教えてね。いっしょに合う部屋を探すよ！',
+  "I'm Yadokarin! Tell me what's on your mind about finding a home, and I'll look for rooms that fit you."];
+const YKC_CHIPS = [['猫と住みたい', 'I want to live with my cat'], ['はじめての一人暮らしで不安', 'Nervous about living alone for the first time'],
+  ['在宅ワークの部屋がほしい', 'I need a room to work from home'], ['家賃をおさえたい', 'I want to keep rent low'], ['遠くに住んでいて内見に行けない', "I live far away and can't visit"]];
+let ykcLog = [], ykcBusy = false;
+try { ykcLog = JSON.parse(sessionStorage.getItem(YKC_KEY) || '[]') || []; } catch (e) { ykcLog = []; }
+function ykcSave() { try { sessionStorage.setItem(YKC_KEY, JSON.stringify(ykcLog.slice(-30))); } catch (e) {} }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function ykcBuild() {
+  if ($('ykc') || !YK) return;
+  const fab = el('button', 'ykc-fab'); fab.id = 'ykc-fab'; fab.type = 'button';
+  fab.setAttribute('aria-haspopup', 'dialog'); fab.setAttribute('aria-controls', 'ykc'); fab.setAttribute('aria-label', 'やどかりんに相談');
+  fab.innerHTML = YK.svg({ size: 60, face: 'happy', wave: false, title: '' }) + '<span class="ykc-fab-lbl">相談する</span>';
+  fab.onclick = () => ykcOpen(true);
+  const box = el('section'); box.id = 'ykc'; box.hidden = true;
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-labelledby', 'ykc-title');
+  box.innerHTML = `<header class="ykc-head"><span class="ykc-face" aria-hidden="true">${YK.svg({ size: 44, face: 'wink', wave: false, title: '' })}</span>
+      <div class="ykc-ttl"><h2 id="ykc-title">やどかりんに相談</h2><small>住まいの悩みを聞かせてね</small><span class="ykc-mode fx-noi18n" id="ykc-mode" hidden></span></div>
+      <button type="button" class="ykc-reset" id="ykc-reset" aria-label="最初から" title="最初から"><i class="ti ti-refresh" aria-hidden="true"></i></button>
+      <button type="button" class="ykc-x" id="ykc-x" aria-label="閉じる"><i class="ti ti-x"></i></button></header>
+    <div class="ykc-log" id="ykc-log" aria-live="polite"></div>
+    <div class="ykc-chips" id="ykc-chips"></div>
+    <form class="ykc-form" id="ykc-form"><label class="ykc-sr" for="ykc-in">相談する</label>
+      <textarea id="ykc-in" rows="1" maxlength="400" placeholder="例: 猫と住みたい。家賃は8万円まで"></textarea>
+      <button type="submit" class="ykc-send" aria-label="送る"><i class="ti ti-send"></i></button></form>
+    <p class="ykc-note">やどかりんはまちがえることもあるよ。くわしくは物件ページや担当者に確認してね。名前や電話番号などは書かないでね。</p>`;
+  document.body.appendChild(fab); document.body.appendChild(box);
+  EN['例: 猫と住みたい。家賃は8万円まで'] = 'e.g. I have a cat. Rent under ¥80,000';
+  $('ykc-x').onclick = () => ykcOpen(false);
+  $('ykc-reset').onclick = () => { ykcLog = []; ykcSave(); ykcRender(); $('ykc-in').focus(); };
+  $('ykc-form').onsubmit = e => { e.preventDefault(); ykcSend($('ykc-in').value); };
+  const inp = $('ykc-in');
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); ykcSend(inp.value); } });
+  inp.addEventListener('input', () => { inp.style.height = 'auto'; inp.style.height = Math.min(120, inp.scrollHeight) + 'px'; });
+  box.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); ykcOpen(false); } });
+  ykcRender();
+}
+// やどかりんAI（yk-ai.js）で、文章から条件を読み取る。読み込めなければ null（サーバーのルールにまかせる）
+async function ykcIntents(text) {
+  if (!window.YkAI) return null;
+  try {
+    await Promise.race([YkAI.load(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000))]);
+    return YkAI.predict(text).map(x => ({ label: x.label, p: Math.round(x.p * 100) / 100, ja: x.ja, en: x.en }));
+  } catch (e) { return null; }
+}
+function ykcOpen(on) {
+  const box = $('ykc'), fab = $('ykc-fab'); if (!box) return;
+  if (on && window.YkAI) YkAI.load().catch(() => {});
+  box.hidden = !on; fab.setAttribute('aria-expanded', on ? 'true' : 'false');
+  document.body.classList.toggle('ykc-open', on);
+  if (on) { ykcRender(); setTimeout(() => $('ykc-in').focus(), 30); } else fab.focus();
+}
+window.fxOpenYk = function (text) { ykcOpen(true); if (text) ykcSend(text); };
+function ykcPickCard(pk) {
+  const p = findProp(pk.id); if (!p) return null;
+  const card = el('div', 'ykc-pick');
+  const img = el('div', 'ykc-pick-img');
+  const src = (p.thumbURL && p.photoURLs && p.thumbOf === p.photoURLs[0]) ? p.thumbURL : ((p.photoURLs || [])[0] || '');
+  const vr = !!(p.floorplanData || p.splatURL || (p.panoramas && p.panoramas.length));
+  if (src) img.style.backgroundImage = `url("${String(src).replace(/["\\]/g, '')}")`;
+  else if (vr) img.classList.add('doll');
+  const body = el('div', 'ykc-pick-body');
+  body.appendChild(el('b', 'fx-noi18n', p.name || ''));
+  body.appendChild(el('span', 'ykc-pick-meta', [yen(p.price) + t('/月'), p.madori, (p.station || '') + (p.walkMin ? (fxLang === 'en' ? ` ${p.walkMin} min` : ` 徒歩${p.walkMin}分`) : '')].filter(Boolean).join('・')));
+  if (pk.reason) body.appendChild(el('em', 'fx-noi18n', pk.reason));
+  const btns = el('div', 'ykc-pick-btns');
+  const d = el('button', 'ykc-b', t('詳しく見る')); d.type = 'button';
+  d.onclick = () => { if (matchMedia('(max-width: 640px)').matches) ykcOpen(false); showPropDetail(p.id); };
+  btns.appendChild(d);
+  if (vr) { const v = el('button', 'ykc-b ykc-b-vr', t('VRで入る')); v.type = 'button'; v.onclick = () => window.viewInVR(p.id); btns.appendChild(v); }
+  body.appendChild(btns);
+  card.appendChild(img); card.appendChild(body);
+  return card;
+}
+function ykcBubble(role, text, extra) {
+  const row = el('div', 'ykc-row ' + (role === 'me' ? 'me' : 'yk'));
+  if (role !== 'me') { const f = el('span', 'ykc-av'); f.setAttribute('aria-hidden', 'true'); f.innerHTML = YK.svg({ size: 34, face: (extra && extra.face) || 'happy', wave: false, title: '' }); row.appendChild(f); }
+  const b = el('div', 'ykc-msg fx-noi18n' + (extra && extra.err ? ' err' : ''), text);
+  row.appendChild(b);
+  return row;
+}
+function ykcRender() {
+  const log = $('ykc-log'); if (!log) return;
+  log.innerHTML = '';
+  log.appendChild(ykcBubble('yk', fxLang === 'en' ? YKC_HELLO[1] : YKC_HELLO[0], { face: 'wink' }));
+  ykcLog.forEach(m => {
+    log.appendChild(ykcBubble(m.role, m.text, m));
+    if (m.role === 'me' && m.intents && m.intents.length) {
+      const c = el('div', 'ykc-read fx-noi18n');
+      c.appendChild(el('small', '', t('やどかりんAIが読み取った条件')));
+      m.intents.forEach(x => { const sp = el('span', '', `${fxLang === 'en' ? x.en : x.ja} ${Math.round(x.p * 100)}%`); sp.title = fxLang === 'en' ? 'confidence' : 'AIの自信の度合い'; c.appendChild(sp); });
+      log.appendChild(c);
+    }
+    if (m.conditions && m.conditions.length) {
+      const c = el('div', 'ykc-conds fx-noi18n'); m.conditions.forEach(x => c.appendChild(el('span', '', x))); log.appendChild(c);
+    }
+    (m.picks || []).forEach(pk => { const card = ykcPickCard(pk); if (card) log.appendChild(card); });
+  });
+  if (ykcBusy) { const r = ykcBubble('yk', t('考え中…'), { face: 'wow' }); r.classList.add('busy'); log.appendChild(r); }
+  const chips = $('ykc-chips'); chips.innerHTML = '';
+  if (!ykcLog.length && !ykcBusy) YKC_CHIPS.forEach(c => { const b = el('button', 'ykc-chip fx-noi18n', fxLang === 'en' ? c[1] : c[0]); b.type = 'button'; b.onclick = () => ykcSend(b.textContent); chips.appendChild(b); });
+  const last = [...ykcLog].reverse().find(m => m.mode);
+  const mode = $('ykc-mode'); if (mode) { mode.hidden = !last; if (last) mode.textContent = last.mode === 'ai' ? t('生成AI') : last.mode === 'model' ? 'やどかりんAI' : t('かんたん'); }
+  log.scrollTop = log.scrollHeight;
+}
+async function ykcSend(text) {
+  text = String(text || '').trim().slice(0, 400);
+  if (!text || ykcBusy) return;
+  $('ykc-in').value = ''; $('ykc-in').style.height = '';
+  const mine = { role: 'me', text };
+  ykcLog.push(mine);
+  ykcBusy = true; ykcRender();
+  try {
+    if (!PROPS.length && typeof fetchAndRenderProps === 'function') await fetchAndRenderProps();
+    const it = await ykcIntents(text);
+    if (it) mine.intents = it;
+    const hist = ykcLog.filter(m => !m.err).slice(-12);
+    const body = { messages: hist.map(m => ({ role: m.role, text: m.text })), lang: fxLang };
+    if (it) {   // これまでの自分の発言で読み取った条件をまとめて送る（発言ごとにAIで読んである）
+      const all = [];
+      for (const m of hist) if (m.role === 'me') (m.intents || (m === mine ? it : (await ykcIntents(m.text)) || [])).forEach(x => { if (!all.includes(x.label)) all.push(x.label); });
+      body.intents = all; body.lastIntents = it.map(x => x.label);
+    }
+    const r = await api('ykChat', { body });
+    ykcLog.push({ role: 'yk', text: r.reply || '', picks: r.picks || [], conditions: r.conditions || [], mode: r.mode, face: (r.picks || []).length ? 'happy' : 'wow' });
+  } catch (e) {
+    ykcLog.push({ role: 'yk', err: true, face: 'sad', text: e.status === 429 ? e.message : (fxLang === 'en' ? 'Sorry, I could not connect. Please try again.' : 'ごめんね、うまくつながらなかったみたい。もう一度送ってみて。') });
+  } finally {
+    ykcBusy = false; ykcSave(); ykcRender();
+  }
+}
+const _toggleLang2 = window.fxToggleLang;
+window.fxToggleLang = function () { const r = _toggleLang2.apply(this, arguments); ykcRender(); return r; };
+
 /* ══════════════ 起動 ══════════════ */
 function boot() {
-  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); heLogos(); initHero(); initChips(); initAsk(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
   const help = $('s-help');
   if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
   setGuestClass();

@@ -3,7 +3,7 @@
    キャッシュ戦略: Cache First（静的ファイル）
               + Network First（API）
 ============================================ */
-const CACHE_NAME    = 'vr-homes-v17';
+const CACHE_NAME    = 'vr-homes-v19';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,8 @@ const STATIC_ASSETS = [
   './features.js',
   './mascot.js',
   './theme.css',
+  './yk-ai.js',
+  './yk-model.json',
   './img/doll.webp',
   './img/measure.webp',
   './img/sun.webp',
