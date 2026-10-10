@@ -1,0 +1,2565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>間取りエディタ - VR Homes</title>
+<style>
+:root{
+  --ink:#0f172a; --ink-2:#334155; --ink-3:#64748b; --ink-4:#94a3b8;
+  --line:#e2e8f0; --line-2:#cbd5e1; --bg:#f8fafc; --surface:#fff;
+  --blue:#2563eb; --blue-d:#1d4ed8; --blue-l:#eff6ff; --blue-m:#dbeafe;
+  --red:#dc2626; --red-l:#fef2f2; --green:#16a34a; --amber:#d97706;
+  --wall:#1e293b; --r:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;font-size:13px;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.app{display:grid;grid-template-rows:auto 1fr;height:100%}
+
+/* ── ヘッダー ── */
+.top{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line);min-width:0}
+.top h1{font-size:14px;margin:0 6px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.top h1 small{font-weight:500;color:var(--ink-3);margin-left:6px}
+.spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:32px;padding:0 11px;border:1px solid var(--line-2);border-radius:8px;background:var(--surface);white-space:nowrap;transition:background .12s,border-color .12s}
+.btn:hover{background:#f1f5f9}
+.btn:disabled{opacity:.4;cursor:default;background:var(--surface)}
+.btn.icon{width:32px;padding:0}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
+.btn.primary:hover{background:var(--blue-d)}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:#f1f5f9}
+.btn.danger{color:var(--red)}
+.btn.small{height:26px;padding:0 8px;font-size:12px}
+.sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+.zoomlabel{min-width:44px;text-align:center;color:var(--ink-3);font-size:12px}
+
+/* ── 本体 ── */
+.main{display:grid;grid-template-columns:220px 1fr 272px;min-height:0}
+.tools{background:var(--surface);border-right:1px solid var(--line);overflow-y:auto;padding:10px 10px 16px}
+.step{margin-bottom:14px}
+.step-h{display:flex;align-items:center;gap:7px;font-weight:800;font-size:12px;color:var(--ink-2);margin:2px 2px 7px}
+.step-h .n{width:19px;height:19px;border-radius:50%;background:var(--blue);color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.tool{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:54px;padding:6px 4px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);font-size:11.5px;color:var(--ink-2);position:relative;text-align:center;line-height:1.25}
+.tool svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tool:hover{border-color:var(--line-2);background:#f8fafc}
+.tool.on{border-color:var(--blue);background:var(--blue-l);color:var(--blue-d);font-weight:700}
+.tool kbd{position:absolute;top:3px;right:5px;font-size:9px;color:var(--ink-4);font-family:inherit}
+.tool.wide{grid-column:span 2;flex-direction:row;min-height:36px;gap:7px}
+.tool.wide svg{width:18px;height:18px}
+.furn-cats{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+.chip{height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:11.5px;color:var(--ink-2)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.furn-list{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.furn{display:flex;align-items:center;gap:6px;padding:6px 7px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:11.5px;text-align:left;line-height:1.2}
+.furn .ic{font-size:16px}
+.furn small{display:block;color:var(--ink-4);font-size:10px}
+.furn.on{border-color:var(--blue);background:var(--blue-l)}
+.bgbox{border:1px dashed var(--line-2);border-radius:var(--r);padding:8px;display:grid;gap:6px}
+.row{display:flex;align-items:center;gap:6px}
+.row label{color:var(--ink-3);font-size:11.5px;white-space:nowrap}
+.row input[type=range]{flex:1;min-width:0}
+details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
+.mini{font-size:11px;color:var(--ink-3);line-height:1.5}
+
+/* ── キャンバス ── */
+.stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#fbfcfe}
+#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;outline:none}
+.hint{position:absolute;left:50%;top:10px;transform:translateX(-50%);max-width:calc(100% - 20px);display:flex;align-items:center;gap:8px;background:rgba(15,23,42,.88);color:#fff;border-radius:999px;padding:7px 8px 7px 14px;font-size:12.5px;box-shadow:0 4px 18px rgba(15,23,42,.18);z-index:5}
+.hint .txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hint .acts{display:flex;gap:5px;flex-shrink:0}
+.hint .acts:empty{display:none}
+.hint button{height:26px;padding:0 10px;border-radius:999px;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:12px;white-space:nowrap}
+.hint button.ok{background:#22c55e;color:#04220f;font-weight:700}
+.hint button:hover{filter:brightness(1.15)}
+.numbox{position:absolute;z-index:6;display:none;align-items:center;gap:4px;background:#fff;border:2px solid var(--blue);border-radius:9px;padding:4px 6px;box-shadow:0 6px 20px rgba(15,23,42,.18)}
+.numbox.show{display:flex}
+.numbox span{font-size:11px;color:var(--ink-3);white-space:nowrap}
+.numbox input{width:76px;border:0;outline:none;font-size:15px;font-weight:700;text-align:right}
+.stat{position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-size:11.5px;color:var(--ink-3);z-index:4;pointer-events:none}
+.legend-toggle{position:absolute;right:10px;bottom:10px;display:flex;gap:5px;z-index:4}
+
+/* ── プロパティ ── */
+.props{background:var(--surface);border-left:1px solid var(--line);overflow-y:auto;padding:12px}
+.ph{font-weight:800;font-size:13px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.ph .tag{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--blue-l);color:var(--blue-d)}
+.field{margin-bottom:10px}
+.field>label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:4px}
+.in{width:100%;height:32px;border:1px solid var(--line-2);border-radius:8px;padding:0 9px;background:#fff;outline:none}
+.in:focus{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-m)}
+.unit{position:relative}
+.unit .in{padding-right:28px;text-align:right}
+.unit::after{content:attr(data-u);position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--ink-4);font-size:11.5px;pointer-events:none}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chips .chip{height:22px;font-size:11px;padding:0 7px}
+.swatches{display:flex;flex-wrap:wrap;gap:6px}
+.sw{width:24px;height:24px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line-2)}
+.sw.on{box-shadow:0 0 0 2px var(--ink)}
+.big{display:flex;gap:10px;align-items:baseline;background:var(--bg);border:1px solid var(--line);border-radius:var(--r);padding:9px 11px;margin-bottom:12px}
+.big b{font-size:20px}
+.big span{color:var(--ink-3)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.seg button{height:30px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:11.5px}
+.seg button.on{border-color:var(--blue);background:var(--blue-l);color:var(--blue-d);font-weight:700}
+.list{display:grid;gap:4px}
+.li{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;text-align:left;width:100%}
+.li:hover{border-color:var(--line-2)}
+.li .dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li .v{color:var(--ink-3);font-size:11.5px;white-space:nowrap}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.empty{color:var(--ink-3);line-height:1.7;font-size:12px;background:var(--bg);border:1px dashed var(--line-2);border-radius:var(--r);padding:12px}
+.kbd-help{margin-top:14px;color:var(--ink-3);font-size:11px;line-height:1.8}
+.kbd-help kbd{display:inline-block;min-width:18px;padding:0 4px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;font-family:inherit;font-size:10px;text-align:center;color:var(--ink-2);background:#fff}
+
+/* ── モーダル ── */
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:14px}
+.modal.show{display:flex}
+.dialog{background:#fff;border-radius:14px;width:min(420px,100%);padding:16px;box-shadow:0 20px 60px rgba(15,23,42,.3)}
+.dialog h3{margin:0 0 12px;font-size:15px}
+.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.presets button{border:1px solid var(--line);border-radius:8px;background:#fff;padding:7px 4px;font-size:12px;line-height:1.3}
+.presets button small{display:block;color:var(--ink-4);font-size:10px}
+.presets button:hover{border-color:var(--blue);background:var(--blue-l)}
+.viewer{position:fixed;inset:0;z-index:60;background:#0a0e1a;display:none}
+.viewer.show{display:block}
+.viewer iframe{width:100%;height:100%;border:0;display:block}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:9px 16px;border-radius:999px;font-size:12.5px;opacity:0;transition:all .25s;z-index:70;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── スマホ・狭い画面 ── */
+@media (max-width: 860px){
+  .main{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .tools{grid-row:2;border-right:0;border-top:1px solid var(--line);padding:6px;display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;max-height:none;white-space:nowrap}
+  .step{margin:0;display:flex;align-items:center;gap:6px}
+  .step-h{writing-mode:horizontal-tb;margin:0}
+  .step-h span:not(.n){display:none}
+  .tgrid{display:flex;gap:5px}
+  .tool{min-width:62px;min-height:50px}
+  .tool.wide{grid-column:auto;flex-direction:column;min-height:50px}
+  .tool kbd{display:none}
+  .bg-step{display:none}
+  .furn-step{display:flex}
+  .furn-cats{display:none}
+  .furn-list{display:flex;gap:5px}
+  .furn{min-width:92px;min-height:50px}
+  .props{position:fixed;left:0;right:0;bottom:0;max-height:48vh;border-left:0;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -10px 30px rgba(15,23,42,.15);transform:translateY(105%);transition:transform .22s;z-index:30;padding-top:6px}
+  .props.open{transform:none}
+  .props .grab{display:block}
+  .top h1 small{display:none}
+  .hide-sm{display:none !important}
+  .hint{top:8px;font-size:12px}
+}
+.sm{display:none}
+@media (max-width: 860px){ .lg{display:none} .sm{display:inline} }
+@media (max-width: 480px){ .top h1{display:none} .top{gap:4px;padding:6px} .btn{padding:0 9px} }
+.grab{display:none;width:40px;height:4px;border-radius:2px;background:var(--line-2);margin:2px auto 10px}
+.show-sm{display:none}
+@media (max-width: 860px){ .show-sm{display:inline-flex} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>間取りエディタ<small id="propName"></small></h1>
+    <button class="btn icon" id="bUndo" title="元に戻す (Ctrl+Z)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg></button>
+    <button class="btn icon" id="bRedo" title="やり直す (Ctrl+Y)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg></button>
+    <span class="sep hide-sm"></span>
+    <button class="btn icon hide-sm" id="bZoomOut" title="縮小">−</button>
+    <span class="zoomlabel hide-sm" id="zoomLabel">100%</span>
+    <button class="btn icon hide-sm" id="bZoomIn" title="拡大">＋</button>
+    <button class="btn hide-sm" id="bFit" title="全体を表示 (0)">全体表示</button>
+    <span class="spacer"></span>
+    <button class="btn show-sm" id="bProps">詳細</button>
+    <button class="btn" id="bWalk" title="3Dで歩いて確認">🚶<span class="lg"> 3Dで歩く</span><span class="sm"> 3D</span></button>
+    <span class="sep"></span>
+    <span id="fileBtns" class="row">
+      <button class="btn hide-sm" id="bLoad">読み込み</button>
+      <button class="btn" id="bDownload"><span class="lg">ファイルに保存</span><span class="sm">保存</span></button>
+    </span>
+    <span id="embedBtns" class="row" style="display:none">
+      <button class="btn ghost" id="bCancel" title="保存せずに閉じる"><span class="lg">キャンセル</span><span class="sm">✕</span></button>
+      <button class="btn primary" id="bSave"><span class="lg">保存して閉じる</span><span class="sm">保存</span></button>
+    </span>
+  </header>
+
+  <div class="main">
+    <!-- 左: 道具 -->
+    <aside class="tools" id="tools">
+      <div class="step">
+        <div class="step-h"><span class="n">1</span><span>部屋をつくる</span></div>
+        <div class="tgrid">
+          <button class="tool" data-tool="select" title="選択・移動 (V)"><kbd>V</kbd><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-3 6z"/></svg>選択・移動</button>
+          <button class="tool" data-tool="rect" title="四角い部屋 (R)"><kbd>R</kbd><svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>四角い部屋</button>
+          <button class="tool" data-tool="poly" title="自由な形の部屋・斜めの壁 (P)"><kbd>P</kbd><svg viewBox="0 0 24 24"><path d="M4 5h9l7 7v7H4z"/></svg>L字・斜め</button>
+          <button class="tool" data-tool="wall" title="壁を引く (L)"><kbd>L</kbd><svg viewBox="0 0 24 24"><path d="M4 18 20 6" stroke-width="3.2"/></svg>壁だけ</button>
+          <button class="tool wide" id="bAddRoom" title="サイズを数字で指定して部屋を追加"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 12h8M12 8v8"/></svg>数字で部屋を追加</button>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-h"><span class="n">2</span><span>ドア・窓</span></div>
+        <div class="tgrid">
+          <button class="tool" data-tool="door" title="ドア (D)"><kbd>D</kbd><svg viewBox="0 0 24 24"><path d="M5 19V5"/><path d="M5 5a14 14 0 0 1 14 14"/><path d="M5 19h14"/></svg>ドア</button>
+          <button class="tool" data-tool="window" title="窓 (W)"><kbd>W</kbd><svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6"/><path d="M3 12h18"/></svg>窓</button>
+          <button class="tool" data-tool="passage" title="通路・開口 (O)"><kbd>O</kbd><svg viewBox="0 0 24 24"><path d="M3 12h5M16 12h5" stroke-width="3"/><path d="M9 12h6" stroke-dasharray="2 2"/></svg>通路</button>
+          <button class="tool" data-tool="tag" title="案内タグ: VR内見で設備などの説明を表示 (T)"><kbd>T</kbd><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.5" stroke-width="2.4"/></svg>案内タグ</button>
+        </div>
+      </div>
+      <div class="step furn-step">
+        <div class="step-h"><span class="n">3</span><span>家具を置く</span></div>
+        <div class="furn-cats" id="furnCats"></div>
+        <div class="furn-list" id="furnList"></div>
+      </div>
+      <div class="step bg-step">
+        <div class="step-h"><span class="n" style="background:#64748b">＋</span><span>下絵(間取り図の画像)</span></div>
+        <div class="bgbox">
+          <button class="btn primary" id="bAutoFromImage" title="間取り図の画像から部屋・ドア・窓をまとめて作ります">✨ 画像から自動で作る</button>
+          <button class="btn" id="bBgLoad">画像を読み込む</button>
+          <div id="bgCtl" style="display:none;gap:6px" class="bgctl">
+            <div class="row"><label>濃さ</label><input type="range" id="bgOpacity" min="10" max="100" value="55"></div>
+            <div class="tgrid" style="margin-top:4px">
+              <button class="tool" data-tool="calib" title="図面上の2点と実際の長さで大きさを合わせる"><svg viewBox="0 0 24 24"><path d="M4 17 17 4l3 3L7 20z"/><path d="M8 13l2 2M11 10l2 2M14 7l2 2"/></svg>長さを合わせる</button>
+              <button class="tool" data-tool="bgmove" title="下絵をドラッグで動かす"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>下絵を動かす</button>
+              <button class="tool" data-tool="roomfill" title="下絵の部屋の内側をクリックして部屋を自動作成"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z" fill="currentColor" opacity=".25"/></svg>部屋を自動取得</button>
+              <button class="tool" data-tool="autowall" title="下絵から壁の線を自動検出"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h16" stroke-width="2.6"/></svg>壁を自動検出</button>
+            </div>
+            <details>
+              <summary>検出の細かい設定</summary>
+              <div class="row"><label>暗さのしきい値</label><input type="range" id="pThreshold" min="30" max="230" value="110"><span id="pThresholdV" class="mini">110</span></div>
+              <div class="row"><label>色みの許容</label><input type="range" id="pSat" min="10" max="160" value="60"></div>
+              <div class="row"><label>壁の厚み(m)</label><input class="in" style="height:26px" id="pMinTh" type="number" step="0.01" value="0.06"><span class="mini">〜</span><input class="in" style="height:26px" id="pMaxTh" type="number" step="0.01" value="0.30"></div>
+              <div class="row"><label>最短の壁(m)</label><input class="in" style="height:26px" id="pMinLen" type="number" step="0.1" value="0.4"></div>
+              <div class="row"><label>開口を塞ぐ(m)</label><input class="in" style="height:26px" id="pClose" type="number" step="0.05" value="1.0"></div>
+              <div class="row"><button class="btn small" id="bOtsu">しきい値を自動で決める</button></div>
+            </details>
+            <button class="btn small danger" id="bBgClear">下絵を消す</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中央: キャンバス -->
+    <section class="stage" id="stage">
+      <canvas id="cv" tabindex="0"></canvas>
+      <div class="hint" id="hint"><span class="txt" id="hintTxt"></span><span class="acts" id="hintActs"></span></div>
+      <div class="numbox" id="numbox"><span id="numLabel">長さ</span><input id="numInput" inputmode="decimal" autocomplete="off"><span>m</span></div>
+      <div class="stat" id="stat"></div>
+      <div class="legend-toggle hide-sm">
+        <select class="btn small" id="gridSel" title="スナップ(吸着)の間隔">
+          <option value="0.05">吸着 5cm</option>
+          <option value="0.1" selected>吸着 10cm</option>
+          <option value="0.455">吸着 半間(45.5cm)</option>
+          <option value="0">吸着なし</option>
+        </select>
+        <button class="btn small" id="bDims" title="すべての部屋の寸法を表示">寸法: 選択中のみ</button>
+      </div>
+    </section>
+
+    <!-- 右: 詳細 -->
+    <aside class="props" id="props"><div class="grab"></div><div id="propsBody"></div></aside>
+  </div>
+</div>
+
+<!-- 数字で部屋を追加 -->
+<div class="modal" id="autoModal">
+  <div class="dialog">
+    <h3>✨ 画像から自動で作る</h3>
+    <p class="mini" style="margin:-4px 0 12px">間取り図の壁を読み取って、部屋・ドア・窓をまとめて作ります。できあがった後で、違う所を手で直してください。</p>
+    <div class="field"><label>専有面積(縮尺を合わせるのに使います)</label><div class="unit" data-u="㎡"><input class="in" id="autoArea" type="number" step="0.01" placeholder="例: 25.5"></div></div>
+    <div class="mini" id="autoNote" style="margin:-2px 0 12px"></div>
+    <div class="field" id="autoReplaceRow" style="display:none"><label><input type="checkbox" id="autoReplace" checked> 今ある部屋を消して作り直す</label></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="autoCancel">やめる</button>
+      <button class="btn primary" id="autoOk">作成する</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="addModal">
+  <div class="dialog">
+    <h3>数字で部屋を追加</h3>
+    <div class="presets" id="presets"></div>
+    <div class="field"><label>部屋の名前</label><input class="in" id="addName" value="洋室"></div>
+    <div class="two">
+      <div class="field"><label>幅(横)</label><div class="unit" data-u="m"><input class="in" id="addW" type="number" step="0.01" value="3.64"></div></div>
+      <div class="field"><label>奥行(縦)</label><div class="unit" data-u="m"><input class="in" id="addD" type="number" step="0.01" value="2.73"></div></div>
+    </div>
+    <div class="mini" id="addInfo" style="margin:-2px 0 12px"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="addCancel">やめる</button>
+      <button class="btn primary" id="addOk">追加する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 3Dで歩く -->
+<div class="viewer" id="viewer"></div>
+<div class="toast" id="toast"></div>
+<input type="file" id="fileBg" accept="image/*" hidden>
+<input type="file" id="fileJson" accept=".json,application/json" hidden>
+
+<script>
+"use strict";
+/* =====================================================================
+   VR Homes 間取りエディタ
+   データ形式は従来と同じ { rooms, furnitures, walls }(50px = 1m、yが下)
+   - rooms:      { id, name, color, vertices:[{x,y}], openings:[...], wx,wy,ww,wh, groupId }
+   - openings:   { type:'door'|'window'|'passage', edgeIndex, offsetAlongWall(0〜1), width, height, doorType }
+   - furnitures: { id, type, name, icon, cx, cy, w, d, h, pw, ph, rotation, color }
+   - walls:      { id, x1, y1, x2, y2 }
+   親ページ(index.html)とは postMessage でやり取りする
+     子→親: vr-editor-ready / vr-editor-save {data, thumbnail} / vr-editor-cancel
+     親→子: init {data, propName}
+   ===================================================================== */
+
+const M = 50;                    // 1m = 50px(エディタ座標)
+const WALL_DRAW_T = 0.12;        // 描画上の壁の厚み(m)
+const TATAMI = 1.62;             // 1帖 = 1.62㎡(不動産表示の基準)
+const ROOM_COLORS = ['#1D9E75','#185FA5','#BA7517','#993556','#533AB7','#0891B2','#65A30D','#DC2626','#78716C','#D97706'];
+const ROOM_NAMES = ['LDK','洋室','和室','寝室','キッチン','ダイニング','玄関','廊下','浴室','洗面所','トイレ','収納','クローゼット','バルコニー'];
+const ROOM_PRESETS = [
+  { n:'4.5帖', w:2.73, d:2.73 }, { n:'6帖', w:3.64, d:2.73 }, { n:'8帖', w:3.64, d:3.64 }, { n:'10帖', w:4.55, d:3.64 },
+  { n:'12帖', w:5.46, d:3.64 }, { n:'玄関', w:1.82, d:1.37 }, { n:'浴室', w:1.82, d:1.37 }, { n:'トイレ', w:0.91, d:1.82 }
+];
+const FURNITURE = {
+  'リビング': [
+    {id:'sofa',name:'ソファ',icon:'🛋',w:2.0,d:0.9,h:0.8,color:'#8B6914'},
+    {id:'table',name:'テーブル',icon:'🪑',w:1.2,d:0.7,h:0.7,color:'#A0522D'},
+    {id:'tv_stand',name:'TV台',icon:'📺',w:1.8,d:0.4,h:0.5,color:'#555555'},
+    {id:'bookshelf',name:'本棚',icon:'📚',w:0.9,d:0.3,h:1.8,color:'#8B4513'},
+    {id:'chair',name:'椅子',icon:'🪑',w:0.5,d:0.5,h:0.8,color:'#C8A96E'}
+  ],
+  '寝室': [
+    {id:'bed_single',name:'ベッド(S)',icon:'🛏',w:1.0,d:2.0,h:0.5,color:'#6A8FB5'},
+    {id:'bed_double',name:'ベッド(D)',icon:'🛏',w:1.4,d:2.0,h:0.5,color:'#5A7FA5'},
+    {id:'closet',name:'クローゼット',icon:'👗',w:1.8,d:0.6,h:2.0,color:'#C0A882'},
+    {id:'desk',name:'デスク',icon:'🖥',w:1.2,d:0.6,h:0.75,color:'#A0522D'},
+    {id:'dresser',name:'タンス',icon:'🗄',w:0.9,d:0.45,h:1.2,color:'#C8A96E'}
+  ],
+  'キッチン': [
+    {id:'fridge',name:'冷蔵庫',icon:'🧊',w:0.6,d:0.65,h:1.8,color:'#B0C4DE'},
+    {id:'sink',name:'シンク',icon:'🚰',w:0.8,d:0.6,h:0.85,color:'#C0C0C0'},
+    {id:'stove',name:'コンロ',icon:'🍳',w:0.6,d:0.6,h:0.85,color:'#888888'},
+    {id:'counter',name:'カウンター',icon:'🍽',w:2.0,d:0.6,h:0.85,color:'#D2B48C'}
+  ],
+  '水まわり': [
+    {id:'bathtub',name:'バスタブ',icon:'🛁',w:0.8,d:1.5,h:0.6,color:'#B0E0E6'},
+    {id:'washstand',name:'洗面台',icon:'🪥',w:0.8,d:0.5,h:0.85,color:'#E0E0E0'},
+    {id:'toilet',name:'トイレ',icon:'🚽',w:0.45,d:0.65,h:0.85,color:'#F5F5F5'},
+    {id:'shower',name:'シャワー',icon:'🚿',w:0.9,d:0.9,h:2.2,color:'#87CEEB'}
+  ],
+  'その他': [
+    {id:'stairs',name:'階段',icon:'🪜',w:1.0,d:2.0,h:1.0,color:'#DEB887'},
+    {id:'plant',name:'観葉植物',icon:'🪴',w:0.4,d:0.4,h:1.2,color:'#228B22'},
+    {id:'piano',name:'ピアノ',icon:'🎹',w:1.5,d:0.6,h:1.2,color:'#222222'},
+    {id:'ac',name:'エアコン',icon:'❄️',w:0.8,d:0.2,h:0.3,color:'#E8E8E8'}
+  ]
+};
+const OPENING_DEFAULTS = { door:{ width:0.8, height:2.0 }, window:{ width:1.2, height:1.0 }, passage:{ width:1.2, height:2.0 } };
+const DOOR_TYPES = [
+  ['swing_left','左開き(内)'],['swing_right','右開き(内)'],['slide_left','引き戸(左)'],
+  ['swing_left_out','左開き(外)'],['swing_right_out','右開き(外)'],['slide_right','引き戸(右)']
+];
+
+/* ───────── 状態 ───────── */
+let plan = { rooms: [], furnitures: [], walls: [], tags: [] };
+let nextId = 1;
+const newId = () => nextId++;
+let tool = 'select';
+let selection = [];               // [{kind:'room'|'opening'|'furn'|'wall', obj, room}]
+let view = { scale: 1.2, ox: 0, oy: 0 };
+let gridM = 0.1;
+let showAllDims = false;
+let embedded = window.parent !== window;
+let propName = '';
+let furnPick = null;              // 置こうとしている家具の定義
+let furnCat = 'リビング';
+let bg = null;                    // { img, x, y, scale, opacity }
+const undoStack = [], redoStack = [];
+let clipboard = null, pasteCount = 0;
+
+// 操作中の一時状態
+let drag = null;                  // ドラッグ中の情報
+let draft = null;                 // 描画中の部屋・壁 { pts:[], kind }
+let hover = null;                 // カーソル位置(ワールド)
+let snapInfo = null;              // スナップ表示用
+let openingPreview = null;
+let autoWallPreview = null, awRegion = null;
+let roomFillPreview = [];
+let calib = null;                 // 長さ合わせ { p1, p2 }
+let shiftDown = false, spaceDown = false;
+const pointers = new Map();       // ピンチ用
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+
+/* ───────── 小物 ───────── */
+const fmtM = px => (px / M).toFixed(2) + 'm';
+const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function polyArea2(v) { let a = 0; for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; } return a; }
+function polyAreaM2(v) { return Math.abs(polyArea2(v)) / 2 / (M * M); }
+function centroid(v) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length], f = p.x * q.y - q.x * p.y; a += f; cx += (p.x + q.x) * f; cy += (p.y + q.y) * f; }
+  if (Math.abs(a) < 1e-6) { const s = v.reduce((o, p) => ({ x: o.x + p.x, y: o.y + p.y }), { x: 0, y: 0 }); return { x: s.x / v.length, y: s.y / v.length }; }
+  return { x: cx / (3 * a), y: cy / (3 * a) };
+}
+function pointInPoly(p, v) {
+  let inside = false;
+  for (let i = 0, j = v.length - 1; i < v.length; j = i++) {
+    const a = v[i], b = v[j];
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+function segDist(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+  let t = l2 > 0 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2 : 0;
+  t = clamp(t, 0, 1);
+  const q = { x: a.x + dx * t, y: a.y + dy * t };
+  return { d: dist(p, q), t, q };
+}
+function edgeInfo(room, i) {
+  const v = room.vertices, a = v[i], b = v[(i + 1) % v.length];
+  const len = dist(a, b) || 1e-9, ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
+  const s = polyArea2(v) > 0 ? 1 : -1;
+  return { a, b, len, ux, uy, nx: -uy * s, ny: ux * s };   // n は部屋の内側向き
+}
+function bbox(points) {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  points.forEach(p => { x1 = Math.min(x1, p.x); y1 = Math.min(y1, p.y); x2 = Math.max(x2, p.x); y2 = Math.max(y2, p.y); });
+  return { x1, y1, x2, y2 };
+}
+function isAxisRect(room) {
+  const v = room.vertices;
+  if (v.length !== 4) return false;
+  for (let i = 0; i < 4; i++) { const a = v[i], b = v[(i + 1) % 4]; if (Math.abs(a.x - b.x) > 0.5 && Math.abs(a.y - b.y) > 0.5) return false; }
+  return true;
+}
+function furnCorners(f) {
+  const r = (f.rotation || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), hw = f.w * M / 2, hd = f.d * M / 2;
+  return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([x, y]) => ({ x: f.cx + x * c - y * s, y: f.cy + x * s + y * c }));
+}
+
+/* ───────── 座標変換 ───────── */
+let dpr = 1;
+function toScreen(p) { return { x: p.x * view.scale + view.ox, y: p.y * view.scale + view.oy }; }
+function toWorld(sx, sy) { return { x: (sx - view.ox) / view.scale, y: (sy - view.oy) / view.scale }; }
+function evWorld(e) { const r = cv.getBoundingClientRect(); return toWorld(e.clientX - r.left, e.clientY - r.top); }
+function evScreen(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+/* ───────── データの出し入れ ───────── */
+function serialize() { return JSON.stringify(plan); }
+function restore(json) { plan = JSON.parse(json); if (!plan.tags) plan.tags = []; selection = []; refreshAll(); }
+
+function importData(data) {
+  const rooms = [], furnitures = [], walls = [];
+  (data && data.rooms || []).forEach((r, ri) => {
+    let verts, openings = [];
+    if (Array.isArray(r.vertices) && r.vertices.length >= 3) {
+      verts = r.vertices.map(v => ({ x: +v.x || 0, y: +v.y || 0 }));
+      (r.openings || []).forEach(o => {
+        if (o.edgeIndex === undefined) return;
+        openings.push(normOpening(o, o.edgeIndex, o.offsetAlongWall));
+      });
+    } else {
+      const x = +r.wx || 0, y = +r.wy || 0, w = +r.ww || 0, h = +r.wh || 0;
+      if (w <= 0 || h <= 0) return;
+      verts = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+      // 旧形式(壁の向き+左/上からの割合)→ 辺番号に変換
+      (r.openings || []).forEach(o => {
+        let a = +o.offsetAlongWall; if (!(a > 0)) a = 0.5; if (a > 1) a = 0.5;
+        const map = { North: [0, a], East: [1, a], South: [2, 1 - a], West: [3, 1 - a] }[o.wall];
+        if (map) openings.push(normOpening(o, map[0], map[1]));
+      });
+    }
+    rooms.push({ id: newId(), name: r.name || ('部屋' + (ri + 1)), color: r.color || ROOM_COLORS[ri % ROOM_COLORS.length], vertices: verts, openings, groupId: r.groupId || null });
+  });
+  ((data && (data.furnitures || data.furniture)) || []).forEach(f => {
+    const w = +f.w || (+f.pw / M) || 1, d = +f.d || (+f.ph / M) || 1;
+    furnitures.push({ id: newId(), type: f.type || 'custom', name: f.name || '家具', icon: f.icon || '▪', cx: +f.cx || 0, cy: +f.cy || 0, w, d, h: +f.h || 0.8, rotation: +f.rotation || 0, color: f.color || '#888888' });
+  });
+  ((data && data.walls) || []).forEach(w => walls.push({ id: newId(), x1: +w.x1 || 0, y1: +w.y1 || 0, x2: +w.x2 || 0, y2: +w.y2 || 0 }));
+  const tags = [];
+  ((data && data.tags) || []).forEach(t => { if (t && (t.title || t.text)) tags.push({ id: newId(), x: +t.x || 0, y: +t.y || 0, h: +t.h || 1.2, title: String(t.title || '').slice(0, 40), text: String(t.text || '').slice(0, 400) }); });
+  const north = ((+(data && data.north) || 0) % 360 + 360) % 360;
+  return { rooms, furnitures, walls, tags, north };
+}
+function normOpening(o, edgeIndex, along) {
+  const type = o.type === 'window' ? 'window' : o.type === 'passage' ? 'passage' : 'door';
+  const d = OPENING_DEFAULTS[type];
+  let a = +along; if (!(a > 0 && a < 1)) a = 0.5;
+  const op = { type, edgeIndex: +edgeIndex, offsetAlongWall: a, width: +o.width || d.width, height: +o.height || d.height };
+  if (type === 'door') op.doorType = o.doorType || 'swing_left';
+  return op;
+}
+function exportData() {
+  return {
+    rooms: plan.rooms.map(r => {
+      const b = bbox(r.vertices);
+      return { id: r.id, name: r.name, color: r.color, groupId: r.groupId || null,
+        wx: b.x1, wy: b.y1, ww: b.x2 - b.x1, wh: b.y2 - b.y1,
+        vertices: r.vertices.map(v => ({ x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100 })),
+        openings: r.openings.map(o => Object.assign({}, o)) };
+    }),
+    furnitures: plan.furnitures.map(f => ({ id: f.id, type: f.type, name: f.name, icon: f.icon, cx: f.cx, cy: f.cy, w: f.w, d: f.d, h: f.h, pw: f.w * M, ph: f.d * M, rotation: f.rotation, color: f.color })),
+    walls: plan.walls.map(w => ({ id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
+    north: +plan.north || 0,
+    tags: (plan.tags || []).filter(t => t.title || t.text).map(t => ({ id: t.id, x: Math.round(t.x * 10) / 10, y: Math.round(t.y * 10) / 10, h: t.h, title: t.title, text: t.text }))
+  };
+}
+
+/* ───────── 履歴(元に戻す/やり直す)───────── */
+let pendingSnap = null;
+function beginChange() { if (pendingSnap === null) pendingSnap = serialize(); }
+function endChange() {
+  if (pendingSnap === null) return;
+  const now = serialize();
+  if (now !== pendingSnap) { undoStack.push(pendingSnap); if (undoStack.length > 150) undoStack.shift(); redoStack.length = 0; autosave(); }
+  pendingSnap = null;
+  updateUndoButtons();
+}
+function change(fn) { beginChange(); fn(); endChange(); refreshAll(); }
+function undo() { if (!undoStack.length) return; cancelDraft(); redoStack.push(serialize()); restore(undoStack.pop()); updateUndoButtons(); autosave(); }
+function redo() { if (!redoStack.length) return; cancelDraft(); undoStack.push(serialize()); restore(redoStack.pop()); updateUndoButtons(); autosave(); }
+function updateUndoButtons() { $('bUndo').disabled = !undoStack.length; $('bRedo').disabled = !redoStack.length; }
+function autosave() {
+  if (embedded) return;
+  try { localStorage.setItem('vrhomes_editor_draft', serialize()); } catch (e) { /* 容量不足など */ }
+}
+
+/* ───────── スナップ(吸着)───────── */
+function allVertices(excludeRoom) {
+  const out = [];
+  plan.rooms.forEach(r => { if (r !== excludeRoom) r.vertices.forEach(v => out.push(v)); });
+  plan.walls.forEach(w => { out.push({ x: w.x1, y: w.y1 }); out.push({ x: w.x2, y: w.y2 }); });
+  return out;
+}
+function allEdges(excludeRoom) {
+  const out = [];
+  plan.rooms.forEach(r => { if (r === excludeRoom) return; r.vertices.forEach((v, i) => out.push([v, r.vertices[(i + 1) % r.vertices.length]])); });
+  plan.walls.forEach(w => out.push([{ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 }]));
+  return out;
+}
+function gridSnap(v) { const g = gridM * M; return g > 0 ? Math.round(v / g) * g : v; }
+/* p を吸着させる。優先度: 他の頂点 > 他の辺 > 縦横の揃え > グリッド */
+function snapPoint(p, opt) {
+  opt = opt || {};
+  snapInfo = null;
+  if (shiftDown || gridM === 0 && !opt.force) return { x: p.x, y: p.y };
+  const t = 10 / view.scale;
+  const verts = (opt.extraVerts || []).concat(allVertices(opt.excludeRoom)).filter(v => v !== opt.excludeVertex);
+  let best = null, bd = t;
+  verts.forEach(v => { const d = dist(p, v); if (d < bd) { bd = d; best = v; } });
+  if (best) { snapInfo = { kind: 'vertex', p: { x: best.x, y: best.y } }; return { x: best.x, y: best.y }; }
+  if (!opt.noEdge) {
+    let be = null; bd = t * 0.8;
+    allEdges(opt.excludeRoom).forEach(([a, b]) => { const s = segDist(p, a, b); if (s.d < bd) { bd = s.d; be = s.q; } });
+    if (be) {
+      // 辺の上で、グリッドにも合わせる(縦横の辺のとき)
+      const q = { x: be.x, y: be.y };
+      snapInfo = { kind: 'edge', p: q };
+      return q;
+    }
+  }
+  const r = { x: gridSnap(p.x), y: gridSnap(p.y) };
+  let gx = null, gy = null;
+  verts.forEach(v => {
+    if (Math.abs(v.x - p.x) < t && (gx === null || Math.abs(v.x - p.x) < Math.abs(gx.x - p.x))) gx = v;
+    if (Math.abs(v.y - p.y) < t && (gy === null || Math.abs(v.y - p.y) < Math.abs(gy.y - p.y))) gy = v;
+  });
+  if (gx) r.x = gx.x;
+  if (gy) r.y = gy.y;
+  if (gx || gy) snapInfo = { kind: 'align', p: r, gx, gy };
+  return r;
+}
+/* 直前の点からの向きをそろえる: 縦横・45°に近ければその向きに吸着、それ以外は斜めのまま(Shiftで完全に自由) */
+function orthoFrom(prev, p) {
+  if (!prev || shiftDown) return p;
+  const dx = p.x - prev.x, dy = p.y - prev.y, len = Math.hypot(dx, dy);
+  if (len < 1) return p;
+  const ang = Math.atan2(dy, dx), step = Math.PI / 4;
+  const snapped = Math.round(ang / step) * step;
+  const tol = Math.round(ang / step) % 2 === 0 ? 10 : 5;   // 縦横は±10°、45°は±5°で吸着
+  if (Math.abs(ang - snapped) * 180 / Math.PI > tol) return p;
+  if (Math.abs(Math.cos(snapped)) < 1e-6) return { x: prev.x, y: p.y };
+  if (Math.abs(Math.sin(snapped)) < 1e-6) return { x: p.x, y: prev.y };
+  const l = (dx * Math.cos(snapped) + dy * Math.sin(snapped));
+  return { x: prev.x + Math.cos(snapped) * l, y: prev.y + Math.sin(snapped) * l };
+}
+
+/* ───────── 開口(ドア・窓)───────── */
+function openingGeom(room, o) {
+  const e = edgeInfo(room, o.edgeIndex);
+  const c = o.offsetAlongWall * e.len, w = o.width * M;
+  const l = clamp(c - w / 2, 0, e.len), r = clamp(c + w / 2, 0, e.len);
+  const P = t => ({ x: e.a.x + e.ux * t, y: e.a.y + e.uy * t });
+  return { e, c, l, r, w: r - l, p1: P(l), p2: P(r), mid: P(c), P };
+}
+function clampAlong(e, widthM, f) {
+  const half = widthM * M / 2 / e.len;
+  return half >= 0.5 ? 0.5 : clamp(f, half, 1 - half);
+}
+// 他の部屋の重なった辺にある開口も、穴として扱う(描画用)
+function holesForEdge(room, i) {
+  const e = edgeInfo(room, i), holes = [];
+  room.openings.forEach(o => { if (o.edgeIndex === i) { const g = openingGeom(room, o); holes.push([g.l, g.r]); } });
+  plan.rooms.forEach(r2 => {
+    if (r2 === room) return;
+    r2.openings.forEach(o => {
+      const g = openingGeom(r2, o);
+      if (Math.abs(e.ux * g.e.uy - e.uy * g.e.ux) > 0.08) return;
+      const rx = g.mid.x - e.a.x, ry = g.mid.y - e.a.y;
+      if (Math.abs(rx * -e.uy + ry * e.ux) > WALL_DRAW_T * M * 1.6) return;
+      const t = rx * e.ux + ry * e.uy;
+      if (t < 0 || t > e.len) return;
+      holes.push([clamp(t - g.w / 2, 0, e.len), clamp(t + g.w / 2, 0, e.len)]);
+    });
+  });
+  return holes.sort((a, b) => a[0] - b[0]);
+}
+function nearestRoomEdge(p, maxD) {
+  let best = null;
+  plan.rooms.forEach(room => room.vertices.forEach((v, i) => {
+    const e = edgeInfo(room, i), s = segDist(p, e.a, e.b);
+    if (s.d > maxD) return;
+    const inside = pointInPoly(p, room.vertices);
+    const score = s.d - (inside ? 0.01 : 0);
+    if (!best || score < best.score) best = { room, i, e, t: s.t, score };
+  }));
+  return best;
+}
+// 頂点を増減したあと、開口を一番近い辺に付け直す
+function remapOpenings(room, before) {
+  room.openings = [];
+  before.forEach(b => {
+    let best = null;
+    room.vertices.forEach((v, i) => {
+      const e = edgeInfo(room, i), s = segDist(b.mid, e.a, e.b);
+      if (!best || s.d < best.d) best = { i, t: s.t, d: s.d, e };
+    });
+    if (best) room.openings.push(Object.assign({}, b.o, { edgeIndex: best.i, offsetAlongWall: clampAlong(best.e, b.o.width, best.t) }));
+  });
+}
+function openingMids(room) { return room.openings.map(o => ({ o, mid: openingGeom(room, o).mid })); }
+
+/* ───────── 描画 ───────── */
+function resize() {
+  const r = cv.getBoundingClientRect();
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.max(1, Math.round(r.width * dpr));
+  cv.height = Math.max(1, Math.round(r.height * dpr));
+  draw();
+}
+let drawQueued = false;
+function draw() { if (drawQueued) return; drawQueued = true; requestAnimationFrame(() => { drawQueued = false; render(); }); }
+
+function setWorld() { ctx.setTransform(view.scale * dpr, 0, 0, view.scale * dpr, view.ox * dpr, view.oy * dpr); }
+function setScreen() { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+const px = n => n / view.scale;   // 画面上 n px をワールドに
+
+function render() {
+  const W = cv.width / dpr, H = cv.height / dpr;
+  setScreen();
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#fbfcfe'; ctx.fillRect(0, 0, W, H);
+  drawGrid(W, H);
+  setWorld();
+  if (bg) {
+    ctx.globalAlpha = bg.opacity;
+    ctx.drawImage(bg.img, bg.x, bg.y, bg.img.width * bg.scale, bg.img.height * bg.scale);
+    ctx.globalAlpha = 1;
+  }
+  const sel = new Set(selection.map(s => s.obj));
+
+  // 部屋の床
+  plan.rooms.forEach(r => {
+    tracePoly(r.vertices);
+    ctx.fillStyle = hexA(r.color, sel.has(r) ? 0.28 : 0.16);
+    ctx.fill();
+  });
+  // 壁
+  ctx.lineCap = 'butt';
+  plan.rooms.forEach(r => r.vertices.forEach((v, i) => {
+    const e = edgeInfo(r, i), holes = holesForEdge(r, i);
+    let cur = 0;
+    ctx.strokeStyle = sel.has(r) ? '#1d4ed8' : '#1e293b';
+    ctx.lineWidth = WALL_DRAW_T * M;
+    const seg = (t1, t2) => { if (t2 - t1 < 0.5) return; ctx.beginPath(); ctx.moveTo(e.a.x + e.ux * t1, e.a.y + e.uy * t1); ctx.lineTo(e.a.x + e.ux * t2, e.a.y + e.uy * t2); ctx.stroke(); };
+    holes.forEach(h => { if (h[0] > cur) seg(cur, h[0]); cur = Math.max(cur, h[1]); });
+    seg(cur, e.len);
+  }));
+  // 角を埋める
+  plan.rooms.forEach(r => r.vertices.forEach(v => { ctx.fillStyle = sel.has(r) ? '#1d4ed8' : '#1e293b'; const s = WALL_DRAW_T * M / 2; ctx.fillRect(v.x - s, v.y - s, s * 2, s * 2); }));
+  // 独立した壁
+  plan.walls.forEach(w => {
+    ctx.strokeStyle = sel.has(w) ? '#1d4ed8' : '#334155';
+    ctx.lineWidth = 0.08 * M; ctx.lineCap = 'square';
+    ctx.beginPath(); ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); ctx.stroke();
+  });
+  // 開口
+  plan.rooms.forEach(r => r.openings.forEach(o => drawOpening(r, o, sel.has(o))));
+  // 家具
+  plan.furnitures.forEach(f => drawFurniture(f, sel.has(f)));
+
+  // 自動検出のプレビュー
+  if (autoWallPreview) {
+    ctx.strokeStyle = 'rgba(234,88,12,.9)'; ctx.lineWidth = px(4); ctx.lineCap = 'round';
+    autoWallPreview.forEach(s => { ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke(); });
+  }
+  if (awRegion) { ctx.setLineDash([px(6), px(4)]); ctx.strokeStyle = '#ea580c'; ctx.lineWidth = px(1.5); ctx.strokeRect(Math.min(awRegion.x1, awRegion.x2), Math.min(awRegion.y1, awRegion.y2), Math.abs(awRegion.x2 - awRegion.x1), Math.abs(awRegion.y2 - awRegion.y1)); ctx.setLineDash([]); }
+  roomFillPreview.forEach(rp => { tracePoly(rp.verts); ctx.fillStyle = 'rgba(34,197,94,.25)'; ctx.fill(); ctx.strokeStyle = '#16a34a'; ctx.lineWidth = px(2); ctx.stroke(); });
+
+  // 選択中の部屋のハンドル
+  selection.forEach(s => { if (s.kind === 'room' && selection.length === 1) drawRoomHandles(s.obj); if (s.kind === 'wall') drawWallHandles(s.obj); if (s.kind === 'furn' && selection.length === 1) drawFurnHandles(s.obj); });
+
+  // 描画中
+  drawDraft();
+  if (openingPreview) drawOpeningPreview(openingPreview);
+  if (drag && drag.kind === 'box') {
+    const b = drag;
+    ctx.fillStyle = 'rgba(37,99,235,.08)'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1); ctx.setLineDash([px(4), px(3)]);
+    ctx.fillRect(Math.min(b.p0.x, b.p1.x), Math.min(b.p0.y, b.p1.y), Math.abs(b.p1.x - b.p0.x), Math.abs(b.p1.y - b.p0.y));
+    ctx.strokeRect(Math.min(b.p0.x, b.p1.x), Math.min(b.p0.y, b.p1.y), Math.abs(b.p1.x - b.p0.x), Math.abs(b.p1.y - b.p0.y));
+    ctx.setLineDash([]);
+  }
+  if (calib && calib.p1) {
+    const p2 = calib.p2 || hover;
+    if (p2) { ctx.strokeStyle = '#db2777'; ctx.lineWidth = px(2); ctx.beginPath(); ctx.moveTo(calib.p1.x, calib.p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke(); }
+    [calib.p1, calib.p2].forEach(p => { if (p) { ctx.fillStyle = '#db2777'; ctx.beginPath(); ctx.arc(p.x, p.y, px(4), 0, Math.PI * 2); ctx.fill(); } });
+  }
+
+  // 文字(画面座標で描く)
+  setScreen();
+  plan.rooms.forEach(r => drawRoomLabel(r, sel.has(r)));
+  (plan.tags || []).forEach(t => drawTag(t, sel.has(t)));
+  plan.rooms.forEach(r => { if (showAllDims || (sel.has(r) && selection.length === 1)) drawRoomDims(r); });
+  selection.forEach(s => { if (s.kind === 'wall') drawSegDim(s.obj.x1, s.obj.y1, s.obj.x2, s.obj.y2, 1); if (s.kind === 'opening') drawOpeningDims(s.room, s.obj); });
+  drawDraftLabels();
+  drawCompass(W);
+  if (snapInfo && (drag || draft || ['rect', 'poly', 'wall'].includes(tool))) drawSnap();
+  updateStat();
+}
+
+function drawCompass(W) {
+  const cx = W - 38, cy = 38, r = 22, a = (+plan.north || 0) * Math.PI / 180;
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.beginPath(); ctx.arc(0, 0, r + 4, 0, Math.PI * 2); ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = '#cbd5e1'; ctx.stroke();
+  ctx.rotate(a);
+  ctx.beginPath(); ctx.moveTo(0, -r + 11); ctx.lineTo(5, 2); ctx.lineTo(-5, 2); ctx.closePath(); ctx.fillStyle = '#dc2626'; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0, r - 3); ctx.lineTo(5, 2); ctx.lineTo(-5, 2); ctx.closePath(); ctx.fillStyle = '#94a3b8'; ctx.fill();
+  ctx.fillStyle = '#dc2626'; ctx.font = 'bold 11px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('N', 0, -r + 3);
+  ctx.restore();
+}
+function drawTag(t, selected) {
+  const p = toScreen(t), r = 11;
+  ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = selected ? '#2563eb' : '#f97316'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 13px system-ui,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('i', p.x, p.y + 0.5);
+  if (t.title) {
+    ctx.font = '600 11.5px system-ui,sans-serif';
+    const w = ctx.measureText(t.title).width + 12;
+    ctx.fillStyle = selected ? 'rgba(37,99,235,.95)' : 'rgba(255,255,255,.95)';
+    ctx.strokeStyle = selected ? '#1d4ed8' : '#fdba74'; ctx.lineWidth = 1;
+    const x = p.x + r + 4, y = p.y - 10;
+    ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, 20, 6); else ctx.rect(x, y, w, 20); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = selected ? '#fff' : '#9a3412'; ctx.textAlign = 'left'; ctx.fillText(t.title, x + 6, y + 10.5);
+  }
+}
+function hexA(hex, a) {
+  const h = (hex || '#888888').replace('#', '');
+  const f = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const n = parseInt(f, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function tracePoly(v) { ctx.beginPath(); v.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); }
+
+function drawGrid(W, H) {
+  const tl = toWorld(0, 0), br = toWorld(W, H);
+  const levels = [[0.1, '#eef2f7', 14], [0.5, '#e2e8f0', 9], [1, '#cfd8e3', 0]];
+  levels.forEach(([step, color, minPx]) => {
+    const g = step * M;
+    if (g * view.scale < minPx) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = Math.floor(tl.x / g) * g; x <= br.x; x += g) { const s = Math.round(toScreen({ x, y: 0 }).x) + 0.5; ctx.moveTo(s, 0); ctx.lineTo(s, H); }
+    for (let y = Math.floor(tl.y / g) * g; y <= br.y; y += g) { const s = Math.round(toScreen({ x: 0, y }).y) + 0.5; ctx.moveTo(0, s); ctx.lineTo(W, s); }
+    ctx.stroke();
+  });
+}
+
+function drawOpening(room, o, selected) {
+  const g = openingGeom(room, o), e = g.e, T = WALL_DRAW_T * M;
+  ctx.lineCap = 'butt';
+  if (o.type === 'window') {
+    ctx.fillStyle = '#e0f2fe'; ctx.strokeStyle = selected ? '#2563eb' : '#0284c7'; ctx.lineWidth = px(1.4);
+    const nx = e.nx * T / 2, ny = e.ny * T / 2;
+    ctx.beginPath(); ctx.moveTo(g.p1.x + nx, g.p1.y + ny); ctx.lineTo(g.p2.x + nx, g.p2.y + ny); ctx.lineTo(g.p2.x - nx, g.p2.y - ny); ctx.lineTo(g.p1.x - nx, g.p1.y - ny); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.p1.x, g.p1.y); ctx.lineTo(g.p2.x, g.p2.y); ctx.stroke();
+  } else if (o.type === 'passage') {
+    ctx.strokeStyle = selected ? '#2563eb' : '#94a3b8'; ctx.lineWidth = px(1.2); ctx.setLineDash([px(4), px(3)]);
+    ctx.beginPath(); ctx.moveTo(g.p1.x, g.p1.y); ctx.lineTo(g.p2.x, g.p2.y); ctx.stroke(); ctx.setLineDash([]);
+  } else {
+    const dt = o.doorType || 'swing_left';
+    const right = dt === 'swing_right' || dt === 'swing_right_out' || dt === 'slide_right';
+    const out = dt.indexOf('_out') > 0 ? -1 : 1;
+    ctx.strokeStyle = selected ? '#2563eb' : '#7c4a1e'; ctx.lineWidth = px(selected ? 2 : 1.5);
+    if (dt.indexOf('slide') === 0) {
+      const off = T * 0.75, s = right ? 1 : -1;
+      const a = g.P(right ? g.r : g.l), b = g.P((right ? g.r : g.l) + s * g.w);
+      ctx.beginPath(); ctx.moveTo(g.p1.x + e.nx * off * 0.3, g.p1.y + e.ny * off * 0.3); ctx.lineTo(g.p2.x + e.nx * off * 0.3, g.p2.y + e.ny * off * 0.3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(a.x + e.nx * off, a.y + e.ny * off); ctx.lineTo(b.x + e.nx * off, b.y + e.ny * off); ctx.stroke();
+    } else {
+      const hinge = right ? g.p2 : g.p1, other = right ? g.p1 : g.p2;
+      const open = { x: hinge.x + e.nx * out * g.w, y: hinge.y + e.ny * out * g.w };
+      ctx.beginPath(); ctx.moveTo(hinge.x, hinge.y); ctx.lineTo(open.x, open.y); ctx.stroke();
+      const a1 = Math.atan2(other.y - hinge.y, other.x - hinge.x), a2 = Math.atan2(open.y - hinge.y, open.x - hinge.x);
+      let d = a2 - a1; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2;
+      ctx.setLineDash([px(3), px(3)]); ctx.lineWidth = px(1);
+      ctx.beginPath(); ctx.arc(hinge.x, hinge.y, g.w, a1, a2, d < 0); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+}
+
+function drawFurniture(f, selected) {
+  const c = furnCorners(f);
+  tracePoly(c);
+  ctx.fillStyle = hexA(f.color, 0.55); ctx.fill();
+  ctx.strokeStyle = selected ? '#2563eb' : 'rgba(15,23,42,.55)'; ctx.lineWidth = px(selected ? 2 : 1); ctx.stroke();
+  setScreen();
+  const s = toScreen({ x: f.cx, y: f.cy }), sz = Math.min(f.w, f.d) * M * view.scale;
+  if (sz > 16) {
+    ctx.font = `${Math.min(18, sz * 0.45)}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(f.icon || '', s.x, s.y - (sz > 40 ? 7 : 0));
+    if (sz > 40) { ctx.font = '600 10.5px system-ui'; ctx.fillStyle = '#0f172a'; ctx.fillText(f.name, s.x, s.y + 10); }
+  }
+  setWorld();
+}
+
+function drawRoomLabel(r, selected) {
+  const c = toScreen(centroid(r.vertices));
+  const a = polyAreaM2(r.vertices);
+  const b = bbox(r.vertices), minSide = Math.min(b.x2 - b.x1, b.y2 - b.y1) * view.scale;
+  if (minSide < 26) return;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `700 ${minSide > 90 ? 13 : 11}px system-ui`;
+  ctx.fillStyle = selected ? '#1d4ed8' : '#0f172a';
+  ctx.fillText(r.name, c.x, c.y - 8);
+  ctx.font = '11px system-ui'; ctx.fillStyle = '#475569';
+  ctx.fillText(`${(a / TATAMI).toFixed(1)}帖 (${a.toFixed(1)}㎡)`, c.x, c.y + 8);
+}
+function drawSegDim(x1, y1, x2, y2, side, color) {
+  const a = toScreen({ x: x1, y: y1 }), b = toScreen({ x: x2, y: y2 });
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len < 28) return;
+  const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len, nx = -uy * side, ny = ux * side;
+  const off = 16, mx = (a.x + b.x) / 2 + nx * off, my = (a.y + b.y) / 2 + ny * off;
+  ctx.strokeStyle = color || '#64748b'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(a.x + nx * off, a.y + ny * off); ctx.lineTo(b.x + nx * off, b.y + ny * off);
+  ctx.moveTo(a.x + nx * (off - 4), a.y + ny * (off - 4)); ctx.lineTo(a.x + nx * (off + 4), a.y + ny * (off + 4));
+  ctx.moveTo(b.x + nx * (off - 4), b.y + ny * (off - 4)); ctx.lineTo(b.x + nx * (off + 4), b.y + ny * (off + 4)); ctx.stroke();
+  const txt = fmtM(Math.hypot(x2 - x1, y2 - y1));
+  ctx.font = '600 11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(txt).width + 8;
+  ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fillRect(mx - tw / 2, my - 8, tw, 16);
+  ctx.fillStyle = color || '#334155'; ctx.fillText(txt, mx, my);
+}
+function drawRoomDims(r) {
+  const side = polyArea2(r.vertices) > 0 ? -1 : 1;   // 部屋の外側に寸法線を出す
+  r.vertices.forEach((v, i) => { const e = edgeInfo(r, i); drawSegDim(e.a.x, e.a.y, e.b.x, e.b.y, side, '#475569'); });
+}
+function drawOpeningDims(room, o) {
+  const g = openingGeom(room, o), e = g.e;
+  const s = polyArea2(room.vertices) > 0 ? -1 : 1;
+  drawSegDim(g.p1.x, g.p1.y, g.p2.x, g.p2.y, s, '#2563eb');
+  if (g.l > 2) drawSegDim(e.a.x, e.a.y, g.p1.x, g.p1.y, s, '#94a3b8');
+  if (e.len - g.r > 2) drawSegDim(g.p2.x, g.p2.y, e.b.x, e.b.y, s, '#94a3b8');
+}
+
+function drawRoomHandles(r) {
+  const hs = px(5);
+  r.vertices.forEach((v, i) => {
+    const e = edgeInfo(r, i), m = { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 };
+    if (e.len * view.scale > 46) {
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1.2);
+      ctx.beginPath(); ctx.arc(m.x, m.y, px(6), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(m.x - px(3), m.y); ctx.lineTo(m.x + px(3), m.y); ctx.moveTo(m.x, m.y - px(3)); ctx.lineTo(m.x, m.y + px(3)); ctx.stroke();
+    }
+  });
+  r.vertices.forEach(v => { ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1.5); ctx.fillRect(v.x - hs, v.y - hs, hs * 2, hs * 2); ctx.strokeRect(v.x - hs, v.y - hs, hs * 2, hs * 2); });
+}
+function drawWallHandles(w) {
+  const hs = px(5);
+  [[w.x1, w.y1], [w.x2, w.y2]].forEach(([x, y]) => { ctx.fillStyle = '#fff'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1.5); ctx.fillRect(x - hs, y - hs, hs * 2, hs * 2); ctx.strokeRect(x - hs, y - hs, hs * 2, hs * 2); });
+}
+function rotHandlePos(f) {
+  const r = (f.rotation || 0) * Math.PI / 180, d = f.d * M / 2 + px(22);
+  return { x: f.cx + Math.sin(r) * d, y: f.cy - Math.cos(r) * d };
+}
+function drawFurnHandles(f) {
+  const h = rotHandlePos(f), r = (f.rotation || 0) * Math.PI / 180, top = { x: f.cx + Math.sin(r) * f.d * M / 2, y: f.cy - Math.cos(r) * f.d * M / 2 };
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1.2);
+  ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(h.x, h.y); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(h.x, h.y, px(6), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+}
+
+function drawDraft() {
+  if (!draft) return;
+  const pts = draft.pts.slice();
+  if (draft.cursor) pts.push(draft.cursor);
+  ctx.lineCap = 'round';
+  if (draft.kind === 'rect' && draft.p0 && draft.cursor) {
+    const a = draft.p0, b = draft.cursor;
+    ctx.fillStyle = 'rgba(37,99,235,.10)'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(2);
+    ctx.fillRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    return;
+  }
+  if (pts.length < 1) return;
+  if (draft.kind === 'poly' && pts.length >= 3) { tracePoly(pts); ctx.fillStyle = 'rgba(37,99,235,.08)'; ctx.fill(); }
+  ctx.strokeStyle = '#2563eb'; ctx.lineWidth = draft.kind === 'wall' ? 0.08 * M : px(2);
+  ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+  draft.pts.forEach((p, i) => {
+    ctx.fillStyle = i === 0 && draft.kind === 'poly' ? '#22c55e' : '#2563eb';
+    ctx.beginPath(); ctx.arc(p.x, p.y, px(i === 0 && draft.kind === 'poly' ? 6 : 4), 0, Math.PI * 2); ctx.fill();
+  });
+}
+function drawDraftLabels() {
+  if (!draft) return;
+  if (draft.kind === 'rect' && draft.p0 && draft.cursor) {
+    const a = draft.p0, b = draft.cursor, w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+    const x1 = Math.min(a.x, b.x), y1 = Math.min(a.y, b.y);
+    drawSegDim(x1, y1, x1 + w, y1, -1, '#2563eb');
+    drawSegDim(x1, y1 + h, x1, y1, -1, '#2563eb');
+    const c = toScreen({ x: x1 + w / 2, y: y1 + h / 2 }), area = (w / M) * (h / M);
+    if (w > 0 && h > 0) bubble(`${(area / TATAMI).toFixed(1)}帖 / ${area.toFixed(2)}㎡`, c.x, c.y);
+    return;
+  }
+  const pts = draft.pts;
+  if (pts.length && draft.cursor) {
+    const a = pts[pts.length - 1], b = draft.cursor;
+    drawSegDim(a.x, a.y, b.x, b.y, -1, '#2563eb');
+  }
+  for (let i = 1; i < pts.length; i++) drawSegDim(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, -1, '#64748b');
+}
+function bubble(txt, x, y) {
+  ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const w = ctx.measureText(txt).width + 14;
+  ctx.fillStyle = 'rgba(37,99,235,.95)'; roundRect(x - w / 2, y - 11, w, 22, 11); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.fillText(txt, x, y);
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function drawSnap() {
+  const s = toScreen(snapInfo.p);
+  ctx.strokeStyle = '#db2777'; ctx.lineWidth = 1.5;
+  if (snapInfo.kind === 'vertex') { ctx.strokeRect(s.x - 6, s.y - 6, 12, 12); }
+  else if (snapInfo.kind === 'edge') { ctx.beginPath(); ctx.arc(s.x, s.y, 6, 0, Math.PI * 2); ctx.stroke(); }
+  else if (snapInfo.kind === 'align') {
+    ctx.setLineDash([4, 4]); ctx.beginPath();
+    if (snapInfo.gx) { const g = toScreen(snapInfo.gx); ctx.moveTo(g.x, g.y); ctx.lineTo(s.x, s.y); }
+    if (snapInfo.gy) { const g = toScreen(snapInfo.gy); ctx.moveTo(g.x, g.y); ctx.lineTo(s.x, s.y); }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawOpeningPreview(pv) {
+  const { room, i, f, type } = pv;
+  const fake = Object.assign({ type, edgeIndex: i, offsetAlongWall: f, doorType: type === 'door' ? currentDoorType : undefined }, OPENING_DEFAULTS[type]);
+  ctx.globalAlpha = 0.75; drawOpening(room, fake, true); ctx.globalAlpha = 1;
+  const g = openingGeom(room, fake);
+  ctx.strokeStyle = 'rgba(37,99,235,.45)'; ctx.lineWidth = WALL_DRAW_T * M * 1.4; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(g.p1.x, g.p1.y); ctx.lineTo(g.p2.x, g.p2.y); ctx.stroke();
+}
+function updateStat() {
+  const total = plan.rooms.reduce((s, r) => s + polyAreaM2(r.vertices), 0);
+  let t = `部屋 ${plan.rooms.length} / 合計 ${total.toFixed(1)}㎡(${(total / TATAMI).toFixed(1)}帖)`;
+  if (hover) t += `  ・  ${(hover.x / M).toFixed(2)}, ${(hover.y / M).toFixed(2)} m`;
+  $('stat').textContent = t;
+  $('zoomLabel').textContent = Math.round(view.scale / 1.2 * 100) + '%';
+}
+
+/* ───────── 案内(画面上部のヒント)───────── */
+let currentDoorType = 'swing_left';
+function setHint(text, actions) {
+  $('hintTxt').textContent = text;
+  const box = $('hintActs'); box.innerHTML = '';
+  (actions || []).forEach(a => { const b = document.createElement('button'); b.textContent = a.label; if (a.ok) b.className = 'ok'; b.onclick = a.fn; box.appendChild(b); });
+}
+function updateHint() {
+  const ortho = shiftDown ? '(Shift: 自由な角度)' : '';
+  switch (tool) {
+    case 'select':
+      if (selection.length === 1 && selection[0].kind === 'room') setHint('角■をドラッグで形を変える / 壁をドラッグで広げる / 辺の＋で角を追加 / 角をダブルクリックで削除');
+      else setHint(plan.rooms.length ? 'クリックで選択、ドラッグで移動。何もない所をドラッグで範囲選択' : 'まずは「四角い部屋」を選んで、ドラッグで部屋を描こう', plan.rooms.length ? [] : [{ label: '四角い部屋を描く', ok: true, fn: () => setTool('rect') }, { label: '数字で追加', fn: openAddDialog }]);
+      break;
+    case 'rect': setHint('ドラッグ(または2回クリック)で部屋を描く。他の部屋の角や壁に吸い付きます'); break;
+    case 'poly':
+      if (!draft || !draft.pts.length) setHint('角を順にクリック(斜めの壁もOK)。縦横・45°に近いと自動でそろいます ' + ortho);
+      else setHint(`${draft.pts.length}個目の角まで ${ortho} — 数字+Enterで長さ指定`, [{ label: '長さを入力', fn: () => openNumbox('長さ') }, { label: '1つ戻す', fn: () => { draft.pts.pop(); if (!draft.pts.length) draft = null; updateHint(); draw(); } }].concat(draft.pts.length >= 3 ? [{ label: '✓ 閉じて完成', ok: true, fn: finishPoly }] : []));
+      break;
+    case 'wall':
+      if (!draft || !draft.pts.length) setHint('壁の始点をクリック。続けてクリックすると連続で引けます ' + ortho);
+      else setHint('次の点をクリック / 数字+Enterで長さ指定 ' + ortho, [{ label: '長さを入力', fn: () => openNumbox('長さ') }, { label: '✓ 終了', ok: true, fn: () => { draft = null; updateHint(); draw(); } }]);
+      break;
+    case 'door': setHint('部屋の壁をクリックしてドアを付ける(後から幅や向きを変えられます)'); break;
+    case 'window': setHint('部屋の壁をクリックして窓を付ける'); break;
+    case 'passage': setHint('部屋の壁をクリックして通路(ドアなしの開口)を付ける'); break;
+    case 'tag': setHint('説明を出したい場所をクリック(例: エアコン、収納、窓)。VR内見で表示されます'); break;
+    case 'furniture': setHint(furnPick ? `「${furnPick.name}」を置く場所をクリック(Escで終了)` : '左の一覧から家具を選んでください'); break;
+    case 'calib':
+      if (!calib || !calib.p1) setHint('下絵の上で、長さがわかる線の始点をクリック(例: 寸法線の端)');
+      else if (!calib.p2) setHint('終点をクリック');
+      else setHint('この2点の実際の長さを入力してEnter', [{ label: 'やり直す', fn: () => { calib = { p1: null, p2: null }; closeNumbox(); updateHint(); draw(); } }]);
+      break;
+    case 'bgmove': setHint('下絵をドラッグして位置を合わせる。ホイールで拡大縮小もできます'); break;
+    case 'autowall': setHint(autoWallPreview ? `壁を${autoWallPreview.length}本検出。ドラッグで範囲を絞れます` : '下絵から壁を検出しています…', [{ label: 'やめる', fn: () => { autoWallPreview = null; awRegion = null; setTool('select'); } }, { label: '✓ 壁を追加', ok: true, fn: commitAutoWalls }]); break;
+    case 'roomfill': setHint(roomFillPreview.length ? `${roomFillPreview.length}部屋を選択中。続けてクリックするか追加` : '下絵の部屋の内側をクリックすると、その部屋の形を読み取ります', roomFillPreview.length ? [{ label: 'クリア', fn: () => { roomFillPreview = []; updateHint(); draw(); } }, { label: '✓ 部屋を追加', ok: true, fn: commitRoomFill }] : []); break;
+    default: setHint('');
+  }
+}
+
+/* ───────── 道具の切り替え ───────── */
+function setTool(t) {
+  if (t !== tool) cancelDraft();
+  if (['calib', 'bgmove', 'roomfill', 'autowall'].includes(t) && !bg) { toast('先に下絵の画像を読み込んでください'); return; }
+  tool = t;
+  if (t !== 'furniture') { furnPick = null; renderFurnList(); }
+  document.querySelectorAll('.tool[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  openingPreview = null;
+  if (t === 'calib') calib = { p1: null, p2: null }; else { calib = null; closeNumbox(); }
+  if (t === 'autowall') { setTimeout(runAutoWall, 30); } else { autoWallPreview = null; awRegion = null; }
+  if (t !== 'roomfill') roomFillPreview = [];
+  cv.style.cursor = t === 'select' ? 'default' : t === 'bgmove' ? 'move' : 'crosshair';
+  updateHint(); draw();
+}
+function cancelDraft() { draft = null; closeNumbox(); snapInfo = null; }
+
+/* ───────── 選択 ───────── */
+function setSelection(list) { selection = list; renderProps(); updateHint(); draw(); }
+function isSelected(obj) { return selection.some(s => s.obj === obj); }
+
+function hitTest(p) {
+  const t = 8 / view.scale;
+  // 選択中の部屋のハンドル
+  if (selection.length === 1 && selection[0].kind === 'room') {
+    const r = selection[0].obj;
+    for (let i = 0; i < r.vertices.length; i++) if (dist(p, r.vertices[i]) < t * 1.2) return { kind: 'vertex', room: r, i };
+    for (const o of r.openings) { const g = openingGeom(r, o); if (segDist(p, g.p1, g.p2).d < t * 0.8 + WALL_DRAW_T * M / 2) return { kind: 'opening', room: r, obj: o }; }
+    for (let i = 0; i < r.vertices.length; i++) {
+      const e = edgeInfo(r, i), m = { x: (e.a.x + e.b.x) / 2, y: (e.a.y + e.b.y) / 2 };
+      if (e.len * view.scale > 46 && dist(p, m) < t * 1.1) return { kind: 'insert', room: r, i, p: m };
+    }
+  }
+  if (selection.length === 1 && selection[0].kind === 'wall') {
+    const w = selection[0].obj;
+    if (dist(p, { x: w.x1, y: w.y1 }) < t * 1.2) return { kind: 'wallEnd', wall: w, end: 1 };
+    if (dist(p, { x: w.x2, y: w.y2 }) < t * 1.2) return { kind: 'wallEnd', wall: w, end: 2 };
+  }
+  if (selection.length === 1 && selection[0].kind === 'furn') {
+    const f = selection[0].obj;
+    if (dist(p, rotHandlePos(f)) < t * 1.2) return { kind: 'rotate', furn: f };
+  }
+  // 案内タグ
+  for (const tg of (plan.tags || [])) if (dist(p, tg) < 13 / view.scale) return { kind: 'tag', obj: tg };
+  // 開口
+  for (const r of plan.rooms) for (const o of r.openings) {
+    const g = openingGeom(r, o), s = segDist(p, g.p1, g.p2);
+    if (s.d < t + WALL_DRAW_T * M / 2) return { kind: 'opening', room: r, obj: o };
+  }
+  // 家具(上にあるものから)
+  for (let i = plan.furnitures.length - 1; i >= 0; i--) { const f = plan.furnitures[i]; if (pointInPoly(p, furnCorners(f))) return { kind: 'furn', obj: f }; }
+  // 独立壁
+  for (const w of plan.walls) if (segDist(p, { x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 }).d < t + 2) return { kind: 'wall', obj: w };
+  // 選択中の部屋の壁(辺)をつかむ
+  if (selection.length === 1 && selection[0].kind === 'room') {
+    const r = selection[0].obj;
+    for (let i = 0; i < r.vertices.length; i++) { const e = edgeInfo(r, i); if (segDist(p, e.a, e.b).d < t + WALL_DRAW_T * M / 2) return { kind: 'edge', room: r, i }; }
+  }
+  // 部屋(小さい部屋を優先)
+  const inside = plan.rooms.filter(r => pointInPoly(p, r.vertices)).sort((a, b) => polyAreaM2(a.vertices) - polyAreaM2(b.vertices));
+  if (inside.length) return { kind: 'room', obj: inside[0] };
+  for (const r of plan.rooms) for (let i = 0; i < r.vertices.length; i++) { const e = edgeInfo(r, i); if (segDist(p, e.a, e.b).d < t + WALL_DRAW_T * M / 2) return { kind: 'room', obj: r }; }
+  return null;
+}
+function selFromHit(h) {
+  if (h.kind === 'opening') return { kind: 'opening', obj: h.obj, room: h.room };
+  if (h.kind === 'furn') return { kind: 'furn', obj: h.obj };
+  if (h.kind === 'wall') return { kind: 'wall', obj: h.obj };
+  if (h.kind === 'tag') return { kind: 'tag', obj: h.obj };
+  return { kind: 'room', obj: h.obj };
+}
+
+/* ───────── マウス・タッチ ───────── */
+cv.addEventListener('pointerdown', onDown);
+cv.addEventListener('pointermove', onMove);
+cv.addEventListener('pointerup', onUp);
+cv.addEventListener('pointercancel', onUp);
+cv.addEventListener('pointerleave', () => { if (!drag) { hover = null; openingPreview = null; draw(); } });
+cv.addEventListener('dblclick', onDbl);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const s = evScreen(e);
+  if (tool === 'bgmove' && bg && !e.ctrlKey) {
+    const w = toWorld(s.x, s.y), k = Math.exp(-e.deltaY * 0.0015), ns = clamp(bg.scale * k, 0.02, 20);
+    bg.x = w.x - (w.x - bg.x) * ns / bg.scale; bg.y = w.y - (w.y - bg.y) * ns / bg.scale; bg.scale = ns; draw(); return;
+  }
+  zoomAt(s.x, s.y, Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+
+function zoomAt(sx, sy, k) {
+  const ns = clamp(view.scale * k, 0.15, 12);
+  view.ox = sx - (sx - view.ox) * ns / view.scale;
+  view.oy = sy - (sy - view.oy) * ns / view.scale;
+  view.scale = ns; draw();
+}
+
+function onDown(e) {
+  cv.focus({ preventScroll: true });
+  pointers.set(e.pointerId, evScreen(e));
+  cv.setPointerCapture(e.pointerId);
+  if (pointers.size === 2) {   // 2本指: ピンチとパン
+    const [a, b] = [...pointers.values()];
+    if (drag && drag.kind !== 'pinch') { cancelDragChanges(); if (draft && draft.kind === 'rect') draft = null; }
+    drag = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, s0: view.scale, ox0: view.ox, oy0: view.oy };
+    return;
+  }
+  if (pointers.size > 2) return;
+  const p = evWorld(e), s = evScreen(e);
+  hover = p;
+  if (e.button === 1 || e.button === 2 || spaceDown) { drag = { kind: 'pan', s0: s, ox0: view.ox, oy0: view.oy }; cv.style.cursor = 'grabbing'; return; }
+
+  switch (tool) {
+    case 'select': return downSelect(e, p, s);
+    case 'rect': {
+      const q = snapPoint(p);
+      if (draft && draft.kind === 'rect' && draft.clickMode) { draft.cursor = q; finishRect(); return; }
+      draft = { kind: 'rect', p0: q, cursor: q, pts: [], s0: s };
+      drag = { kind: 'rect' };
+      return draw();
+    }
+    case 'poly': return clickPoly(p);   // 斜めの壁もこれで描ける
+    case 'wall': return clickWall(p);
+    case 'door': case 'window': case 'passage': return placeOpening(p);
+    case 'furniture': return placeFurniture(p);
+    case 'tag': return placeTag(p);
+    case 'calib': return clickCalib(p);
+    case 'bgmove': if (bg) drag = { kind: 'bgmove', p0: p, x0: bg.x, y0: bg.y }; return;
+    case 'autowall': drag = { kind: 'awregion' }; awRegion = { x1: p.x, y1: p.y, x2: p.x, y2: p.y }; return draw();
+    case 'roomfill': return pickRoomAt(p);
+  }
+}
+
+function downSelect(e, p, s) {
+  const h = hitTest(p);
+  if (!h) {
+    if (!e.shiftKey) setSelection([]);
+    drag = { kind: 'box', p0: p, p1: p, add: e.shiftKey, base: selection.slice() };
+    return;
+  }
+  if (h.kind === 'vertex') { beginChange(); drag = { kind: 'vertex', room: h.room, i: h.i, before: openingMids(h.room) }; return; }
+  if (h.kind === 'insert') {
+    beginChange();
+    const before = openingMids(h.room);
+    h.room.vertices.splice(h.i + 1, 0, { x: h.p.x, y: h.p.y });
+    remapOpenings(h.room, before);
+    drag = { kind: 'vertex', room: h.room, i: h.i + 1, before: openingMids(h.room) };
+    return draw();
+  }
+  if (h.kind === 'edge') {
+    beginChange();
+    const e2 = edgeInfo(h.room, h.i), n = h.room.vertices.length;
+    drag = { kind: 'edge', room: h.room, i: h.i, p0: p, a0: { ...h.room.vertices[h.i] }, b0: { ...h.room.vertices[(h.i + 1) % n] }, nx: e2.nx, ny: e2.ny, axis: Math.abs(e2.ux) > 0.999 ? 'y' : Math.abs(e2.uy) > 0.999 ? 'x' : null };
+    return;
+  }
+  if (h.kind === 'wallEnd') { beginChange(); drag = { kind: 'wallEnd', wall: h.wall, end: h.end }; return; }
+  if (h.kind === 'rotate') { beginChange(); drag = { kind: 'rotate', furn: h.furn }; return; }
+
+  const item = selFromHit(h);
+  if (e.shiftKey) {
+    if (isSelected(item.obj)) setSelection(selection.filter(x => x.obj !== item.obj));
+    else setSelection(selection.concat([item]));
+  } else if (!isSelected(item.obj)) setSelection([item]);
+  if (item.kind === 'opening') { beginChange(); drag = { kind: 'opening', room: item.room, obj: item.obj }; return; }
+  beginChange();
+  drag = { kind: 'move', p0: p, orig: snapshotPositions(), moved: false };
+}
+
+function snapshotPositions() {
+  return selection.map(s => {
+    if (s.kind === 'room') return s.obj.vertices.map(v => ({ ...v }));
+    if (s.kind === 'furn') return { cx: s.obj.cx, cy: s.obj.cy };
+    if (s.kind === 'wall') return { x1: s.obj.x1, y1: s.obj.y1, x2: s.obj.x2, y2: s.obj.y2 };
+    if (s.kind === 'tag') return { x: s.obj.x, y: s.obj.y };
+    return null;
+  });
+}
+function applyMove(dx, dy) {
+  selection.forEach((s, k) => {
+    const o = drag.orig[k];
+    if (s.kind === 'room') s.obj.vertices.forEach((v, i) => { v.x = o[i].x + dx; v.y = o[i].y + dy; });
+    if (s.kind === 'furn') { s.obj.cx = o.cx + dx; s.obj.cy = o.cy + dy; }
+    if (s.kind === 'wall') { s.obj.x1 = o.x1 + dx; s.obj.y1 = o.y1 + dy; s.obj.x2 = o.x2 + dx; s.obj.y2 = o.y2 + dy; }
+    if (s.kind === 'tag') { s.obj.x = o.x + dx; s.obj.y = o.y + dy; }
+  });
+}
+function cancelDragChanges() { if (pendingSnap !== null) { restore(pendingSnap); pendingSnap = null; } drag = null; }
+
+function onMove(e) {
+  if (pointers.has(e.pointerId)) pointers.set(e.pointerId, evScreen(e));
+  if (drag && drag.kind === 'pinch') {
+    if (pointers.size < 2) return;
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const ns = clamp(drag.s0 * d / drag.d0, 0.15, 12);
+    view.scale = ns;
+    view.ox = m.x - (drag.m0.x - drag.ox0) * ns / drag.s0;
+    view.oy = m.y - (drag.m0.y - drag.oy0) * ns / drag.s0;
+    return draw();
+  }
+  const p = evWorld(e), s = evScreen(e);
+  hover = p;
+  if (drag) {
+    switch (drag.kind) {
+      case 'pan': view.ox = drag.ox0 + s.x - drag.s0.x; view.oy = drag.oy0 + s.y - drag.s0.y; break;
+      case 'box': drag.p1 = p; break;
+      case 'move': {
+        let dx = p.x - drag.p0.x, dy = p.y - drag.p0.y;
+        if (Math.hypot(dx, dy) * view.scale < 3 && !drag.moved) break;
+        drag.moved = true;
+        // 先頭の要素の基準点をスナップさせ、その差で全体を動かす
+        const s0 = selection[0], o0 = drag.orig[0];
+        let ref = null;
+        if (s0.kind === 'room') ref = o0[0]; else if (s0.kind === 'furn') ref = { x: o0.cx, y: o0.cy }; else if (s0.kind === 'wall') ref = { x: o0.x1, y: o0.y1 }; else if (s0.kind === 'tag') ref = { x: o0.x, y: o0.y };
+        if (ref) {
+          const excl = s0.kind === 'room' ? s0.obj : null;
+          // 部屋は全ての角について吸着を試す
+          if (s0.kind === 'room' && !shiftDown) {
+            const t = 10 / view.scale; let best = null;
+            const others = allVertices(excl);
+            o0.forEach(v => others.forEach(w => { const ddx = w.x - (v.x + dx), ddy = w.y - (v.y + dy), d = Math.hypot(ddx, ddy); if (d < t && (!best || d < best.d)) best = { d, ddx, ddy, w }; }));
+            if (best) { dx += best.ddx; dy += best.ddy; snapInfo = { kind: 'vertex', p: best.w }; }
+            else { const q = { x: gridSnap(ref.x + dx), y: gridSnap(ref.y + dy) }; dx = q.x - ref.x; dy = q.y - ref.y; snapInfo = null; }
+          } else if (!shiftDown) {
+            const q = { x: gridSnap(ref.x + dx), y: gridSnap(ref.y + dy) }; dx = q.x - ref.x; dy = q.y - ref.y;
+          }
+        }
+        applyMove(dx, dy);
+        break;
+      }
+      case 'vertex': {
+        const q = snapPoint(p, { excludeVertex: drag.room.vertices[drag.i], excludeRoom: null });
+        drag.room.vertices[drag.i].x = q.x; drag.room.vertices[drag.i].y = q.y;
+        break;
+      }
+      case 'edge': {
+        let d = (p.x - drag.p0.x) * drag.nx + (p.y - drag.p0.y) * drag.ny;
+        if (!shiftDown && drag.axis) {
+          const key = drag.axis, base = drag.a0[key] + d * (key === 'x' ? drag.nx : drag.ny);
+          let target = gridSnap(base);
+          const t = 10 / view.scale;
+          allVertices(drag.room).forEach(v => { if (Math.abs(v[key] - base) < t) target = v[key]; });
+          d = (target - drag.a0[key]) / (key === 'x' ? drag.nx : drag.ny);
+        } else if (!shiftDown) d = gridSnap(d);
+        const n = drag.room.vertices.length, a = drag.room.vertices[drag.i], b = drag.room.vertices[(drag.i + 1) % n];
+        a.x = drag.a0.x + drag.nx * d; a.y = drag.a0.y + drag.ny * d;
+        b.x = drag.b0.x + drag.nx * d; b.y = drag.b0.y + drag.ny * d;
+        break;
+      }
+      case 'opening': {
+        const e2 = edgeInfo(drag.room, drag.obj.edgeIndex), sd = segDist(p, e2.a, e2.b);
+        let tLen = sd.t * e2.len;
+        if (!shiftDown) tLen = Math.round(tLen / (0.05 * M)) * (0.05 * M);
+        drag.obj.offsetAlongWall = clampAlong(e2, drag.obj.width, tLen / e2.len);
+        break;
+      }
+      case 'wallEnd': {
+        const other = drag.end === 1 ? { x: drag.wall.x2, y: drag.wall.y2 } : { x: drag.wall.x1, y: drag.wall.y1 };
+        const q = snapPoint(orthoFrom(other, p), { extraVerts: [] });
+        if (drag.end === 1) { drag.wall.x1 = q.x; drag.wall.y1 = q.y; } else { drag.wall.x2 = q.x; drag.wall.y2 = q.y; }
+        break;
+      }
+      case 'rotate': {
+        const f = drag.furn;
+        let a = Math.atan2(p.x - f.cx, -(p.y - f.cy)) * 180 / Math.PI;
+        if (!shiftDown) a = Math.round(a / 15) * 15;
+        f.rotation = ((a % 360) + 360) % 360;
+        break;
+      }
+      case 'rect': {
+        draft.cursor = snapPoint(p);
+        break;
+      }
+      case 'bgmove': bg.x = drag.x0 + p.x - drag.p0.x; bg.y = drag.y0 + p.y - drag.p0.y; break;
+      case 'awregion': awRegion.x2 = p.x; awRegion.y2 = p.y; break;
+    }
+    if (drag.kind !== 'pan') renderPropsLive();
+    return draw();
+  }
+  // ホバー
+  if (tool === 'rect') { const q = snapPoint(p); if (draft && draft.clickMode) draft.cursor = q; }
+  else if (tool === 'poly' || tool === 'wall') {
+    const q = currentDraftPoint(p);
+    if (draft) draft.cursor = q;
+  }
+  else if (['door', 'window', 'passage'].includes(tool)) {
+    const ne = nearestRoomEdge(p, 14 / view.scale);
+    if (ne) {
+      let tLen = ne.t * ne.e.len;
+      if (!shiftDown) tLen = Math.round(tLen / (0.05 * M)) * (0.05 * M);
+      openingPreview = { room: ne.room, i: ne.i, f: clampAlong(ne.e, OPENING_DEFAULTS[tool].width, tLen / ne.e.len), type: tool };
+    } else openingPreview = null;
+  }
+  else if (tool === 'select') {
+    const h = hitTest(p);
+    cv.style.cursor = !h ? 'default' : h.kind === 'vertex' || h.kind === 'wallEnd' ? 'move' : h.kind === 'insert' ? 'copy' : h.kind === 'edge' ? (h.room && Math.abs(edgeInfo(h.room, h.i).ux) > 0.7 ? 'ns-resize' : 'ew-resize') : h.kind === 'rotate' ? 'grab' : 'pointer';
+  }
+  draw();
+}
+
+function onUp(e) {
+  pointers.delete(e.pointerId);
+  if (!drag) return;
+  if (drag.kind === 'pinch') { if (pointers.size < 2) drag = null; return; }
+  const k = drag.kind;
+  if (k === 'pan') { cv.style.cursor = tool === 'select' ? 'default' : 'crosshair'; }
+  else if (k === 'box') {
+    const b = { x1: Math.min(drag.p0.x, drag.p1.x), y1: Math.min(drag.p0.y, drag.p1.y), x2: Math.max(drag.p0.x, drag.p1.x), y2: Math.max(drag.p0.y, drag.p1.y) };
+    if ((b.x2 - b.x1) * view.scale > 4 || (b.y2 - b.y1) * view.scale > 4) {
+      const inB = q => q.x >= b.x1 && q.x <= b.x2 && q.y >= b.y1 && q.y <= b.y2;
+      const picked = drag.add ? drag.base.slice() : [];
+      plan.rooms.forEach(r => { if (r.vertices.every(inB) && !picked.some(s => s.obj === r)) picked.push({ kind: 'room', obj: r }); });
+      plan.furnitures.forEach(f => { if (inB({ x: f.cx, y: f.cy }) && !picked.some(s => s.obj === f)) picked.push({ kind: 'furn', obj: f }); });
+      plan.walls.forEach(w => { if (inB({ x: w.x1, y: w.y1 }) && inB({ x: w.x2, y: w.y2 }) && !picked.some(s => s.obj === w)) picked.push({ kind: 'wall', obj: w }); });
+      (plan.tags || []).forEach(t => { if (inB(t) && !picked.some(s => s.obj === t)) picked.push({ kind: 'tag', obj: t }); });
+      drag = null; setSelection(picked); return;
+    }
+  }
+  else if (k === 'rect') {
+    const moved = dist(draft.p0, draft.cursor) * view.scale;
+    if (moved < 6) { draft.clickMode = true; drag = null; setHint('もう一方の角をクリック'); return draw(); }
+    finishRect();
+  }
+  else if (k === 'vertex') {
+    const r = drag.room;
+    // 隣の角と重なったら消す
+    const n = r.vertices.length, v = r.vertices[drag.i];
+    if (n > 3 && (dist(v, r.vertices[(drag.i + 1) % n]) < 1 || dist(v, r.vertices[(drag.i - 1 + n) % n]) < 1)) { r.vertices.splice(drag.i, 1); }
+    remapOpenings(r, drag.before);
+    endChange();
+  }
+  else if (k === 'awregion') {
+    if (Math.abs(awRegion.x2 - awRegion.x1) * view.scale < 8) awRegion = null;
+    drag = null; runAutoWall(); return;
+  }
+  else if (['move', 'edge', 'opening', 'wallEnd', 'rotate'].includes(k)) endChange();
+  snapInfo = null;
+  drag = null;
+  renderProps(); draw();
+}
+
+function onDbl(e) {
+  const p = evWorld(e);
+  if (tool === 'poly' && draft && draft.pts.length >= 3) { finishPoly(); return; }
+  if (tool === 'wall' && draft) { draft = null; updateHint(); draw(); return; }
+  if (tool !== 'select') return;
+  if (selection.length === 1 && selection[0].kind === 'room') {
+    const r = selection[0].obj, t = 9 / view.scale;
+    const i = r.vertices.findIndex(v => dist(v, p) < t);
+    if (i >= 0 && r.vertices.length > 3) {
+      change(() => { const before = openingMids(r); r.vertices.splice(i, 1); remapOpenings(r, before); });
+      toast('角を削除しました');
+      return;
+    }
+  }
+  const h = hitTest(p);
+  if (h && h.kind === 'room') { setSelection([{ kind: 'room', obj: h.obj }]); setTimeout(() => { const el = $('pName'); if (el) { el.focus(); el.select(); } }, 30); }
+}
+
+/* ───────── 部屋・壁を描く ───────── */
+function finishRect() {
+  const a = draft.p0, b = draft.cursor;
+  const x1 = Math.min(a.x, b.x), y1 = Math.min(a.y, b.y), x2 = Math.max(a.x, b.x), y2 = Math.max(a.y, b.y);
+  drag = null;
+  if ((x2 - x1) < 0.3 * M || (y2 - y1) < 0.3 * M) { draft = null; toast('部屋が小さすぎます(30cm以上)'); updateHint(); return draw(); }
+  addRoom([{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }, { x: x1, y: y2 }]);
+  draft = null; updateHint();
+}
+function addRoom(verts, name) {
+  const room = { id: newId(), name: name || suggestName(), color: ROOM_COLORS[plan.rooms.length % ROOM_COLORS.length], vertices: verts, openings: [], groupId: null };
+  change(() => plan.rooms.push(room));
+  setSelection([{ kind: 'room', obj: room }]);
+  return room;
+}
+function suggestName() {
+  if (!plan.rooms.length) return 'LDK';
+  const used = new Set(plan.rooms.map(r => r.name));
+  for (const n of ['洋室', '洋室2', '洋室3', '寝室', '和室']) if (!used.has(n)) return n;
+  return '部屋' + (plan.rooms.length + 1);
+}
+function currentDraftPoint(p) {
+  const prev = draft && draft.pts.length ? draft.pts[draft.pts.length - 1] : null;
+  const o = orthoFrom(prev, p);
+  let q = snapPoint(o, { extraVerts: draft ? draft.pts : [] });
+  // 縦横に吸着した線は、グリッド吸着でずれないように向きを保つ
+  if (prev && !shiftDown && snapInfo && snapInfo.kind !== 'vertex') {
+    if (o.y === prev.y) q.y = prev.y; else if (o.x === prev.x) q.x = prev.x;
+    else if (o !== p) q = o;   // 45°は向きを優先
+  }
+  return q;
+}
+function clickPoly(p) {
+  const q = currentDraftPoint(p);
+  if (!draft) draft = { kind: 'poly', pts: [] };
+  if (draft.pts.length >= 3 && dist(q, draft.pts[0]) < 10 / view.scale) { finishPoly(); return; }
+  if (draft.pts.length && dist(q, draft.pts[draft.pts.length - 1]) < 1) return;
+  draft.pts.push(q); draft.cursor = q;
+  updateHint(); draw();
+}
+function finishPoly() {
+  if (!draft || draft.pts.length < 3) return;
+  const pts = draft.pts.slice();
+  draft = null; closeNumbox();
+  if (polyAreaM2(pts) < 0.1) { toast('形が小さすぎます'); updateHint(); return draw(); }
+  addRoom(pts);
+  updateHint();
+}
+function clickWall(p) {
+  const q = currentDraftPoint(p);
+  if (!draft) { draft = { kind: 'wall', pts: [q], cursor: q }; updateHint(); return draw(); }
+  const a = draft.pts[draft.pts.length - 1];
+  if (dist(a, q) < 0.05 * M) return;
+  change(() => plan.walls.push({ id: newId(), x1: a.x, y1: a.y, x2: q.x, y2: q.y }));
+  draft.pts = [q]; draft.cursor = q;
+  updateHint(); draw();
+}
+// 数字で長さを指定して次の点へ
+function applyLength(m) {
+  if (!draft || !draft.pts.length || !(m > 0)) return;
+  const a = draft.pts[draft.pts.length - 1];
+  let c = draft.cursor && dist(draft.cursor, a) > 0.5 ? draft.cursor : { x: a.x + 1, y: a.y };
+  const d = dist(c, a), q = { x: a.x + (c.x - a.x) / d * m * M, y: a.y + (c.y - a.y) / d * m * M };
+  if (tool === 'poly') { draft.pts.push(q); draft.cursor = q; }
+  else if (tool === 'wall') { change(() => plan.walls.push({ id: newId(), x1: a.x, y1: a.y, x2: q.x, y2: q.y })); draft.pts = [q]; draft.cursor = q; }
+  updateHint(); draw();
+}
+
+/* ───────── 数字入力ボックス ───────── */
+let numboxMode = null;
+function openNumbox(label, initial) {
+  const nb = $('numbox');
+  $('numLabel').textContent = label;
+  nb.classList.add('show');
+  let pt = null;
+  if (tool === 'calib' && calib && calib.p2) pt = toScreen({ x: (calib.p1.x + calib.p2.x) / 2, y: (calib.p1.y + calib.p2.y) / 2 });
+  else if (draft && draft.cursor) pt = toScreen(draft.cursor);
+  const r = $('stage').getBoundingClientRect();
+  const x = pt ? clamp(pt.x + 14, 8, r.width - 170) : r.width / 2 - 80, y = pt ? clamp(pt.y + 14, 50, r.height - 50) : 60;
+  nb.style.left = x + 'px'; nb.style.top = y + 'px';
+  const inp = $('numInput'); inp.value = initial || ''; inp.focus();
+  numboxMode = tool;
+}
+function closeNumbox() { $('numbox').classList.remove('show'); numboxMode = null; }
+$('numInput').addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') {
+    const v = parseFloat($('numInput').value.replace(/[^0-9.]/g, ''));
+    if (numboxMode === 'calib') { applyCalib(v); }
+    else { applyLength(v); $('numInput').value = ''; if (!draft) closeNumbox(); }
+    if (numboxMode !== 'poly' && numboxMode !== 'wall') closeNumbox();
+    cv.focus();
+  } else if (e.key === 'Escape') { closeNumbox(); cv.focus(); }
+});
+
+/* ───────── ドア・窓 ───────── */
+function placeOpening(p) {
+  const ne = nearestRoomEdge(p, 14 / view.scale);
+  if (!ne) { toast('部屋の壁の上をクリックしてください'); return; }
+  const def = OPENING_DEFAULTS[tool];
+  if (ne.e.len < def.width * M * 0.6) { toast('この壁は短すぎます'); return; }
+  let tLen = ne.t * ne.e.len; if (!shiftDown) tLen = Math.round(tLen / (0.05 * M)) * (0.05 * M);
+  const o = { type: tool, edgeIndex: ne.i, offsetAlongWall: clampAlong(ne.e, Math.min(def.width, ne.e.len / M), tLen / ne.e.len), width: Math.min(def.width, +(ne.e.len / M).toFixed(2)), height: def.height };
+  if (tool === 'door') o.doorType = currentDoorType;
+  change(() => ne.room.openings.push(o));
+  setSelection([{ kind: 'opening', obj: o, room: ne.room }]);
+}
+
+/* ───────── 家具 ───────── */
+function renderFurnCats() {
+  $('furnCats').innerHTML = Object.keys(FURNITURE).map(c => `<button class="chip ${c === furnCat ? 'on' : ''}" data-cat="${c}">${c}</button>`).join('');
+  $('furnCats').querySelectorAll('.chip').forEach(b => b.onclick = () => { furnCat = b.dataset.cat; renderFurnCats(); renderFurnList(); });
+}
+function renderFurnList() {
+  $('furnList').innerHTML = FURNITURE[furnCat].map((f, i) => `<button class="furn ${furnPick && furnPick.id === f.id ? 'on' : ''}" data-i="${i}"><span class="ic">${f.icon}</span><span>${f.name}<small>${f.w}×${f.d}m</small></span></button>`).join('');
+  $('furnList').querySelectorAll('.furn').forEach(b => b.onclick = () => { const f = FURNITURE[furnCat][+b.dataset.i]; if (furnPick && furnPick.id === f.id) { setTool('select'); return; } setTool('furniture'); furnPick = f; renderFurnList(); updateHint(); });
+}
+function placeFurniture(p) {
+  if (!furnPick) return;
+  const q = shiftDown ? p : { x: gridSnap(p.x), y: gridSnap(p.y) };
+  const f = { id: newId(), type: furnPick.id, name: furnPick.name, icon: furnPick.icon, cx: q.x, cy: q.y, w: furnPick.w, d: furnPick.d, h: furnPick.h, rotation: 0, color: furnPick.color };
+  change(() => plan.furnitures.push(f));
+  setSelection([{ kind: 'furn', obj: f }]);
+}
+
+/* ───────── 案内タグ ───────── */
+function placeTag(p) {
+  const t = { id: newId(), x: p.x, y: p.y, h: 1.2, title: '', text: '' };
+  const room = plan.rooms.find(r => pointInPoly(p, r.vertices));
+  t.title = room ? room.name + 'の設備' : '説明';
+  change(() => { if (!plan.tags) plan.tags = []; plan.tags.push(t); });
+  setTool('select');
+  setSelection([{ kind: 'tag', obj: t }]);
+  setTimeout(() => { const el = $('tTitle'); if (el) { el.focus(); el.select(); } }, 30);
+}
+function tagProps(t) {
+  $('propsBody').innerHTML = `
+    <div class="ph">ℹ 案内タグ</div>
+    <p class="mini">VR内見でこの場所に表示され、タップすると説明が開きます。</p>
+    <div class="field"><label for="tTitle">見出し</label><input class="in" id="tTitle" maxlength="40" value="${esc(t.title)}" placeholder="例: 浴室乾燥機あり">
+      <div class="chips">${TAG_PRESETS.map(n => `<button class="chip" data-n="${n}">${n}</button>`).join('')}</div></div>
+    <div class="field"><label for="tText">説明</label><textarea class="in" id="tText" maxlength="400" rows="4" style="height:auto;padding:8px;resize:vertical" placeholder="例: 2023年に新しくなりました。雨の日も洗濯物が乾きます。">${esc(t.text)}</textarea></div>
+    ${numField('tH', '表示する高さ', t.h, 'm', 0.1)}
+    <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>`;
+  const ti = $('tTitle'), tx = $('tText');
+  ti.addEventListener('change', () => change(() => { t.title = ti.value.trim(); }));
+  ti.addEventListener('keydown', e => { if (e.key === 'Enter') ti.blur(); });
+  tx.addEventListener('change', () => change(() => { t.text = tx.value.trim(); }));
+  document.querySelectorAll('#propsBody .chip').forEach(c => c.onclick = () => change(() => { t.title = c.dataset.n; }));
+  onNum('tH', v => { if (v >= 0.1 && v <= 2.4) change(() => { t.h = v; }); });
+  $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection;
+}
+const TAG_PRESETS = ['エアコン', '浴室乾燥機', '追い焚き', '独立洗面台', 'ウォークイン収納', '床暖房', 'オートロック', '宅配ボックス', '日当たり良好', '眺望'];
+
+/* ───────── 削除・コピー ───────── */
+function deleteSelection() {
+  if (!selection.length) return;
+  change(() => {
+    selection.forEach(s => {
+      if (s.kind === 'room') plan.rooms = plan.rooms.filter(r => r !== s.obj);
+      if (s.kind === 'furn') plan.furnitures = plan.furnitures.filter(f => f !== s.obj);
+      if (s.kind === 'wall') plan.walls = plan.walls.filter(w => w !== s.obj);
+      if (s.kind === 'tag') plan.tags = plan.tags.filter(t => t !== s.obj);
+      if (s.kind === 'opening') s.room.openings = s.room.openings.filter(o => o !== s.obj);
+    });
+  });
+  setSelection([]);
+}
+function copySelection() {
+  const items = selection.filter(s => s.kind !== 'opening');
+  if (!items.length) return false;
+  clipboard = JSON.stringify(items.map(s => ({ kind: s.kind, obj: s.obj })));
+  pasteCount = 0;
+  return true;
+}
+function paste() {
+  if (!clipboard) return;
+  pasteCount++;
+  const off = 0.5 * M * pasteCount, items = JSON.parse(clipboard), added = [];
+  change(() => items.forEach(it => {
+    const o = it.obj; o.id = newId();
+    if (it.kind === 'room') { o.vertices.forEach(v => { v.x += off; v.y += off; }); plan.rooms.push(o); }
+    if (it.kind === 'furn') { o.cx += off; o.cy += off; plan.furnitures.push(o); }
+    if (it.kind === 'wall') { o.x1 += off; o.y1 += off; o.x2 += off; o.y2 += off; plan.walls.push(o); }
+    if (it.kind === 'tag') { o.x += off; o.y += off; plan.tags.push(o); }
+    added.push({ kind: it.kind, obj: o });
+  }));
+  setSelection(added);
+}
+function duplicate() { if (copySelection()) paste(); }
+function nudge(dx, dy) {
+  if (!selection.length) return;
+  change(() => selection.forEach(s => {
+    if (s.kind === 'room') s.obj.vertices.forEach(v => { v.x += dx; v.y += dy; });
+    if (s.kind === 'furn') { s.obj.cx += dx; s.obj.cy += dy; }
+    if (s.kind === 'wall') { s.obj.x1 += dx; s.obj.y1 += dy; s.obj.x2 += dx; s.obj.y2 += dy; }
+    if (s.kind === 'tag') { s.obj.x += dx; s.obj.y += dy; }
+  }));
+}
+
+/* ───────── キーボード ───────── */
+window.addEventListener('keydown', e => {
+  if (e.key === 'Shift') { shiftDown = true; updateHint(); }
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+  if (typing) return;
+  if (e.key === ' ') { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); return; }
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && e.key.toLowerCase() === 'c') { if (copySelection()) toast('コピーしました'); return; }
+  if (mod && e.key.toLowerCase() === 'v') { e.preventDefault(); paste(); return; }
+  if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicate(); return; }
+  if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); setTool('select'); setSelection(plan.rooms.map(r => ({ kind: 'room', obj: r })).concat(plan.furnitures.map(f => ({ kind: 'furn', obj: f })), plan.walls.map(w => ({ kind: 'wall', obj: w })))); return; }
+  if (mod) return;
+  if (e.key === 'Escape') {
+    if (draft) { if (tool === 'poly' && draft.pts.length > 1) { draft.pts.pop(); } else draft = null; updateHint(); return draw(); }
+    if (tool !== 'select') return setTool('select');
+    return setSelection([]);
+  }
+  if (e.key === 'Enter') { if (tool === 'poly' && draft && draft.pts.length >= 3) finishPoly(); else if (tool === 'wall') { draft = null; updateHint(); draw(); } return; }
+  if ((tool === 'poly' || tool === 'wall') && draft && draft.pts.length && /^[0-9.]$/.test(e.key)) { e.preventDefault(); openNumbox('長さ', e.key); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (draft && draft.pts && draft.pts.length) { draft.pts.pop(); if (!draft.pts.length) draft = null; updateHint(); return draw(); }
+    e.preventDefault(); deleteSelection(); return;
+  }
+  const step = (e.shiftKey ? 0.5 : (gridM || 0.05)) * M;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); return nudge(-step, 0); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); return nudge(step, 0); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); return nudge(0, -step); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); return nudge(0, step); }
+  const map = { v: 'select', r: 'rect', p: 'poly', l: 'wall', d: 'door', w: 'window', o: 'passage', t: 'tag' };
+  if (map[e.key.toLowerCase()]) return setTool(map[e.key.toLowerCase()]);
+  if (e.key === '0') return fitView();
+  if (e.key === '+' || e.key === '=') return zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 1.25);
+  if (e.key === '-') return zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 0.8);
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'Shift') { shiftDown = false; updateHint(); }
+  if (e.key === ' ') { spaceDown = false; cv.style.cursor = tool === 'select' ? 'default' : 'crosshair'; }
+});
+
+/* ───────── 詳細パネル ───────── */
+function renderPropsLive() {
+  // ドラッグ中は数値だけ更新(入力欄を作り直さない)
+  if (selection.length !== 1) return;
+  const s = selection[0];
+  if (s.kind === 'room') {
+    const a = polyAreaM2(s.obj.vertices);
+    const el = $('pArea'); if (el) el.innerHTML = `<b>${(a / TATAMI).toFixed(1)}帖</b><span>${a.toFixed(2)}㎡</span>`;
+    if (isAxisRect(s.obj)) { const b = bbox(s.obj.vertices); setVal('pW', ((b.x2 - b.x1) / M).toFixed(2)); setVal('pD', ((b.y2 - b.y1) / M).toFixed(2)); }
+  }
+  if (s.kind === 'opening') { const g = openingGeom(s.room, s.obj); setVal('oPos', (g.l / M).toFixed(2)); }
+  if (s.kind === 'furn') setVal('fRot', Math.round(s.obj.rotation));
+  if (s.kind === 'wall') setVal('wLen', (Math.hypot(s.obj.x2 - s.obj.x1, s.obj.y2 - s.obj.y1) / M).toFixed(2));
+}
+function setVal(id, v) { const el = $(id); if (el && document.activeElement !== el) el.value = v; }
+function numField(id, label, value, unit, step) {
+  return `<div class="field"><label for="${id}">${label}</label><div class="unit" data-u="${unit}"><input class="in" id="${id}" type="number" inputmode="decimal" step="${step || 0.01}" value="${value}"></div></div>`;
+}
+function onNum(id, fn) { const el = $(id); if (!el) return; el.addEventListener('change', () => { const v = parseFloat(el.value); if (isFinite(v)) fn(v); }); el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); }); }
+
+function renderProps() {
+  const body = $('propsBody');
+  $('props').classList.toggle('open', selection.length > 0 && window.innerWidth <= 860);
+  if (!selection.length) { body.innerHTML = planSummary(); bindSummary(); return; }
+  if (selection.length > 1) {
+    body.innerHTML = `<div class="ph">${selection.length}個を選択中</div>
+      <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>
+      <p class="mini">ドラッグでまとめて移動できます。矢印キーでも動かせます。</p>`;
+    $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection; return;
+  }
+  const s = selection[0];
+  if (s.kind === 'room') return roomProps(s.obj);
+  if (s.kind === 'opening') return openingProps(s.room, s.obj);
+  if (s.kind === 'furn') return furnProps(s.obj);
+  if (s.kind === 'wall') return wallProps(s.obj);
+  if (s.kind === 'tag') return tagProps(s.obj);
+}
+
+function planSummary() {
+  const total = plan.rooms.reduce((s, r) => s + polyAreaM2(r.vertices), 0);
+  const list = plan.rooms.map((r, i) => { const a = polyAreaM2(r.vertices); return `<button class="li" data-i="${i}"><span class="dot" style="background:${r.color}"></span><span class="nm">${esc(r.name)}</span><span class="v">${(a / TATAMI).toFixed(1)}帖</span></button>`; }).join('');
+  return `<div class="ph">間取りの一覧</div>
+    <div class="big"><b>${total.toFixed(1)}㎡</b><span>${(total / TATAMI).toFixed(1)}帖 ・ ${plan.rooms.length}部屋</span></div>
+    ${plan.rooms.length ? `<div class="list">${list}</div>` : `<div class="empty">まだ部屋がありません。<br>① 左の「四角い部屋」でドラッグ<br>② または「数字で部屋を追加」<br>③ 間取り図の画像から自動で作ることもできます</div><div class="acts"><button class="btn primary" id="sAuto">✨ 間取り図の画像から作る</button></div>`}
+    <div class="field" style="margin-top:12px"><label>方角（北の向き）<span class="mini" style="font-weight:400"> — VR内見の「日当たり」に使います</span></label>
+      <div class="row"><button class="btn" id="nL" title="左に15°">⟲ 15°</button><div class="unit" data-u="°" style="flex:1"><input class="in" id="nDeg" type="number" step="5" value="${Math.round(+plan.north || 0)}"></div><button class="btn" id="nR" title="右に15°">⟳ 15°</button></div>
+      <div class="mini">右上の方位マークの赤い矢印が北です。図面の方位記号に合わせてください（0°＝上が北）。</div></div>
+    <div class="acts" style="margin-top:12px">
+      <button class="btn" id="sAdd">数字で部屋を追加</button>
+      ${plan.rooms.length ? '<button class="btn" id="sWalk">🚶 3Dで歩く</button>' : ''}
+      ${plan.rooms.length || plan.walls.length || plan.furnitures.length ? '<button class="btn danger" id="sClear">すべて消す</button>' : ''}
+    </div>
+    <div class="kbd-help">
+      <kbd>Ctrl</kbd>+<kbd>Z</kbd> 元に戻す ・ <kbd>Ctrl</kbd>+<kbd>Y</kbd> やり直す<br>
+      <kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>V</kbd> コピー・貼り付け ・ <kbd>Ctrl</kbd>+<kbd>D</kbd> 複製<br>
+      <kbd>Del</kbd> 削除 ・ <kbd>矢印</kbd> 少し動かす ・ <kbd>Shift</kbd> 吸着オフ<br>
+      <kbd>スペース</kbd>+ドラッグ / 右ドラッグ で画面移動 ・ <kbd>0</kbd> 全体表示
+    </div>`;
+}
+function bindSummary() {
+  document.querySelectorAll('#propsBody .li').forEach(b => b.onclick = () => { setTool('select'); setSelection([{ kind: 'room', obj: plan.rooms[+b.dataset.i] }]); });
+  const a = $('sAdd'); if (a) a.onclick = openAddDialog;
+  const setN = v => change(() => { plan.north = ((Math.round(v) % 360) + 360) % 360; });
+  onNum('nDeg', v => setN(v));
+  const nl = $('nL'); if (nl) nl.onclick = () => setN((+plan.north || 0) - 15);
+  const nr = $('nR'); if (nr) nr.onclick = () => setN((+plan.north || 0) + 15);
+  const au = $('sAuto'); if (au) au.onclick = startAutoFromImage;
+  const w = $('sWalk'); if (w) w.onclick = openWalk;
+  const c = $('sClear'); if (c) c.onclick = () => { if (confirm('間取りをすべて消しますか?(元に戻すで復活できます)')) { change(() => { plan.rooms = []; plan.walls = []; plan.furnitures = []; plan.tags = []; }); setSelection([]); } };
+}
+
+function roomProps(r) {
+  const a = polyAreaM2(r.vertices), rect = isAxisRect(r), b = bbox(r.vertices);
+  const ops = r.openings.map((o, i) => `<button class="li" data-o="${i}"><span class="nm">${o.type === 'door' ? '🚪 ドア' : o.type === 'window' ? '🪟 窓' : '↔ 通路'}</span><span class="v">幅 ${o.width}m</span></button>`).join('');
+  $('propsBody').innerHTML = `
+    <div class="ph">部屋 <span class="tag">${rect ? '四角形' : r.vertices.length + '角形'}</span></div>
+    <div class="big" id="pArea"><b>${(a / TATAMI).toFixed(1)}帖</b><span>${a.toFixed(2)}㎡</span></div>
+    <div class="field"><label for="pName">名前</label><input class="in" id="pName" value="${esc(r.name)}">
+      <div class="chips">${ROOM_NAMES.map(n => `<button class="chip" data-n="${n}">${n}</button>`).join('')}</div></div>
+    ${rect ? `<div class="two">${numField('pW', '幅(横)', ((b.x2 - b.x1) / M).toFixed(2), 'm')}${numField('pD', '奥行(縦)', ((b.y2 - b.y1) / M).toFixed(2), 'm')}</div>
+      <div class="field"><label>広さから決める</label><div class="unit" data-u="帖"><input class="in" id="pTatami" type="number" step="0.5" placeholder="例: 6"></div></div>`
+    : `<p class="mini">角■をドラッグで形を変えられます。寸法は図に表示されています。</p>`}
+    <div class="field"><label>色</label><div class="swatches">${ROOM_COLORS.map(c => `<button class="sw ${c === r.color ? 'on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}</div></div>
+    <div class="field"><label>ドア・窓 (${r.openings.length})</label>${ops ? `<div class="list">${ops}</div>` : '<div class="mini">左の「ドア」「窓」で壁をクリックすると付けられます</div>'}</div>
+    <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>`;
+  const nm = $('pName');
+  nm.addEventListener('change', () => change(() => { r.name = nm.value.trim() || '部屋'; }));
+  nm.addEventListener('keydown', e => { if (e.key === 'Enter') nm.blur(); });
+  document.querySelectorAll('#propsBody .chip').forEach(c => c.onclick = () => change(() => { r.name = c.dataset.n; }));
+  document.querySelectorAll('#propsBody .sw').forEach(c => c.onclick = () => change(() => { r.color = c.dataset.c; }));
+  document.querySelectorAll('#propsBody .li').forEach(c => c.onclick = () => setSelection([{ kind: 'opening', obj: r.openings[+c.dataset.o], room: r }]));
+  if (rect) {
+    const resize = (w, d) => change(() => { const bb = bbox(r.vertices); r.vertices.forEach(v => { if (Math.abs(v.x - bb.x2) < 0.5) v.x = bb.x1 + w * M; if (Math.abs(v.y - bb.y2) < 0.5) v.y = bb.y1 + d * M; }); });
+    onNum('pW', v => { if (v >= 0.3) { const bb = bbox(r.vertices); resize(v, (bb.y2 - bb.y1) / M); } });
+    onNum('pD', v => { if (v >= 0.3) { const bb = bbox(r.vertices); resize((bb.x2 - bb.x1) / M, v); } });
+    onNum('pTatami', v => { if (v > 0) { const bb = bbox(r.vertices), ratio = (bb.x2 - bb.x1) / (bb.y2 - bb.y1), area = v * TATAMI; const d = Math.sqrt(area / ratio); resize(+(d * ratio).toFixed(2), +d.toFixed(2)); } });
+  }
+  $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection;
+}
+
+function openingProps(room, o) {
+  const g = openingGeom(room, o), typeName = { door: 'ドア', window: '窓', passage: '通路' }[o.type];
+  $('propsBody').innerHTML = `
+    <div class="ph">${typeName} <span class="tag">${esc(room.name)}</span></div>
+    <div class="field"><label>種類</label><div class="seg">${['door', 'window', 'passage'].map(t => `<button data-t="${t}" class="${t === o.type ? 'on' : ''}">${{ door: 'ドア', window: '窓', passage: '通路' }[t]}</button>`).join('')}</div></div>
+    ${o.type === 'door' ? `<div class="field"><label>開き方</label><div class="seg">${DOOR_TYPES.map(([k, n]) => `<button data-d="${k}" class="${k === o.doorType ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : ''}
+    <div class="two">${numField('oW', '幅', o.width, 'm')}${numField('oH', '高さ', o.height, 'm')}</div>
+    ${numField('oPos', '壁の端からの距離', (g.l / M).toFixed(2), 'm')}
+    <p class="mini">図の上でドラッグすると壁に沿って動きます。</p>
+    <div class="acts"><button class="btn danger" id="aDel">削除</button><button class="btn" id="aRoom">部屋を選択</button></div>`;
+  document.querySelectorAll('#propsBody [data-t]').forEach(b => b.onclick = () => change(() => { o.type = b.dataset.t; const d = OPENING_DEFAULTS[o.type]; o.height = d.height; if (o.type === 'door') o.doorType = o.doorType || 'swing_left'; else delete o.doorType; }));
+  document.querySelectorAll('#propsBody [data-d]').forEach(b => b.onclick = () => { currentDoorType = b.dataset.d; change(() => { o.doorType = b.dataset.d; }); });
+  onNum('oW', v => { const e = edgeInfo(room, o.edgeIndex); if (v >= 0.3) change(() => { o.width = Math.min(v, +(e.len / M).toFixed(2)); o.offsetAlongWall = clampAlong(e, o.width, o.offsetAlongWall); }); });
+  onNum('oH', v => { if (v >= 0.3 && v <= 2.4) change(() => { o.height = v; }); });
+  onNum('oPos', v => { const e = edgeInfo(room, o.edgeIndex); change(() => { o.offsetAlongWall = clampAlong(e, o.width, (v * M + o.width * M / 2) / e.len); }); });
+  $('aDel').onclick = deleteSelection;
+  $('aRoom').onclick = () => setSelection([{ kind: 'room', obj: room }]);
+}
+
+function furnProps(f) {
+  $('propsBody').innerHTML = `
+    <div class="ph">${f.icon || ''} 家具</div>
+    <div class="field"><label for="fName">名前</label><input class="in" id="fName" value="${esc(f.name)}"></div>
+    <div class="three">${numField('fW', '幅', f.w, 'm')}${numField('fD', '奥行', f.d, 'm')}${numField('fH', '高さ', f.h, 'm')}</div>
+    <div class="field"><label>向き</label><div class="row"><div class="unit" data-u="°" style="flex:1"><input class="in" id="fRot" type="number" step="15" value="${Math.round(f.rotation)}"></div>
+      <button class="btn" id="fL" title="左に90°">⟲ 90°</button><button class="btn" id="fR" title="右に90°">⟳ 90°</button></div></div>
+    <div class="field"><label>色</label><input type="color" id="fColor" value="${/^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#888888'}" style="width:48px;height:30px;border:0;background:none"></div>
+    <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>`;
+  const nm = $('fName'); nm.addEventListener('change', () => change(() => { f.name = nm.value.trim() || '家具'; }));
+  onNum('fW', v => v > 0.05 && change(() => { f.w = v; }));
+  onNum('fD', v => v > 0.05 && change(() => { f.d = v; }));
+  onNum('fH', v => v > 0.01 && change(() => { f.h = v; }));
+  onNum('fRot', v => change(() => { f.rotation = ((v % 360) + 360) % 360; }));
+  $('fL').onclick = () => change(() => { f.rotation = (f.rotation + 270) % 360; });
+  $('fR').onclick = () => change(() => { f.rotation = (f.rotation + 90) % 360; });
+  $('fColor').addEventListener('change', e => change(() => { f.color = e.target.value; }));
+  $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection;
+}
+
+function wallProps(w) {
+  const len = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) / M;
+  $('propsBody').innerHTML = `
+    <div class="ph">壁</div>
+    ${numField('wLen', '長さ', len.toFixed(2), 'm')}
+    <p class="mini">端の■をドラッグで伸び縮みします。ドアや窓は「部屋」の壁に付けられます。</p>
+    <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>`;
+  onNum('wLen', v => { if (v > 0.05) change(() => { const l = Math.hypot(w.x2 - w.x1, w.y2 - w.y1) || 1; w.x2 = w.x1 + (w.x2 - w.x1) / l * v * M; w.y2 = w.y1 + (w.y2 - w.y1) / l * v * M; }); });
+  $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection;
+}
+
+function refreshAll() {
+  // 選択中のものが消えていたら外す
+  selection = selection.filter(s => {
+    if (s.kind === 'room') return plan.rooms.includes(s.obj);
+    if (s.kind === 'furn') return plan.furnitures.includes(s.obj);
+    if (s.kind === 'wall') return plan.walls.includes(s.obj);
+    if (s.kind === 'tag') return (plan.tags || []).includes(s.obj);
+    if (s.kind === 'opening') return plan.rooms.includes(s.room) && s.room.openings.includes(s.obj);
+    return false;
+  });
+  const active = document.activeElement;
+  const keepFocus = active && active.id && $('propsBody').contains(active) ? active.id : null;
+  renderProps();
+  if (keepFocus && $(keepFocus)) $(keepFocus).focus();
+  updateHint(); draw();
+}
+
+/* ───────── 数字で部屋を追加 ───────── */
+function openAddDialog() {
+  $('presets').innerHTML = ROOM_PRESETS.map((p, i) => `<button data-i="${i}">${p.n}<small>${p.w}×${p.d}m</small></button>`).join('');
+  $('presets').querySelectorAll('button').forEach(b => b.onclick = () => { const p = ROOM_PRESETS[+b.dataset.i]; $('addW').value = p.w; $('addD').value = p.d; if (!/帖/.test(p.n)) $('addName').value = p.n; updateAddInfo(); });
+  $('addName').value = suggestName();
+  updateAddInfo();
+  $('addModal').classList.add('show');
+  setTimeout(() => $('addW').select(), 50);
+}
+function updateAddInfo() { const w = +$('addW').value, d = +$('addD').value; const a = w * d; $('addInfo').textContent = a > 0 ? `${a.toFixed(2)}㎡ ・ ${(a / TATAMI).toFixed(1)}帖` : ''; }
+['addW', 'addD'].forEach(id => $(id).addEventListener('input', updateAddInfo));
+$('addCancel').onclick = () => $('addModal').classList.remove('show');
+$('addModal').addEventListener('click', e => { if (e.target.id === 'addModal') $('addModal').classList.remove('show'); });
+$('addOk').onclick = () => {
+  const w = +$('addW').value * M, d = +$('addD').value * M;
+  if (!(w >= 0.3 * M && d >= 0.3 * M)) { toast('幅と奥行は0.3m以上にしてください'); return; }
+  // 既存の部屋の右隣、なければ画面中央に置く
+  let x, y;
+  if (plan.rooms.length) { const all = bbox([].concat(...plan.rooms.map(r => r.vertices))); x = all.x2; y = all.y1; }
+  else { const c = toWorld(cv.clientWidth / 2, cv.clientHeight / 2); x = gridSnap(c.x - w / 2); y = gridSnap(c.y - d / 2); }
+  addRoom([{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }], $('addName').value.trim() || undefined);
+  $('addModal').classList.remove('show');
+  setTool('select');
+  ensureVisible();
+};
+['addName', 'addW', 'addD'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('addOk').click(); e.stopPropagation(); }));
+
+/* ───────── 表示範囲 ───────── */
+function contentBox() {
+  const pts = [];
+  plan.rooms.forEach(r => r.vertices.forEach(v => pts.push(v)));
+  plan.walls.forEach(w => { pts.push({ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 }); });
+  plan.furnitures.forEach(f => furnCorners(f).forEach(c => pts.push(c)));
+  if (bg) { pts.push({ x: bg.x, y: bg.y }, { x: bg.x + bg.img.width * bg.scale, y: bg.y + bg.img.height * bg.scale }); }
+  return pts.length ? bbox(pts) : null;
+}
+function fitView() {
+  const b = contentBox(), W = cv.clientWidth, H = cv.clientHeight;
+  if (!b || W < 10) { view.scale = 1.2; view.ox = W / 2 - 4 * M * 1.2; view.oy = H / 2 - 3 * M * 1.2; return draw(); }
+  const pad = 70, bw = Math.max(b.x2 - b.x1, M), bh = Math.max(b.y2 - b.y1, M);
+  view.scale = clamp(Math.min((W - pad * 2) / bw, (H - pad * 2) / bh), 0.15, 6);
+  view.ox = W / 2 - (b.x1 + b.x2) / 2 * view.scale;
+  view.oy = H / 2 - (b.y1 + b.y2) / 2 * view.scale;
+  draw();
+}
+function ensureVisible() {
+  const b = contentBox(); if (!b) return;
+  const a = toScreen({ x: b.x1, y: b.y1 }), c = toScreen({ x: b.x2, y: b.y2 });
+  if (a.x < 0 || a.y < 0 || c.x > cv.clientWidth || c.y > cv.clientHeight) fitView();
+}
+
+/* ───────── 下絵(背景画像)───────── */
+$('bBgLoad').onclick = () => $('fileBg').click();
+$('fileBg').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      // 画面の7割に収まる大きさで置く
+      const W = cv.clientWidth / view.scale, H = cv.clientHeight / view.scale;
+      const s = Math.min(W * 0.75 / img.width, H * 0.75 / img.height);
+      const c = toWorld(cv.clientWidth / 2, cv.clientHeight / 2);
+      bg = { img, x: c.x - img.width * s / 2, y: c.y - img.height * s / 2, scale: s, opacity: +$('bgOpacity').value / 100 };
+      awCache = null; rfCache = null;
+      $('bgCtl').style.display = 'grid';
+      $('bBgLoad').textContent = '画像を変える';
+      bgCalibrated = false;
+      if (autoAfterLoad) { autoAfterLoad = false; setTool('select'); openAutoDialog(); }
+      else { setTool('calib'); toast('「✨ 画像から自動で作る」か、「長さを合わせる」で縮尺を合わせましょう'); }
+    };
+    img.src = ev.target.result;
+  };
+  rd.readAsDataURL(f);
+  e.target.value = '';
+});
+$('bgOpacity').addEventListener('input', e => { if (bg) { bg.opacity = +e.target.value / 100; draw(); } });
+$('bBgClear').onclick = () => { bg = null; awCache = null; rfCache = null; $('bgCtl').style.display = 'none'; $('bBgLoad').textContent = '画像を読み込む'; if (['calib', 'bgmove', 'roomfill', 'autowall'].includes(tool)) setTool('select'); draw(); };
+
+function clickCalib(p) {
+  if (!calib || calib.p2) calib = { p1: null, p2: null };
+  if (!calib.p1) { calib.p1 = p; }
+  else { calib.p2 = p; openNumbox('実際の長さ'); }
+  updateHint(); draw();
+}
+function applyCalib(m) {
+  if (!calib || !calib.p1 || !calib.p2 || !(m > 0)) { closeNumbox(); return; }
+  const cur = dist(calib.p1, calib.p2); if (cur < 1) return;
+  const k = m * M / cur, a = calib.p1;
+  bg.x = a.x - (a.x - bg.x) * k; bg.y = a.y - (a.y - bg.y) * k; bg.scale *= k;
+  awCache = null; rfCache = null;
+  closeNumbox();
+  calib = { p1: null, p2: null };
+  bgCalibrated = true;
+  toast(`縮尺を合わせました(${m}m)`);
+  fitView();
+  setTool('roomfill');
+}
+
+/* 下絵の解析(以前のエディタの処理をそのまま移植) */
+let awCache = null, rfCache = null;
+function getBgAnalysisImage() {
+  if (awCache && awCache.img === bg.img) return awCache;
+  // 小さい画像は拡大してから解析する(壁が数pxしかないと形が崩れるため)。大きい画像は2000pxまで縮小
+  const iw = bg.img.width, ih = bg.img.height, mx = Math.max(iw, ih);
+  const s = mx < 1200 ? Math.min(4, 1200 / mx) : Math.min(1, 2000 / mx);
+  const w = Math.max(1, Math.round(iw * s)), h = Math.max(1, Math.round(ih * s));
+  const off = document.createElement('canvas'); off.width = w; off.height = h;
+  const octx = off.getContext('2d', { willReadFrequently: true });
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, w, h);   // 透明部分は白として扱う
+  octx.drawImage(bg.img, 0, 0, w, h);
+  try { awCache = { img: bg.img, data: octx.getImageData(0, 0, w, h).data, w, h, s }; } catch (err) { console.error(err); return null; }
+  return awCache;
+}
+const P = id => +$(id).value;
+function autoThresholdOtsu() {
+  if (!bg) return;
+  const im = getBgAnalysisImage(); if (!im) return;
+  const maxSat = P('pSat'), hist = new Float64Array(256), d = im.data; let total = 0;
+  for (let i = 0, p = 0; i < im.w * im.h; i++, p += 4) {
+    if (d[p + 3] < 128) continue;
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    hist[(0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) | 0]++; total++;
+  }
+  if (!total) return;
+  let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, best = 110, maxVar = -1;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = total - wB; if (wF <= 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > maxVar) { maxVar = v; best = t; }
+  }
+  $('pThreshold').value = best; $('pThresholdV').textContent = best;
+  rfCache = null;
+  if (tool === 'autowall') runAutoWall();
+  toast('しきい値を ' + best + ' にしました');
+}
+function runAutoWall() {
+  if (!bg || tool !== 'autowall') return;
+  autoWallPreview = detectWallsFromBg();
+  updateHint(); draw();
+}
+function commitAutoWalls() {
+  if (!autoWallPreview || !autoWallPreview.length) { toast('追加できる壁がありません'); return; }
+  const n = autoWallPreview.length;
+  change(() => autoWallPreview.forEach(s => plan.walls.push({ id: newId(), x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2 })));
+  autoWallPreview = null; awRegion = null;
+  toast(n + '本の壁を追加しました');
+  setTool('select');
+}
+function detectWallsFromBg() {
+  const threshold = P('pThreshold'), maxSat = P('pSat'), minThM = P('pMinTh'), maxThM = P('pMaxTh'), minLenM = P('pMinLen');
+  const im = getBgAnalysisImage(); if (!im) return [];
+  const d = im.data, w = im.w, h = im.h, s = im.s;
+  const dark = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    if (d[p + 3] < 128) continue;
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < threshold) dark[i] = 1;
+  }
+  const mPerPx = (1 / s) * bg.scale / M; if (!(mPerPx > 0)) return [];
+  const minThPx = Math.max(1, minThM / mPerPx), maxThPx = Math.max(minThPx + 1, maxThM / mPerPx), minLenPx = Math.max(3, minLenM / mPerPx);
+  let rx1 = 0, ry1 = 0, rx2 = w, ry2 = h;
+  if (awRegion) {
+    rx1 = Math.max(0, Math.floor((Math.min(awRegion.x1, awRegion.x2) - bg.x) / bg.scale * s));
+    ry1 = Math.max(0, Math.floor((Math.min(awRegion.y1, awRegion.y2) - bg.y) / bg.scale * s));
+    rx2 = Math.min(w, Math.ceil((Math.max(awRegion.x1, awRegion.x2) - bg.x) / bg.scale * s));
+    ry2 = Math.min(h, Math.ceil((Math.max(awRegion.y1, awRegion.y2) - bg.y) / bg.scale * s));
+    if (rx2 - rx1 < 3 || ry2 - ry1 < 3) return [];
+  }
+  let segs = [];
+  collectWallRuns(dark, w, rx1, ry1, rx2, ry2, minThPx, maxThPx, minLenPx, true, segs);
+  collectWallRuns(dark, w, rx1, ry1, rx2, ry2, minThPx, maxThPx, minLenPx, false, segs);
+  segs = alignWallSegments(segs, Math.max(2, minThPx * 0.9));
+  snapWallJunctions(segs, maxThPx * 1.3);
+  return segs.map(g => ({ x1: bg.x + (g.x1 / s) * bg.scale, y1: bg.y + (g.y1 / s) * bg.scale, x2: bg.x + (g.x2 / s) * bg.scale, y2: bg.y + (g.y2 / s) * bg.scale }));
+}
+function alignWallSegments(segs, tol) {
+  const hs = [], vs = [];
+  segs.forEach(s => { if (s.y1 === s.y2) hs.push(s); else if (s.x1 === s.x2) vs.push(s); });
+  return alignOneAxis(hs, true, tol).concat(alignOneAxis(vs, false, tol));
+}
+function alignOneAxis(list, horizontal, tol) {
+  if (!list.length) return [];
+  const key = s => horizontal ? s.y1 : s.x1;
+  list.sort((a, b) => key(a) - key(b));
+  const groups = []; let cur = [list[0]];
+  for (let i = 1; i < list.length; i++) { if (Math.abs(key(list[i]) - key(cur[0])) <= tol) cur.push(list[i]); else { groups.push(cur); cur = [list[i]]; } }
+  groups.push(cur);
+  const res = [];
+  groups.forEach(g => {
+    let m = 0; g.forEach(s => { m += key(s); }); m /= g.length;
+    const spans = g.map(s => ({ a: horizontal ? Math.min(s.x1, s.x2) : Math.min(s.y1, s.y2), b: horizontal ? Math.max(s.x1, s.x2) : Math.max(s.y1, s.y2) })).sort((p, q) => p.a - q.a);
+    const merged = [];
+    spans.forEach(sp => { const last = merged[merged.length - 1]; if (last && sp.a <= last.b + tol) last.b = Math.max(last.b, sp.b); else merged.push({ a: sp.a, b: sp.b }); });
+    merged.forEach(sp => res.push(horizontal ? { x1: sp.a, y1: m, x2: sp.b, y2: m } : { x1: m, y1: sp.a, x2: m, y2: sp.b }));
+  });
+  return res;
+}
+function snapWallJunctions(segs, tol) {
+  const hs = segs.filter(s => s.y1 === s.y2), vs = segs.filter(s => s.x1 === s.x2);
+  hs.forEach(hh => vs.forEach(vv => { const vy1 = Math.min(vv.y1, vv.y2), vy2 = Math.max(vv.y1, vv.y2); if (hh.y1 < vy1 - tol || hh.y1 > vy2 + tol) return; if (Math.abs(vv.x1 - hh.x1) <= tol) hh.x1 = vv.x1; if (Math.abs(vv.x1 - hh.x2) <= tol) hh.x2 = vv.x1; }));
+  vs.forEach(vv => hs.forEach(hh => { const hx1 = Math.min(hh.x1, hh.x2), hx2 = Math.max(hh.x1, hh.x2); if (vv.x1 < hx1 - tol || vv.x1 > hx2 + tol) return; if (Math.abs(hh.y1 - vv.y1) <= tol) vv.y1 = hh.y1; if (Math.abs(hh.y1 - vv.y2) <= tol) vv.y2 = hh.y1; }));
+}
+function collectWallRuns(dark, w, rx1, ry1, rx2, ry2, minTh, maxTh, minLen, horizontal, out) {
+  const A1 = horizontal ? rx1 : ry1, A2 = horizontal ? rx2 : ry2, B1 = horizontal ? ry1 : rx1, B2 = horizontal ? ry2 : rx2;
+  const at = (a, b) => horizontal ? dark[b * w + a] : dark[a * w + b];
+  const gapTol = Math.ceil(maxTh * 1.5) + 2, tol = Math.max(2, minTh * 0.8), open = [];
+  const finish = sg => { if (sg.a2 - sg.a1 + 1 < minLen) return; out.push(horizontal ? { x1: sg.a1, y1: sg.c, x2: sg.a2, y2: sg.c } : { x1: sg.c, y1: sg.a1, x2: sg.c, y2: sg.a2 }); };
+  for (let a = A1; a < A2; a++) {
+    const runs = []; let b = B1;
+    while (b < B2) { if (at(a, b)) { const st = b; while (b < B2 && at(a, b)) b++; const len = b - st; if (len >= minTh && len <= maxTh) runs.push((st + b) / 2); } else b++; }
+    const used = new Array(runs.length).fill(false);
+    for (let k = open.length - 1; k >= 0; k--) {
+      const sg = open[k]; let best = -1, bestD = tol;
+      for (let r = 0; r < runs.length; r++) { if (used[r]) continue; const dd = Math.abs(runs[r] - sg.c); if (dd < bestD) { bestD = dd; best = r; } }
+      if (best >= 0) { used[best] = true; sg.c = sg.c * 0.75 + runs[best] * 0.25; sg.a2 = a; sg.gap = 0; }
+      else { sg.gap++; if (sg.gap > gapTol) { finish(sg); open.splice(k, 1); } }
+    }
+    for (let r = 0; r < runs.length; r++) if (!used[r]) open.push({ c: runs[r], a1: a, a2: a, gap: 0 });
+  }
+  open.forEach(finish);
+}
+function buildWallMaskForFill() {
+  const im = getBgAnalysisImage(); if (!im) return null;
+  const threshold = P('pThreshold'), maxSat = P('pSat'), closeM = P('pClose');
+  const key = [im.w, im.h, threshold, maxSat, closeM, bg.scale].join('|');
+  if (rfCache && rfCache.key === key) return rfCache;
+  const w = im.w, h = im.h, d = im.data;
+  let wall = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    if (d[p + 3] < 128) continue;
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < threshold) wall[i] = 1;
+  }
+  const mPerPx = (1 / im.s) * bg.scale / M, N = Math.max(0, Math.round((closeM / 2) / mPerPx));
+  if (N > 0) { wall = dilateBin(wall, w, h, N); wall = erodeBin(wall, w, h, N); }
+  rfCache = { key, wall, w, h, s: im.s, mPerPx };
+  return rfCache;
+}
+function dilateBin(src, w, h, r) {
+  const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) { const base = y * w; let cnt = 0; for (let x = 0; x <= Math.min(r, w - 1); x++) cnt += src[base + x]; for (let x = 0; x < w; x++) { tmp[base + x] = cnt > 0 ? 1 : 0; if (x + r + 1 < w) cnt += src[base + x + r + 1]; if (x - r >= 0) cnt -= src[base + x - r]; } }
+  for (let x = 0; x < w; x++) { let c = 0; for (let y = 0; y <= Math.min(r, h - 1); y++) c += tmp[y * w + x]; for (let y = 0; y < h; y++) { out[y * w + x] = c > 0 ? 1 : 0; if (y + r + 1 < h) c += tmp[(y + r + 1) * w + x]; if (y - r >= 0) c -= tmp[(y - r) * w + x]; } }
+  return out;
+}
+function erodeBin(src, w, h, r) {
+  const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) { const base = y * w; let cnt = 0; for (let x = 0; x <= Math.min(r, w - 1); x++) cnt += src[base + x]; for (let x = 0; x < w; x++) { const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r); tmp[base + x] = cnt === (x1 - x0 + 1) ? 1 : 0; if (x + r + 1 < w) cnt += src[base + x + r + 1]; if (x - r >= 0) cnt -= src[base + x - r]; } }
+  for (let x = 0; x < w; x++) { let c = 0; for (let y = 0; y <= Math.min(r, h - 1); y++) c += tmp[y * w + x]; for (let y = 0; y < h; y++) { const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r); out[y * w + x] = c === (y1 - y0 + 1) ? 1 : 0; if (y + r + 1 < h) c += tmp[(y + r + 1) * w + x]; if (y - r >= 0) c -= tmp[(y - r) * w + x]; } }
+  return out;
+}
+function floodFillFrom(cache, sx, sy) {
+  const { w, h, wall } = cache;
+  if (sx < 0 || sy < 0 || sx >= w || sy >= h) return null;
+  const start = sy * w + sx; if (wall[start]) return { onWall: true };
+  const region = new Uint8Array(w * h), stack = [start]; region[start] = 1; let count = 0;
+  while (stack.length) {
+    const idx = stack.pop(); count++;
+    const x = idx % w, y = (idx / w) | 0;
+    if (x > 0 && !wall[idx - 1] && !region[idx - 1]) { region[idx - 1] = 1; stack.push(idx - 1); }
+    if (x < w - 1 && !wall[idx + 1] && !region[idx + 1]) { region[idx + 1] = 1; stack.push(idx + 1); }
+    if (y > 0 && !wall[idx - w] && !region[idx - w]) { region[idx - w] = 1; stack.push(idx - w); }
+    if (y < h - 1 && !wall[idx + w] && !region[idx + w]) { region[idx + w] = 1; stack.push(idx + w); }
+  }
+  return { region, count };
+}
+function traceContour(mask, w, h) {
+  let start = -1; for (let i = 0; i < w * h; i++) if (mask[i]) { start = i; break; }
+  if (start < 0) return [];
+  const sx = start % w, sy = (start / w) | 0, dx = [-1, 0, 1, 1, 1, 0, -1, -1], dy = [-1, -1, -1, 0, 1, 1, 1, 0];
+  const pts = []; let cx = sx, cy = sy, dir = 3, guard = 0;
+  do {
+    pts.push({ x: cx, y: cy });
+    let found = false; const sd = (dir + 5) & 7;
+    for (let k = 0; k < 8; k++) { const nd = (sd + k) & 7, nx = cx + dx[nd], ny = cy + dy[nd]; if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue; if (mask[ny * w + nx]) { cx = nx; cy = ny; dir = nd; found = true; break; } }
+    if (!found) break; guard++;
+  } while ((cx !== sx || cy !== sy) && guard < w * h * 2);
+  return pts;
+}
+function simplifyDP(pts, eps) {
+  if (pts.length < 3) return pts.slice();
+  const dd = (p, a, b) => segDist(p, a, b).d;
+  const rec = (s, e) => { let maxD = 0, idx = -1; for (let i = s + 1; i < e; i++) { const d0 = dd(pts[i], pts[s], pts[e]); if (d0 > maxD) { maxD = d0; idx = i; } } return maxD > eps && idx > 0 ? rec(s, idx).slice(0, -1).concat(rec(idx, e)) : [pts[s], pts[e]]; };
+  return rec(0, pts.length - 1);
+}
+function orthogonalize(verts) {
+  if (verts.length < 4) return verts;
+  const out = verts.map(v => ({ x: v.x, y: v.y }));
+  for (let i = 0; i < out.length; i++) { const a = out[i], b = out[(i + 1) % out.length]; if (Math.abs(b.x - a.x) >= Math.abs(b.y - a.y)) { const m = (a.y + b.y) / 2; a.y = m; b.y = m; } else { const m = (a.x + b.x) / 2; a.x = m; b.x = m; } }
+  const res = [];
+  out.forEach(p => { const q = res[res.length - 1]; if (!q || dist(p, q) > 1) res.push(p); });
+  if (res.length > 2 && dist(res[0], res[res.length - 1]) <= 1) res.pop();
+  return res;
+}
+function pickRoomAt(p) {
+  const cache = buildWallMaskForFill(); if (!cache) return;
+  const pxi = Math.round((p.x - bg.x) / bg.scale * cache.s), pyi = Math.round((p.y - bg.y) / bg.scale * cache.s);
+  const r = floodFillFrom(cache, pxi, pyi);
+  if (!r) return toast('下絵の外です');
+  if (r.onWall) return toast('壁の上です。部屋の内側をクリックしてください');
+  if (r.count > cache.w * cache.h * 0.45) return toast('ドアの隙間から外に漏れました。詳細設定の「開口を塞ぐ」を大きくしてください');
+  if (r.count < 40) return toast('領域が小さすぎます');
+  // 壁の中心まで広げて、隣の部屋と辺を共有させる
+  const K = Math.max(0, Math.round(0.05 / cache.mPerPx));
+  const region = K > 0 ? dilateBin(r.region, cache.w, cache.h, K) : r.region;
+  const contour = traceContour(region, cache.w, cache.h);
+  if (contour.length < 8) return toast('輪郭が取れませんでした');
+  let simp = orthogonalize(simplifyDP(contour, Math.max(1.5, 0.04 / cache.mPerPx)));
+  if (simp.length < 3) return toast('形を読み取れませんでした');
+  const verts = simp.map(q => ({ x: bg.x + (q.x / cache.s) * bg.scale, y: bg.y + (q.y / cache.s) * bg.scale }));
+  roomFillPreview.push({ verts });
+  updateHint(); draw();
+}
+function commitRoomFill() {
+  if (!roomFillPreview.length) return;
+  const n = roomFillPreview.length, added = [];
+  const names = ['LDK', '洋室', '洋室2', '和室', '洗面所', '浴室', 'トイレ', '玄関'];
+  change(() => roomFillPreview.forEach((rp, i) => { const r = { id: newId(), name: names[(plan.rooms.length) % names.length], color: ROOM_COLORS[plan.rooms.length % ROOM_COLORS.length], vertices: rp.verts, openings: [], groupId: null }; plan.rooms.push(r); added.push({ kind: 'room', obj: r }); }));
+  roomFillPreview = [];
+  toast(n + '部屋を追加しました。名前は右の欄で変えられます');
+  setTool('select');
+  setSelection(added.length === 1 ? added : []);
+}
+['pThreshold', 'pSat', 'pMinTh', 'pMaxTh', 'pMinLen', 'pClose'].forEach(id => $(id).addEventListener('input', () => {
+  if (id === 'pThreshold') $('pThresholdV').textContent = $(id).value;
+  rfCache = null;
+  clearTimeout(runAutoWall._t); runAutoWall._t = setTimeout(runAutoWall, 160);
+}));
+$('bOtsu').onclick = autoThresholdOtsu;
+
+/* ───────── 画像から自動で作る ─────────
+   1) 壁(暗く色みのない太い線)だけを取り出す(文字・寸法線・家具の細い線は消す)
+   2) ドアの隙間を一時的に塞いで、壁で囲まれた領域 = 部屋 を全部見つける
+   3) 各部屋の輪郭を直角の多角形にする
+   4) 塞ぐ前の壁に隙間がある所 = 開口。外周なら窓、内側ならドア(広ければ通路)
+   5) 専有面積(または「長さを合わせる」)で縮尺を決める */
+let bgCalibrated = false, autoAfterLoad = false, propArea = 0;
+function startAutoFromImage() {
+  if (!bg) { autoAfterLoad = true; $('fileBg').click(); return; }
+  openAutoDialog();
+}
+function openAutoDialog() {
+  $('autoArea').value = propArea > 0 ? propArea : '';
+  $('autoNote').textContent = bgCalibrated ? '「長さを合わせる」で縮尺を合わせ済みです。空欄ならその縮尺を使います。' : (propArea > 0 ? '物件情報の専有面積を入れてあります。' : 'わからなければ空欄でもOK(あとで「長さを合わせる」で直せます)。');
+  $('autoReplaceRow').style.display = plan.rooms.length ? 'block' : 'none';
+  $('autoModal').classList.add('show');
+  setTimeout(() => $('autoArea').focus(), 50);
+}
+$('bAutoFromImage').onclick = startAutoFromImage;
+$('autoCancel').onclick = () => $('autoModal').classList.remove('show');
+$('autoModal').addEventListener('click', e => { if (e.target.id === 'autoModal') $('autoModal').classList.remove('show'); });
+$('autoArea').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') $('autoOk').click(); });
+$('autoOk').onclick = () => {
+  const area = parseFloat($('autoArea').value);
+  $('autoModal').classList.remove('show');
+  setHint('間取り図を読み取っています…');
+  setTimeout(() => {
+    try {
+      const r = autoBuildFromImage(area > 0 ? area : 0, $('autoReplace').checked || !plan.rooms.length);
+      if (!r) return;
+      fitView();
+      toast(`${r.rooms}部屋・ドア${r.doors}・窓${r.windows}を作りました。違う所は直してください`);
+    } catch (err) { console.error(err); toast('読み取りに失敗しました: ' + err.message); updateHint(); }
+  }, 30);
+};
+
+// 壁は図面の中で一番濃い色。大津のしきい値と「一番濃い色」の中間を使うと、灰色の文字や設備の線を拾いにくい
+function wallThreshold(im, maxSat) {
+  const otsu = otsuThreshold(im, maxSat);
+  const hist = new Float64Array(256), d = im.data; let total = 0;
+  for (let i = 0, p = 0; i < im.w * im.h; i++, p += 4) {
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    const l = (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) | 0;
+    if (l < otsu) { hist[l]++; total++; }
+  }
+  if (!total) return otsu;
+  // 暗い側の中央値
+  let acc = 0, med = 0; for (let l = 0; l < 256; l++) { acc += hist[l]; if (acc >= total / 2) { med = l; break; } }
+  return Math.round(med + (otsu - med) * 0.55);
+}
+function otsuThreshold(im, maxSat) {
+  const hist = new Float64Array(256), d = im.data; let total = 0;
+  for (let i = 0, p = 0; i < im.w * im.h; i++, p += 4) {
+    if (d[p + 3] < 128) continue;
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    hist[(0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2]) | 0]++; total++;
+  }
+  let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
+  let sumB = 0, wB = 0, best = 110, maxVar = -1;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = total - wB; if (wF <= 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > maxVar) { maxVar = v; best = t; }
+  }
+  return best;
+}
+// 壁の厚み(px)を推定: 暗い画素の連続の長さで「たくさん出てくる太さ」を探す
+function estimateWallThickness(mask, w, h) {
+  const maxL = Math.max(8, Math.floor(Math.min(w, h) / 8));
+  const hist = new Float64Array(maxL + 2);
+  const add = len => { if (len >= 3 && len <= maxL) hist[len] += len; };
+  for (let y = 0; y < h; y += 2) { let run = 0; for (let x = 0; x < w; x++) { if (mask[y * w + x]) run++; else { add(run); run = 0; } } add(run); }
+  for (let x = 0; x < w; x += 2) { let run = 0; for (let y = 0; y < h; y++) { if (mask[y * w + x]) run++; else { add(run); run = 0; } } add(run); }
+  const score = L => hist[L - 1] * 0.5 + hist[L] + hist[L + 1] * 0.5;
+  let best = 4, bestScore = -1;
+  for (let L = 3; L <= maxL; L++) { const sc = score(L); if (sc > bestScore) { bestScore = sc; best = L; } }
+  // 一番細い「ちゃんとした壁」(内壁など)の太さ
+  let thin = best;
+  for (let L = 3; L < best; L++) { const sc = score(L); if (sc >= bestScore * 0.3 && sc >= score(L - 1) && sc >= score(L + 1)) { thin = L; break; } }
+  return { t: best, tMin: thin };
+}
+function autoBuildFromImage(areaM2, replace) {
+  const im = getBgAnalysisImage(); if (!im) { toast('画像を読み取れませんでした'); return null; }
+  const w = im.w, h = im.h, d = im.data;
+  const maxSat = P('pSat');
+  const thr = wallThreshold(im, maxSat);
+  $('pThreshold').value = thr; $('pThresholdV').textContent = thr;
+  // 1) 壁候補
+  let dark = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    if (d[p + 3] < 128) continue;
+    const mx = Math.max(d[p], d[p + 1], d[p + 2]), mn = Math.min(d[p], d[p + 1], d[p + 2]);
+    if (mx - mn > maxSat) continue;
+    if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < thr) dark[i] = 1;
+  }
+  const th = estimateWallThickness(dark, w, h), t = th.t, tMin = th.tMin;
+  // 細い線を消す(opening: 収縮→膨張)。一番細い壁は残る大きさにする
+  const rOpen = Math.max(1, Math.floor((tMin - 1) / 2 * 0.45));
+  const walls = dilateBin(erodeBin(dark, w, h, rOpen), w, h, rOpen);
+  // 2) ドアの隙間だけを塞ぐ: 同じ線上にある壁と壁の間の短い隙間を橋渡しする
+  //    (全体を太らせると、トイレのような狭い部屋まで埋まってしまうため)
+  const N = Math.max(2, Math.round(t * 7));
+  const closed = closeBin(bridgeGaps(walls, w, h, Math.max(4, Math.round(t * 2)), N), w, h, Math.max(1, Math.round(tMin * 0.5)));
+  // 建物の外側: 大きな窓の隙間も塞いだ状態で、画像の端から塗った領域
+  const N2 = Math.max(4, Math.round(t * 10));
+  const closed2 = closeBin(walls, w, h, N2);
+  const outside = new Uint8Array(w * h);
+  {
+    const stack = [];
+    const push = k => { if (!closed2[k] && !outside[k]) { outside[k] = 1; stack.push(k); } };
+    for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { push(y * w); push(y * w + w - 1); }
+    while (stack.length) {
+      const k = stack.pop(), x = k % w, y = (k / w) | 0;
+      if (x > 0) push(k - 1); if (x < w - 1) push(k + 1); if (y > 0) push(k - w); if (y < h - 1) push(k + w);
+    }
+  }
+  const label = new Int32Array(w * h);
+  const comps = [];
+  let next = 1;
+  const free = k => !closed[k] && !outside[k];
+  for (let i = 0; i < w * h; i++) {
+    if (!free(i) || label[i]) continue;
+    const id = next++, stack = [i]; label[i] = id;
+    let count = 0, border = false, perim = 0, touchOut = 0;
+    while (stack.length) {
+      const k = stack.pop(); count++;
+      const x = k % w, y = (k / w) | 0;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border = true;
+      const nb = [x > 0 ? k - 1 : -1, x < w - 1 ? k + 1 : -1, y > 0 ? k - w : -1, y < h - 1 ? k + w : -1];
+      for (const q of nb) {
+        if (q < 0) continue;
+        if (free(q)) { if (!label[q]) { label[q] = id; stack.push(q); } }
+        else { perim++; if (outside[q]) touchOut++; }
+      }
+    }
+    // 外側に大きく面している領域は、建物のくぼみ(部屋ではない)
+    comps.push({ id, count, border: border || (perim > 0 && touchOut / perim > 0.3) });
+  }
+  const minArea = (tMin * 5) * (tMin * 5);
+  const roomComps = comps.filter(c => !c.border && c.count >= minArea);
+  if (!roomComps.length) { toast('部屋を見つけられませんでした。画像がはっきりした間取り図か確認してください'); updateHint(); return null; }
+  const isRoom = new Uint8Array(next);
+  roomComps.forEach(c => { isRoom[c.id] = 1; });
+  // 3) 輪郭 → 多角形(壁の中心まで広げる)
+  const K = Math.max(1, Math.round(t / 2));
+  const polys = [];
+  roomComps.forEach(c => {
+    let m = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) if (label[i] === c.id) m[i] = 1;
+    // 窓の隙間に入り込んだ薄いでっぱりを削ってから、壁の中心まで広げる
+    m = dilateBin(m, w, h, K);
+    const contour = traceContour(m, w, h);
+    if (contour.length < 8) return;
+    const simp = flattenJogs(orthogonalizeSoft(simplifyDP(contour, Math.max(1.5, tMin * 0.6)), 12, tMin * 2.5), tMin * 1.8);
+    if (simp.length < 3) return;
+    polys.push({ comp: c, pts: simp, areaPx: Math.abs(polyArea2(simp)) / 2 });
+  });
+  if (!polys.length) { toast('部屋の形を読み取れませんでした'); updateHint(); return null; }
+  // 5) 縮尺(解析画像1pxあたりのメートル)
+  let mPerPx;
+  if (areaM2 > 0) mPerPx = Math.sqrt(areaM2 / polys.reduce((s, q) => s + q.areaPx, 0));
+  else mPerPx = (1 / im.s) * bg.scale / M;
+  if (!(mPerPx > 0)) { toast('縮尺を決められませんでした'); return null; }
+  bg.scale = mPerPx * im.s * M; bgCalibrated = true;
+  rfCache = null;
+  const toW = q => ({ x: bg.x + (q.x / im.s) * bg.scale, y: bg.y + (q.y / im.s) * bg.scale });
+  // 4) 開口
+  const wallAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h && walls[y * w + x]; };
+  const darkAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h && dark[y * w + x]; };
+  const labelAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h ? label[y * w + x] : 0; };
+  const seen = [];
+  let doors = 0, windows = 0;
+  const sorted = polys.slice().sort((a, b) => b.areaPx - a.areaPx);
+  const newRooms = sorted.map((pg, idx) => {
+    const verts = pg.pts.map(toW);
+    const room = { id: newId(), name: guessRoomName(idx, pg.areaPx * mPerPx * mPerPx), color: ROOM_COLORS[idx % ROOM_COLORS.length], vertices: verts, openings: [], groupId: null };
+    const s2 = polyArea2(pg.pts) > 0 ? 1 : -1;
+    for (let i = 0; i < pg.pts.length; i++) {
+      const a = pg.pts[i], b = pg.pts[(i + 1) % pg.pts.length];
+      const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < tMin * 3) continue;
+      const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, nx = -uy * s2, ny = ux * s2;   // n: 部屋の内側
+      const present = [];
+      for (let k = 0; k <= L; k++) {
+        let hit = false;
+        for (let j = -t; j <= t && !hit; j++) if (wallAt(a.x + ux * k + nx * j, a.y + uy * k + ny * j)) hit = true;   // 壁の中心線の前後を見る
+        present.push(hit);
+      }
+      let k = 0;
+      while (k < present.length) {
+        if (present[k]) { k++; continue; }
+        const st = k; while (k < present.length && !present[k]) k++;
+        const en = k;   // [st, en)
+        const len = en - st;
+        if (st < tMin * 0.6 || en > L - tMin * 0.6) continue;     // 角の付近は誤検出しやすい
+        const wm = len * mPerPx;
+        if (wm < 0.45 || wm > 3.5) continue;
+        const cpos = (st + en) / 2;
+        const cx = a.x + ux * cpos, cy = a.y + uy * cpos;
+        if (seen.some(q => Math.hypot(q.x - cx, q.y - cy) < t * 3)) continue;
+        seen.push({ x: cx, y: cy });
+        const outside = labelAt(cx - nx * t * 2.2, cy - ny * t * 2.2);
+        const exterior = !(outside && isRoom[outside] && outside !== pg.comp.id);
+        // 外周の隙間: 壁に沿った細い線(窓の記号)があれば窓、なければ玄関などのドア
+        let lined = 0;
+        for (let q = st; q < en; q++) { let hit = false; for (let j = -t; j <= t && !hit; j++) if (darkAt(a.x + ux * q + nx * j, a.y + uy * q + ny * j)) hit = true; if (hit) lined++; }
+        const hasLines = lined / Math.max(1, len) > 0.6;
+        const type = exterior ? (hasLines || wm > 1.15 ? 'window' : 'door') : (wm <= 1.15 ? 'door' : 'passage');
+        const o = { type, edgeIndex: i, offsetAlongWall: cpos / L, width: +wm.toFixed(2), height: OPENING_DEFAULTS[type].height };
+        if (type === 'door') o.doorType = 'swing_left';
+        room.openings.push(o);
+        if (type === 'window') windows++; else doors++;
+      }
+    }
+    return room;
+  });
+  change(() => {
+    if (replace) { plan.rooms = []; plan.walls = []; }
+    newRooms.forEach(r => plan.rooms.push(r));
+  });
+  // 下絵は薄くして、できた間取りを見やすくする
+  bg.opacity = 0.3; $('bgOpacity').value = 30;
+  setTool('select');
+  setSelection([]);
+  return { rooms: newRooms.length, doors, windows };
+}
+// 窓の隙間などでできた浅いでっぱり・へこみ(深さ < maxDepth)を平らにする
+function flattenJogs(v, maxDepth) {
+  let pts = v.map(p => ({ x: p.x, y: p.y }));
+  for (let guard = 0; guard < 50; guard++) {
+    const n = pts.length; if (n < 6) break;
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n], c = pts[(i + 2) % n], d = pts[(i + 3) % n];
+      const v1 = { x: b.x - a.x, y: b.y - a.y }, v3 = { x: d.x - c.x, y: d.y - c.y };
+      const l1 = Math.hypot(v1.x, v1.y), l3 = Math.hypot(v3.x, v3.y);
+      if (l1 > maxDepth || l3 > maxDepth || l1 < 0.5 || l3 < 0.5) continue;
+      // 行って戻る(向きが逆)の短い辺の組 = でっぱり/へこみ
+      if (v1.x * v3.x + v1.y * v3.y > -0.9 * l1 * l3) continue;
+      if (Math.abs(v1.x) < Math.abs(v1.y)) { b.y = a.y; c.y = a.y; } else { b.x = a.x; c.x = a.x; }
+      changed = true; break;
+    }
+    // 小さな段差(平行な2辺のずれ < 壁厚の半分くらい)をそろえる
+    if (!changed) for (let i = 0; i < n; i++) {
+      const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n], d = pts[(i + 2) % n];
+      const st = Math.hypot(c.x - b.x, c.y - b.y);
+      if (st < 0.5 || st > maxDepth * 0.45) continue;
+      const u1 = { x: b.x - a.x, y: b.y - a.y }, u3 = { x: d.x - c.x, y: d.y - c.y };
+      const l1 = Math.hypot(u1.x, u1.y), l3 = Math.hypot(u3.x, u3.y);
+      if (u1.x * u3.x + u1.y * u3.y < 0.9 * l1 * l3) continue;   // 同じ向きの2辺にはさまれた段差だけ
+      const horiz = Math.abs(u1.x) > Math.abs(u1.y);
+      if (l1 >= l3) { if (horiz) { c.y = b.y; d.y = b.y; } else { c.x = b.x; d.x = b.x; } }
+      else { if (horiz) { a.y = c.y; b.y = c.y; } else { a.x = c.x; b.x = c.x; } }
+      changed = true; break;
+    }
+    // 同じ点・一直線上の点を消す
+    const out = [];
+    pts.forEach(p => { const q = out[out.length - 1]; if (!q || Math.hypot(p.x - q.x, p.y - q.y) > 0.5) out.push(p); });
+    if (out.length > 2 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y) <= 0.5) out.pop();
+    const before = pts.length;
+    pts = out.filter((p, i) => {
+      const a = out[(i - 1 + out.length) % out.length], b = out[(i + 1) % out.length];
+      const l1 = Math.hypot(p.x - a.x, p.y - a.y), l2 = Math.hypot(b.x - p.x, b.y - p.y);
+      return Math.abs((p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x)) > 0.08 * l1 * l2;   // 一直線・折り返しの点は消す
+    });
+    if (!changed && pts.length === before) break;
+  }
+  return pts;
+}
+// 同じ行(列)にある長い壁と長い壁の間の、短い隙間を埋める
+function bridgeGaps(src, w, h, minRun, maxGap) {
+  const out = src.slice();
+  const pass = (n1, n2, at, set) => {
+    for (let i = 0; i < n1; i++) {
+      let j = 0, prevEnd = -1;
+      while (j < n2) {
+        if (!at(i, j)) { j++; continue; }
+        const st = j; while (j < n2 && at(i, j)) j++;
+        if (j - st < minRun) continue;                 // 直交する壁の断面など、短いものは無視
+        if (prevEnd >= 0 && st - prevEnd <= maxGap) for (let k = prevEnd; k < st; k++) set(i, k);
+        prevEnd = j;
+      }
+    }
+  };
+  pass(h, w, (y, x) => src[y * w + x], (y, x) => { out[y * w + x] = 1; });
+  pass(w, h, (x, y) => src[y * w + x], (x, y) => { out[y * w + x] = 1; });
+  return out;
+}
+// 水平・垂直に近い辺だけ真っすぐにそろえる(斜めの壁はそのまま残す)
+function orthogonalizeSoft(verts, maxDeg, shortLen) {
+  if (verts.length < 3) return verts;
+  const out = verts.map(v => ({ x: v.x, y: v.y })), lim = Math.tan(maxDeg * Math.PI / 180);
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i], b = out[(i + 1) % out.length], dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+    const short = Math.hypot(dx, dy) < (shortLen || 0);   // 短い辺はノイズなので、斜めでも縦横にそろえる
+    if (short) { if (dx >= dy) { const m = (a.y + b.y) / 2; a.y = m; b.y = m; } else { const m = (a.x + b.x) / 2; a.x = m; b.x = m; } }
+    else if (dy <= dx * lim) { const m = (a.y + b.y) / 2; a.y = m; b.y = m; }
+    else if (dx <= dy * lim) { const m = (a.x + b.x) / 2; a.x = m; b.x = m; }
+  }
+  const res = [];
+  out.forEach(p => { const q = res[res.length - 1]; if (!q || dist(p, q) > 1) res.push(p); });
+  if (res.length > 2 && dist(res[0], res[res.length - 1]) <= 1) res.pop();
+  return res;
+}
+// 余白を付けてから閉じる(画像の端に壁がくっついていても正しく塞げるように)
+function closeBin(src, w, h, r) {
+  const p = r + 2, W = w + p * 2, H = h + p * 2, pad = new Uint8Array(W * H);
+  for (let y = 0; y < h; y++) pad.set(src.subarray(y * w, y * w + w), (y + p) * W + p);
+  const c = erodeBin(dilateBin(pad, W, H, r), W, H, r), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) out.set(c.subarray((y + p) * W + p, (y + p) * W + p + w), y * w);
+  return out;
+}
+function guessRoomName(rank, m2) {
+  if (rank === 0) return 'LDK';
+  if (m2 < 1.6) return '収納';
+  if (m2 < 2.4) return 'トイレ';
+  if (m2 < 3.6) return '洗面・浴室';
+  return rank === 1 ? '洋室' : '洋室' + rank;
+}
+
+/* ───────── 3Dで歩く(vr-viewer.html を中で開く)───────── */
+let viewerFrame = null;
+function openWalk() {
+  if (!plan.rooms.length && !plan.walls.length) { toast('先に部屋を作ってください'); return; }
+  const box = $('viewer');
+  box.innerHTML = '';
+  viewerFrame = document.createElement('iframe');
+  viewerFrame.src = 'vr-viewer.html?embed=1';
+  viewerFrame.setAttribute('allow', 'xr-spatial-tracking; fullscreen');
+  box.appendChild(viewerFrame);
+  box.classList.add('show');
+}
+function closeWalk() { $('viewer').classList.remove('show'); $('viewer').innerHTML = ''; viewerFrame = null; cv.focus(); }
+
+/* ───────── 保存・読み込み ───────── */
+function generateThumbnail() {
+  const b = contentBoxNoBg(); if (!b) return null;
+  const W = 240, H = 180, tc = document.createElement('canvas'); tc.width = W; tc.height = H;
+  const t = tc.getContext('2d'), pad = 10, s = Math.min((W - pad * 2) / Math.max(b.x2 - b.x1, 1), (H - pad * 2) / Math.max(b.y2 - b.y1, 1));
+  t.fillStyle = '#fff'; t.fillRect(0, 0, W, H);
+  t.translate((W - (b.x2 - b.x1) * s) / 2 - b.x1 * s, (H - (b.y2 - b.y1) * s) / 2 - b.y1 * s); t.scale(s, s);
+  plan.rooms.forEach(r => { t.beginPath(); r.vertices.forEach((v, i) => i ? t.lineTo(v.x, v.y) : t.moveTo(v.x, v.y)); t.closePath(); t.fillStyle = hexA(r.color, 0.27); t.fill(); t.strokeStyle = '#1e293b'; t.lineWidth = 2 / s; t.stroke(); });
+  plan.walls.forEach(w => { t.strokeStyle = '#334155'; t.lineWidth = 2 / s; t.beginPath(); t.moveTo(w.x1, w.y1); t.lineTo(w.x2, w.y2); t.stroke(); });
+  plan.furnitures.forEach(f => { const c = furnCorners(f); t.beginPath(); c.forEach((p, i) => i ? t.lineTo(p.x, p.y) : t.moveTo(p.x, p.y)); t.closePath(); t.fillStyle = hexA(f.color, 0.8); t.fill(); });
+  return tc.toDataURL('image/png');
+}
+function contentBoxNoBg() { const keep = bg; bg = null; const b = contentBox(); bg = keep; return b; }
+function postToParent(msg) { try { if (embedded) window.parent.postMessage(msg, '*'); } catch (e) { /* 親がいない */ } }
+
+$('bSave').onclick = () => {
+  let thumb = null; try { thumb = generateThumbnail(); } catch (e) { console.warn(e); }
+  postToParent({ type: 'vr-editor-save', data: exportData(), thumbnail: thumb });
+};
+$('bCancel').onclick = () => {
+  if (undoStack.length && !confirm('変更を保存せずに閉じますか?')) return;
+  postToParent({ type: 'vr-editor-cancel' });
+};
+$('bDownload').onclick = () => {
+  const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (propName || '間取り') + '.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('bLoad').onclick = () => $('fileJson').click();
+$('fileJson').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => { const d = JSON.parse(t); change(() => { plan = importData(d); }); setSelection([]); fitView(); toast('読み込みました'); }).catch(() => toast('読み込めませんでした'));
+  e.target.value = '';
+});
+
+window.addEventListener('message', e => {
+  const msg = e.data;
+  if (!msg || typeof msg !== 'object') return;
+  // 3Dビューアから
+  if (viewerFrame && e.source === viewerFrame.contentWindow) {
+    if (msg.type === 'vr-viewer-ready') viewerFrame.contentWindow.postMessage({ type: 'vr-viewer-init', data: exportData(), propName: propName || '確認中の間取り' }, '*');
+    if (msg.type === 'vr-viewer-close') closeWalk();
+    return;
+  }
+  // 親ページから
+  if (msg.type === 'init') {
+    embedded = true; showEmbedButtons();
+    propName = msg.propName || '';
+    propArea = +msg.area || 0;
+    $('propName').textContent = propName ? '— ' + propName : '';
+    plan = msg.data && typeof msg.data === 'object' ? importData(msg.data) : { rooms: [], furnitures: [], walls: [], tags: [] };
+    undoStack.length = 0; redoStack.length = 0; updateUndoButtons();
+    setSelection([]);
+    setTimeout(fitView, 30);
+  }
+});
+function showEmbedButtons() { $('embedBtns').style.display = 'flex'; $('fileBtns').style.display = 'none'; }
+
+/* ───────── ボタン類 ───────── */
+document.querySelectorAll('.tool[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+$('bAddRoom').onclick = openAddDialog;
+$('bUndo').onclick = undo; $('bRedo').onclick = redo;
+$('bZoomIn').onclick = () => zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 1.25);
+$('bZoomOut').onclick = () => zoomAt(cv.clientWidth / 2, cv.clientHeight / 2, 0.8);
+$('bFit').onclick = fitView;
+$('bWalk').onclick = openWalk;
+$('bProps').onclick = () => $('props').classList.toggle('open');
+$('gridSel').onchange = e => { gridM = +e.target.value; };
+$('bDims').onclick = () => { showAllDims = !showAllDims; $('bDims').textContent = showAllDims ? '寸法: すべて' : '寸法: 選択中のみ'; draw(); };
+window.addEventListener('resize', resize);
+if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
+
+/* ───────── 起動 ───────── */
+(function boot() {
+  renderFurnCats(); renderFurnList();
+  if (embedded) showEmbedButtons();
+  else {
+    // 単体で開いたときは前回の下書きを復元
+    try { const s = localStorage.getItem('vrhomes_editor_draft'); if (s) { const d = JSON.parse(s); plan = importData(exportLike(d)); } } catch (e) { /* 壊れた下書きは無視 */ }
+  }
+  setTool('select');
+  updateUndoButtons();
+  resize();
+  setSelection([]);
+  setTimeout(fitView, 30);
+  postToParent({ type: 'vr-editor-ready' });
+})();
+function exportLike(d) {
+  // 下書きは内部形式で保存しているので、読み込み用の形にそろえる
+  return { rooms: (d.rooms || []).map(r => ({ name: r.name, color: r.color, vertices: r.vertices, openings: r.openings, groupId: r.groupId })), furnitures: d.furnitures || [], walls: d.walls || [], tags: d.tags || [], north: d.north || 0 };
+}
+</script>
+</body>
+</html>

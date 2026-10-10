@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR Homes 使い方ガイド</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans JP',sans-serif;
+    color:#0f172a;line-height:1.8;background:#fff;padding:24px 22px;
+  }
+  h1{font-size:20px;font-weight:800;margin-bottom:4px;color:#0f172a}
+  .lead{font-size:13px;color:#64748b;margin-bottom:24px}
+  .step{
+    display:flex;gap:14px;margin-bottom:20px;
+    padding:16px;border:1.5px solid #e2e8f0;border-radius:14px;
+    background:#f8fafc;
+  }
+  .step-num{
+    width:34px;height:34px;flex-shrink:0;border-radius:10px;
+    background:linear-gradient(135deg,#2563eb,#7c3aed);
+    color:#fff;font-size:15px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .step-body h3{font-size:15px;font-weight:800;margin-bottom:5px;color:#0f172a}
+  .step-body p{font-size:13px;color:#475569}
+  .step-body i{color:#2563eb}
+  .sec-title{
+    font-size:15px;font-weight:800;color:#0f172a;
+    margin:28px 0 14px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;
+    display:flex;align-items:center;gap:8px;
+  }
+  .faq{border:1.5px solid #e2e8f0;border-radius:12px;padding:14px 16px;margin-bottom:10px}
+  .faq-q{font-size:13px;font-weight:700;color:#0f172a;margin-bottom:6px;display:flex;gap:6px}
+  .faq-q i{color:#2563eb}
+  .faq-a{font-size:12px;color:#64748b;padding-left:22px}
+  .tip{
+    background:#dbeafe;border:1px solid #bfdbfe;border-radius:10px;
+    padding:12px 14px;font-size:12px;color:#1e40af;margin:14px 0;
+    display:flex;gap:8px;align-items:flex-start;
+  }
+  .tip i{flex-shrink:0;margin-top:2px}
+  .role-table{width:100%;border-collapse:collapse;font-size:12px;margin:10px 0}
+  .role-table th,.role-table td{border:1px solid #e2e8f0;padding:8px 10px;text-align:left}
+  .role-table th{background:#f1f5f9;font-weight:700;color:#0f172a}
+  .role-table td{color:#475569}
+  code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:12px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<h1><i class="ti ti-book" style="color:#2563eb"></i> VR Homes 使い方ガイド</h1>
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <span id="yk-help"></span>
+  <p class="lead" style="margin:0">VRで内見できる不動産サービスの使い方をご案内します。<br>案内役は、おうちを背負ったヤドカリの「やどかりん」。名前は「宿借り（やどかり）」＝おうちを借りる人から来ています。</p>
+</div>
+<script src="mascot.js"></script>
+<script>if (window.Yadokarin) document.getElementById('yk-help').innerHTML = Yadokarin.svg({ size: 90, face: 'happy' });</script>
+
+<div class="sec-title"><i class="ti ti-rocket"></i> 基本の流れ</div>
+
+<div class="step">
+  <div class="step-num">1</div>
+  <div class="step-body">
+    <h3>ログイン（なしでもOK）</h3>
+    <p>メールアドレスとパスワードでログインします。初めての方は「新規登録」から。ログインしなくても「ログインせずに物件を見る」で、物件探しとVR内見はそのまま試せます（予約・問い合わせ・お気に入りはログインが必要です）。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">2</div>
+  <div class="step-body">
+    <h3>物件を探す</h3>
+    <p>トップ画面で物件を一覧表示。「どんなおうち？」のボタンや <i class="ti ti-adjustments-horizontal"></i> 詳細条件で絞り込めます。一覧の右上の「リスト／地図」で地図に切り替えると、家賃つきのピンで場所を見比べられます（緑のピンはVRで歩ける物件）。地図を動かして「この範囲で探す」も使えます。右下のやどかりんに悩みを書くと、おすすめも教えてくれます。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">3</div>
+  <div class="step-body">
+    <h3>物件の詳細を見る</h3>
+    <p>気になる物件をタップすると、写真・費用・設備・地図などの詳細が表示されます。<i class="ti ti-heart"></i> お気に入りに登録すると、マイページからいつでも確認できます。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">4</div>
+  <div class="step-body">
+    <h3>VRで内見する</h3>
+    <p>物件詳細の <i class="ti ti-vr"></i>「VRで内見する」ボタンを押すと、その場でブラウザの中に部屋が立ち上がります。PCは <b>W A S D</b> とドラッグ、スマホは左下のスティックとドラッグで歩き回れます。Meta Quest のブラウザで開くと、VRボタンからヘッドセットで体験できます。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">5</div>
+  <div class="step-body">
+    <h3>問い合わせる</h3>
+    <p>物件詳細の <i class="ti ti-mail"></i>「問い合わせる」から、物件の担当者へ直接メッセージを送れます。返信はマイページの受信箱と、登録メールアドレスに届きます。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="step-num">6</div>
+  <div class="step-body">
+    <h3>内見を予約する</h3>
+    <p>物件詳細の <i class="ti ti-calendar-event"></i>「内見を予約する」で、日にちと時間を選んで申し込めます。「現地で内見」のほか「オンラインで一緒にVR内見」も選べます。担当者が確定すると、マイページの「内見予約」とお知らせ（ベルのマーク）に届きます。</p>
+  </div>
+</div>
+
+<div class="sec-title"><i class="ti ti-sparkles"></i> VR内見の便利な機能</div>
+<table class="role-table">
+  <tr><th>ボタン</th><th>できること</th></tr>
+  <tr><td>🗺 地図</td><td>右上に間取りの小さな地図を出します。今いる場所と向きがわかり、タップした部屋へ移動できます。</td></tr>
+  <tr><td>📏 測る</td><td>2か所をタップすると長さを測れます。家具や冷蔵庫が入るかの確認に。</td></tr>
+  <tr><td>🏠 全体</td><td>家全体を上から模型のように見られます。床をタップするとその場所へ移動します。</td></tr>
+  <tr><td>▶ ツアー</td><td>部屋を順番に自動で案内します。部屋の広さ（㎡・畳）と設備の説明も出ます。</td></tr>
+  <tr><td>🛋 家具</td><td>ベッドやソファなどを置いてみられます。はみ出すと赤くなります。置いた家具はその端末に保存されます。</td></tr>
+  <tr><td>📝 チェック</td><td>「冷蔵庫の置き場」「収納の広さ」などに ◎ △ ✕ とメモを残せます。物件ページと比較画面で見返せます（ログイン中はアカウントに保存）。</td></tr>
+  <tr><td>👥 一緒に</td><td>担当者や家族と同じ部屋を同時に見て、チャットできます。6けたの参加コードか招待リンクで参加します。</td></tr>
+  <tr><td>ⓘ 案内タグ</td><td>設備の説明です。タップすると詳しい説明が開きます（管理者が間取りエディタの「案内タグ」で置きます）。</td></tr>
+</table>
+
+<div class="tip">
+  <i class="ti ti-bulb"></i>
+  <span>物件カードの「比較」で最大4件を並べて比べられます。物件詳細では初期費用の計算・共有・印刷ができます。画面右上の「EN」で英語表示に切り替わります。</span>
+</div>
+
+<div class="tip">
+  <i class="ti ti-bulb"></i>
+  <span>お気に入り・閲覧履歴・受信箱は、マイページ内のタブから確認できます。ログインしたまま再訪すると、前回の状態が復元されます。</span>
+</div>
+
+<div class="sec-title"><i class="ti ti-users"></i> 会員の種類</div>
+<table class="role-table">
+  <tr><th>種類</th><th>できること</th></tr>
+  <tr><td>一般ユーザー</td><td>物件検索・VR内見・お気に入り・問い合わせ</td></tr>
+  <tr><td>管理者</td><td>上記＋物件の登録・編集・削除、ユーザー管理</td></tr>
+  <tr><td>マスター</td><td>すべての機能＋システム全体の管理</td></tr>
+</table>
+<p style="font-size:12px;color:#64748b">※ 管理者の権限は、マスターがユーザー管理の画面で設定します。</p>
+
+<div class="sec-title"><i class="ti ti-help"></i> よくある質問</div>
+
+<div class="faq">
+  <div class="faq-q"><i class="ti ti-question-mark"></i> VR機器がなくても使えますか？</div>
+  <div class="faq-a">はい。物件検索・詳細確認・お気に入り登録などはスマホやPCだけで利用できます。VR内見もスマホやPCのブラウザだけで体験できます。Meta Quest があれば、より没入感のあるVR表示になります。</div>
+</div>
+
+<div class="faq">
+  <div class="faq-q"><i class="ti ti-question-mark"></i> パスワードを忘れました。</div>
+  <div class="faq-a">ログイン画面の「パスワードをお忘れですか？」から再設定できます。メールアドレスと新しいパスワードを入力し、届いた6桁の確認コードを入力すると再設定が完了します。</div>
+</div>
+
+<div class="faq">
+  <div class="faq-q"><i class="ti ti-question-mark"></i> お気に入りが消えてしまいました。</div>
+  <div class="faq-a">同じ端末・同じブラウザでログインすると、お気に入り・履歴は復元されます。別の端末では引き継がれない場合があります。</div>
+</div>
+
+<div class="faq">
+  <div class="faq-q"><i class="ti ti-question-mark"></i> スマホのホーム画面にアプリとして追加できますか？</div>
+  <div class="faq-a">はい。ブラウザのメニューから「ホーム画面に追加」を選ぶと、アプリのように起動できます（PWA対応）。こちらから追加をおすすめする表示は出しません。</div>
+</div>
+
+<div class="tip">
+  <i class="ti ti-mail"></i>
+  <span>解決しない場合は、このページ下部の「運営へのお問い合わせ」フォームからご連絡ください。</span>
+</div>
+
+</body>
+</html>

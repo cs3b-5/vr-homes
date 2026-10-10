@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>VR Homes - VR内見</title>
+<script>if (/[?&]hero=1/.test(location.search)) document.documentElement.classList.add("hero");</script>
+<style>
+  /* トップページの模型表示(?hero=1): 背景を透明にして、操作パネルなどは全部隠す */
+  html.hero, html.hero body { background: transparent !important; }
+  html.hero body > :not(#canvas) { display: none !important; }
+  html.hero #canvas { cursor: pointer; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0e1a; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; -webkit-user-select: none; user-select: none; }
+  #canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; cursor: grab; }
+  #canvas.dragging { cursor: grabbing; }
+
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #0a0e1a; color: #fff; z-index: 30; transition: opacity .4s; }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #334; border-top-color: #fff; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loadingText { font-size: 14px; padding: 0 24px; text-align: center; line-height: 1.7; }
+
+  .pill { background: rgba(10,14,26,.62); color: #fff; font-size: 13px; padding: 8px 14px; border-radius: 999px; }
+  #topbar { position: fixed; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); right: calc(10px + env(safe-area-inset-right)); display: flex; align-items: center; gap: 8px; z-index: 12; pointer-events: none; }
+  #modeBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  #alignPanel { position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20; width: min(330px, calc(100vw - 20px)); background: rgba(255,255,255,.97); color: #0f172a; border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.3); font-size: 12.5px; display: none; }
+  #alignPanel.show { display: block; }
+  #alignPanel h4 { margin: 0 0 4px; font-size: 14px; }
+  #alignPanel .sub { color: #64748b; font-size: 11.5px; margin-bottom: 10px; line-height: 1.5; }
+  #alignPanel .r { display: flex; align-items: center; gap: 5px; margin-bottom: 8px; flex-wrap: wrap; }
+  #alignPanel .r > span { width: 52px; color: #475569; }
+  #alignPanel button { height: 28px; min-width: 32px; padding: 0 8px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; font-size: 12px; cursor: pointer; font-family: inherit; }
+  #alignPanel button.pri { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
+  #alignPanel input[type=number] { width: 64px; height: 28px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 6px; font-family: inherit; }
+  #alignPanel .acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  #closeBtn, #rotateBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  body.touch #rotateBtn { display: block; }
+  #rotateHint { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(10,14,26,.85); color: #fff; font-size: 15px; text-align: center; padding: 24px; }
+  #rotateHint.show { display: flex; }
+  #rotateHint .ic { font-size: 46px; animation: tilt 1.6s ease-in-out infinite; }
+  @keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  #title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; min-width: 0; flex-shrink: 1; }
+  #topbar .pill { white-space: nowrap; flex-shrink: 0; }
+  #topbar #title { flex-shrink: 1; }
+  .panel, .bar { box-sizing: border-box; }
+  #roomName { margin-left: auto; white-space: nowrap; }
+  #roomName:empty, #title:empty { display: none; }
+
+  #hint { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 10; white-space: nowrap; transition: opacity .6s; pointer-events: none; }
+  #hint.hide { opacity: 0; }
+
+  #joystick { position: fixed; left: calc(24px + env(safe-area-inset-left)); bottom: calc(24px + env(safe-area-inset-bottom)); width: 120px; height: 120px; border-radius: 50%; background: rgba(10,14,26,.32); border: 2px solid rgba(255,255,255,.8); box-shadow: 0 2px 10px rgba(0,0,0,.25); z-index: 11; display: none; touch-action: none; }
+  #stick { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 1px 6px rgba(0,0,0,.35); pointer-events: none; }
+  body.touch #joystick { display: block; }
+  body.touch #hint { bottom: auto; top: calc(56px + env(safe-area-inset-top)); }
+  /* ---- 追加ツール ---- */
+  #tools { position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 13; display: none; flex-direction: column; gap: 6px; }
+  body.ready #tools { display: flex; }
+  body.aligning #tools, body.aligning #minimap { display: none !important; }
+  .tbtn { width: 56px; height: 52px; border: 0; border-radius: 12px; background: rgba(10,14,26,.66); color: #fff; cursor: pointer; font-family: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; }
+  .tbtn span { font-size: 18px; line-height: 1; }
+  .tbtn b { font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .tbtn.on { background: #2563eb; }
+  .tbtn.hidden { display: none; }
+  @media (max-height: 520px) {
+    #tools { flex-direction: row; }
+    .tbtn { width: 48px; height: 44px; }
+    .tbtn span { font-size: 16px; }
+    .panel { bottom: calc(62px + env(safe-area-inset-bottom)) !important; right: calc(10px + env(safe-area-inset-right)) !important; max-height: calc(100vh - 140px) !important; }
+  }
+  #minimap { position: fixed; top: calc(56px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); width: 150px; height: 150px; z-index: 11; border-radius: 12px; background: rgba(10,14,26,.55); display: none; cursor: pointer; touch-action: none; }
+  body.touch #minimap { width: 118px; height: 118px; }
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 9; overflow: hidden; }
+  .lbl { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; pointer-events: none; font-size: 12px; }
+  .mlabel { background: #facc15; color: #111; font-weight: 800; padding: 3px 8px; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .flabel { background: rgba(255,255,255,.95); color: #0f172a; padding: 3px 8px; border-radius: 6px; font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .flabel.ng { background: #fee2e2; color: #b91c1c; }
+  .alabel { background: rgba(10,14,26,.75); color: #fff; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+  .tagb { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 5px; background: rgba(255,255,255,.95); color: #0f172a; border-radius: 999px; padding: 3px 10px 3px 3px; box-shadow: 0 2px 8px rgba(0,0,0,.35); font-weight: 700; transition: opacity .2s; }
+  .tagb i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; background: #f97316; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  #tagCard { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 25; width: min(340px, calc(100vw - 32px)); background: #fff; color: #0f172a; border-radius: 14px; padding: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.45); display: none; }
+  #tagCard.show { display: block; }
+  #tagCard h4 { margin: 0 0 6px; font-size: 16px; }
+  #tagCard p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; color: #334155; }
+  .bar { position: fixed; top: calc(56px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 14; display: none; align-items: center; gap: 8px; background: rgba(10,14,26,.8); color: #fff; padding: 7px 8px 7px 14px; border-radius: 999px; font-size: 13px; max-width: calc(100vw - 160px); flex-wrap: wrap; justify-content: center; }
+  body.touch .bar { max-width: calc(100vw - 20px); top: calc(56px + 128px + env(safe-area-inset-top)); }
+  .bar.show { display: flex; }
+  .bar button, .panel button { border: 0; border-radius: 999px; background: #fff; color: #0f172a; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; font-family: inherit; }
+  .bar button.pri, .panel button.pri { background: #2563eb; color: #fff; }
+  .bar label { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+  #tourCap { max-width: 60vw; line-height: 1.5; }
+  #tourCap small { opacity: .75; display: block; font-size: 11px; }
+  .panel { position: fixed; right: calc(76px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 15; width: min(310px, calc(100vw - 96px)); max-height: min(70vh, 560px); overflow-y: auto; background: rgba(255,255,255,.97); color: #0f172a; border-radius: 14px; padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12.5px; display: none; }
+  .panel.show { display: block; }
+  .panel h4 { margin: 0 0 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .panel h4 button { background: #f1f5f9; padding: 4px 10px; }
+  .panel .sub { color: #64748b; font-size: 11.5px; line-height: 1.6; margin-bottom: 8px; }
+  .panel .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .panel .chips button { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-weight: 600; padding: 5px 9px; }
+  .panel .row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; }
+  .crow { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
+  .crow .cl { flex: 1; min-width: 0; line-height: 1.35; }
+  .crow .cl small { display: block; }
+  .crow .ch { background: none; border: 0; padding: 0; color: #2563eb; font-size: 11px; text-decoration: underline; cursor: pointer; }
+  .crow .cv { width: 32px; height: 32px; padding: 0; border-radius: 8px; background: #f1f5f9; color: #64748b; font-size: 14px; font-weight: 800; border: 1.5px solid transparent; }
+  .crow .cv.on[data-v=ok] { background: #dcfce7; color: #15803d; border-color: #15803d; }
+  .crow .cv.on[data-v=meh] { background: #fef3c7; color: #b45309; border-color: #b45309; }
+  .crow .cv.on[data-v=ng] { background: #fee2e2; color: #b91c1c; border-color: #b91c1c; }
+  .csum { font-weight: 700; margin-bottom: 4px; }
+  #cMemo { width: 100%; box-sizing: border-box; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 13px; resize: vertical; }
+  .panel .row > span { color: #475569; min-width: 34px; }
+  .panel input[type=number], .panel input[type=text] { height: 30px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 8px; font-family: inherit; font-size: 13px; min-width: 0; }
+  .panel input[type=number] { width: 62px; }
+  .panel .sel { border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 4px; }
+  .panel .ok { color: #15803d; font-weight: 700; } .panel .ng { color: #b91c1c; font-weight: 700; }
+  .panel button.gray { background: #f1f5f9; }
+  .panel button.red { background: #fee2e2; color: #b91c1c; }
+  #liveCode { font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #1d4ed8; }
+  #liveChat { height: 130px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; line-height: 1.6; }
+  #liveChat .me { color: #1d4ed8; }
+  #liveMembers { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  #liveMembers span { background: #f1f5f9; border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
+  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 22; transition: opacity .3s; }
+  #fade.on { opacity: 1; }
+  #vtoast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; background: rgba(10,14,26,.88); color: #fff; padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; max-width: calc(100vw - 40px); }
+  #vtoast.show { opacity: 1; }
+  .panel input[type=range] { accent-color: #2563eb; }
+  #panoBar button.gray { background: rgba(255,255,255,.2); color: #fff; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="loading"><div id="ykLoad" class="yk-bob"></div><div class="spinner"></div><div id="loadingText">おうちを準備中…</div></div>
+<script src="mascot.js"></script>
+<script>
+  (function () {
+    if (!window.Yadokarin) return;
+    document.getElementById("ykLoad").innerHTML = Yadokarin.svg({ size: 130, face: "vr", wave: false, title: "" });
+    document.querySelector("#loading .spinner").style.display = "none";
+  })();
+</script>
+<div id="topbar">
+  <button id="closeBtn" class="pill" data-t="✕ 閉じる">✕ 閉じる</button>
+  <button id="rotateBtn" class="pill" title="全画面・横向きで見る" data-t="⤢ 横向き">⤢ 横向き</button>
+  <button id="modeBtn" class="pill" title="実写と間取りを切り替える">🏠 間取りで見る</button>
+  <div id="title" class="pill"></div>
+  <div id="roomName" class="pill"></div>
+</div>
+<div id="hint" class="pill"></div>
+<div id="alignPanel">
+  <h4>実写の位置合わせ</h4>
+  <div class="sub">上から見た図です。半透明の壁(間取り)に、実写の部屋が重なるように合わせてください。ドラッグで見る角度、ホイール・ピンチで拡大できます。</div>
+  <div class="r"><span>回転</span><button data-rot="-90">-90°</button><button data-rot="-5">-5</button><button data-rot="-1">-1</button><input type="number" id="aRot" step="1"><button data-rot="1">+1</button><button data-rot="5">+5</button><button data-rot="90">+90°</button></div>
+  <div class="r"><span>位置</span><button data-mv="-1,0">←</button><button data-mv="0,1">↑</button><button data-mv="0,-1">↓</button><button data-mv="1,0">→</button>
+    <label style="display:flex;gap:4px;align-items:center;color:#64748b"><input type="checkbox" id="aFine"> 細かく</label></div>
+  <div class="r"><span>床の高さ</span><button data-up="-1">下げる</button><button data-up="1">上げる</button><input type="number" id="aY" step="0.01"></div>
+  <div class="r"><span>大きさ</span><input type="number" id="aScale" step="0.01" min="0.1"><span style="width:auto;color:#94a3b8">倍(通常は1)</span></div>
+  <div class="r"><span>向き</span><label style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="aFlip"> 上下が逆さまのとき</label></div>
+  <div class="acts"><button id="aAuto">自動で合わせ直す</button><button id="aCancel">やめる</button><button id="aSave" class="pri">保存</button></div>
+</div>
+<div id="rotateHint"><div class="ic">📱</div><div>スマホを横向きにしてください<br><small style="opacity:.7">回転しない場合は、画面の向きのロックを解除してください</small></div><button class="pill" id="rotateHintClose" style="border:0;font-size:13px;margin-top:6px">このまま見る</button></div>
+<div id="joystick"><div id="stick"></div></div>
+<canvas id="minimap" title="タップした場所へ移動"></canvas>
+<div id="labels"></div>
+<div id="tools">
+  <button class="tbtn" data-tool="map"><span>🗺</span><b data-t="地図">地図</b></button>
+  <button class="tbtn" data-tool="measure"><span>📏</span><b data-t="測る">測る</b></button>
+  <button class="tbtn" data-tool="doll"><span>🏠</span><b data-t="全体">全体</b></button>
+  <button class="tbtn" data-tool="tour"><span>▶</span><b data-t="ツアー">ツアー</b></button>
+  <button class="tbtn" data-tool="furn"><span>🛋</span><b data-t="家具">家具</b></button>
+  <button class="tbtn" data-tool="sun"><span>☀</span><b data-t="日当たり">日当たり</b></button>
+  <button class="tbtn hidden" data-tool="pano"><span>📷</span><b data-t="360°">360°</b></button>
+  <button class="tbtn" data-tool="check"><span>📝</span><b data-t="チェック">チェック</b></button>
+  <button class="tbtn" data-tool="live"><span>👥</span><b data-t="一緒に">一緒に</b></button>
+</div>
+<div id="measureBar" class="bar"><span id="measureMsg" data-t="測りたい場所を2か所タップ">測りたい場所を2か所タップ</span><label><input type="checkbox" id="mFlat" checked> <span data-t="水平に測る">水平に測る</span></label><button id="mClear" data-t="消す">消す</button><button id="mDone" class="pri" data-t="終わる">終わる</button></div>
+<div id="tourBar" class="bar"><span id="tourCap"></span><button id="tPause" data-t="一時停止">一時停止</button><button id="tNext" data-t="次へ">次へ</button><button id="tEnd" class="pri" data-t="終わる">終わる</button></div>
+<div id="dollBar" class="bar"><span data-t="ドラッグで回す / 床をタップでその場所へ">ドラッグで回す / 床をタップでその場所へ</span><button id="dWalk" class="pri" data-t="歩いて見る">歩いて見る</button></div>
+<div id="tagCard"><h4 id="tagTitle"></h4><p id="tagText"></p><button class="pill" id="tagClose" style="border:0;cursor:pointer;background:#2563eb" data-t="閉じる">閉じる</button></div>
+<div id="furnPanel" class="panel">
+  <h4><span data-t="家具を置いてみる">家具を置いてみる</span><button id="fClose" data-t="閉じる">閉じる</button></h4>
+  <div class="sub" data-t="置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。">置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。</div>
+  <div class="chips" id="fCatalog"></div>
+  <div class="sel" id="fSel"></div>
+</div>
+<div id="livePanel" class="panel">
+  <h4><span data-t="一緒に内見">一緒に内見</span><button id="lClose" data-t="閉じる">閉じる</button></h4>
+  <div id="liveOff">
+    <div class="sub" data-t="担当者や家族と、同じ部屋を同時に見ながらチャットできます。始めると6けたの参加コードが出ます。">担当者や家族と、同じ部屋を同時に見ながらチャットできます。始めると6けたの参加コードが出ます。</div>
+    <button id="lStart" class="pri" style="width:100%;margin-bottom:10px" data-t="この内見を始める">この内見を始める</button>
+    <div class="row"><input type="text" id="lCodeIn" inputmode="numeric" maxlength="6" placeholder="参加コード" data-tp="参加コード" style="flex:1"><button id="lJoin" data-t="参加">参加</button></div>
+  </div>
+  <div id="liveOn" style="display:none">
+    <div class="row" style="justify-content:space-between"><span data-t="参加コード">参加コード</span><span id="liveCode"></span></div>
+    <div class="row"><button id="lCopy" class="gray" data-t="コードをコピー">コードをコピー</button><button id="lLink" class="gray" data-t="招待リンクをコピー">招待リンクをコピー</button></div>
+    <div id="liveMembers"></div>
+    <label class="row" id="lFollowRow"><input type="checkbox" id="lFollow"> <span data-t="案内する人について行く">案内する人について行く</span></label>
+    <div id="liveChat"></div>
+    <div class="row"><input type="text" id="lMsg" maxlength="200" placeholder="メッセージ" data-tp="メッセージ" style="flex:1"><button id="lSend" class="pri" data-t="送信">送信</button></div>
+    <button id="lLeave" class="red" style="width:100%" data-t="退出する">退出する</button>
+  </div>
+</div>
+<div id="checkPanel" class="panel">
+  <h4><span data-t="内見チェック">内見チェック</span><button id="cClose" data-t="閉じる">閉じる</button></h4>
+  <div class="sub" data-t="見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。">見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。</div>
+  <div id="cSum" class="csum"></div>
+  <div id="cList"></div>
+  <textarea id="cMemo" maxlength="500" rows="3" placeholder="メモ（気づいたこと）" data-tp="メモ（気づいたこと）"></textarea>
+</div>
+<div id="sunPanel" class="panel">
+  <h4><span data-t="日当たりを見る">日当たりを見る</span><button id="sunClose" data-t="閉じる">閉じる</button></h4>
+  <div class="row"><span data-t="月">月</span><input type="range" id="sunMonth" min="1" max="12" step="1" style="flex:1"><b id="sunMonthV" style="min-width:34px;text-align:right"></b></div>
+  <div class="row"><span data-t="時刻">時刻</span><input type="range" id="sunHour" min="5" max="20" step="0.25" style="flex:1"><b id="sunHourV" style="min-width:42px;text-align:right"></b></div>
+  <div class="row"><button id="sunPlay" class="pri" data-t="1日を再生">1日を再生</button></div>
+  <div class="sub" id="sunInfo" style="margin:4px 0"></div>
+  <div class="sub" data-t="晴れの日の目安です。方角は間取りエディタで設定します（未設定なら図の上が北）。">晴れの日の目安です。方角は間取りエディタで設定します（未設定なら図の上が北）。</div>
+</div>
+<div id="panoBar" class="bar"></div>
+<div id="fade"></div>
+<div id="vtoast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@9.29.0/babylon.js"></script>
+<script>
+"use strict";
+
+/* =========================================================
+   VR Homes — ブラウザ内見ビューア
+   間取りエディタ(floor-editor.html)が保存するデータをそのまま読む。
+     { rooms:[...], furnitures:[...], walls:[...] }
+   座標はエディタと同じピクセル座標 (50px = 1m、yが下)。
+
+   データの渡し方:
+     1) index.html から iframe で開く → postMessage({type:'vr-viewer-init', data, propName})
+     2) vr-viewer.html?plan=JSONのURL
+     3) 何も渡さない → サンプルの部屋
+   ========================================================= */
+
+const BASE_SCALE = 50;       // エディタと同じ: 50px = 1m
+const WALL_H = 2.4;          // 壁の高さ (m)
+const WALL_T = 0.1;          // 壁の厚み (m)
+const EYE_HEIGHT = 1.55;     // 目の高さ (m)
+const WALK_SPEED = 1.8;      // 歩く速さ (m/秒)
+const BODY_RADIUS = 0.22;    // 体の半径 (m)
+
+let allowEmptyPlan = false;
+const SAMPLE_PLAN = {
+  rooms: [
+    { id: 0, name: "リビング", wx: 0, wy: 0, ww: 250, wh: 200, color: "#1D9E75",
+      openings: [
+        { type: "door", wall: "East", offsetAlongWall: 0.3, width: 0.9, height: 2.0, doorType: "swing_left" },
+        { type: "window", wall: "North", offsetAlongWall: 0.5, width: 1.8, height: 1.0 },
+        { type: "window", wall: "West", offsetAlongWall: 0.5, width: 1.2, height: 1.0 }
+      ] },
+    { id: 1, name: "寝室", wx: 250, wy: 0, ww: 150, wh: 200, color: "#185FA5",
+      openings: [ { type: "window", wall: "East", offsetAlongWall: 0.5, width: 1.2, height: 1.0 } ] }
+  ],
+  furnitures: [
+    { id: 0, type: "sofa", name: "ソファ", cx: 125, cy: 170, w: 2.0, d: 0.9, h: 0.8, rotation: 0, color: "#8B6914" },
+    { id: 1, type: "table", name: "テーブル", cx: 125, cy: 105, w: 1.2, d: 0.7, h: 0.4, rotation: 0, color: "#A0522D" },
+    { id: 2, type: "bed", name: "ベッド", cx: 345, cy: 140, w: 1.0, d: 2.0, h: 0.5, rotation: 0, color: "#6B7FA8" }
+  ],
+  walls: [],
+  tags: [
+    { x: 125, y: 8, h: 1.5, title: "大きな窓", text: "南向きで日当たりが良い窓です。" },
+    { x: 392, y: 100, h: 1.5, title: "エアコン付き", text: "2022年製のエアコンが付いています。" }
+  ]
+};
+
+const canvas = document.getElementById("canvas");
+const loadingEl = document.getElementById("loading");
+const loadingText = document.getElementById("loadingText");
+const hintEl = document.getElementById("hint");
+const titleEl = document.getElementById("title");
+const roomNameEl = document.getElementById("roomName");
+const closeBtn = document.getElementById("closeBtn");
+const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+const isEmbedded = window.parent !== window;
+const HERO = /[?&]hero=1/.test(location.search);
+if (isTouch) document.body.classList.add("touch");
+
+function showError(msg) {
+  loadingEl.classList.remove("hide");
+  loadingEl.querySelector(".spinner").style.display = "none";
+  const yk = document.getElementById("ykLoad");
+  if (yk && window.Yadokarin) { yk.className = ""; yk.innerHTML = Yadokarin.svg({ size: 120, face: "sad", wave: false, title: "" }); }
+  loadingText.textContent = msg;
+}
+
+function closeViewer() {
+  if (typeof flushStats === "function") flushStats();
+  if (typeof leaveLive === "function" && live) leaveLive(true);
+  postToParent({ type: "vr-viewer-close" });
+}
+function postToParent(msg) {
+  try { if (isEmbedded) window.parent.postMessage(msg, "*"); } catch (e) { /* 親がいないだけ */ }
+}
+
+if (isEmbedded) {
+  closeBtn.style.display = "block";
+  closeBtn.addEventListener("click", function () { if (typeof exitLandscape === "function") exitLandscape(); closeViewer(); });
+  window.addEventListener("keydown", function (e) { if (e.key === "Escape" && !e.target.closest("input,textarea")) closeViewer(); });
+}
+
+if (typeof BABYLON === "undefined") {
+  showError("3Dエンジンを読み込めませんでした。通信環境を確認して再読み込みしてください。");
+  throw new Error("Babylon.js not loaded");
+}
+
+/* ---------- エンジンとシーン ---------- */
+const engine = new BABYLON.Engine(canvas, true, { stencil: true }, false);
+const maxDpr = isTouch ? 1.5 : 2;   // スマホは解像度を抑えて軽くする
+engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, maxDpr));
+
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.72, 0.85, 0.96, 1);
+scene.ambientColor = new BABYLON.Color3(0.04, 0.04, 0.04);
+scene.collisionsEnabled = true;
+
+const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.1, 1, 0.05), scene);
+hemi.intensity = 1.0;
+hemi.groundColor = new BABYLON.Color3(0.86, 0.85, 0.83);
+const sun = new BABYLON.DirectionalLight("sun", new BABYLON.Vector3(-0.45, -1, 0.35), scene);
+sun.intensity = 0.1;
+
+/* ---------- カメラ (入力は自前で処理して、PC・スマホで同じ挙動にする) ---------- */
+const camera = new BABYLON.FreeCamera("cam", new BABYLON.Vector3(0, EYE_HEIGHT, 0), scene);
+camera.inputs.clear();
+camera.minZ = 0.05;
+camera.maxZ = 300;
+camera.fov = 1.15;
+camera.inertia = 0;
+// 縦持ちのスマホでも横の視野が狭くならないようにする
+function updateFov() {
+  const portrait = engine.getRenderWidth() < engine.getRenderHeight();
+  camera.fovMode = portrait ? BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED : BABYLON.Camera.FOVMODE_VERTICAL_FIXED;
+  camera.fov = portrait ? 1.25 : 1.15;
+}
+updateFov();
+camera.checkCollisions = true;
+// 当たり判定の楕円はカメラ位置から下に伸びる (頭〜足元近くまで)
+camera.ellipsoid = new BABYLON.Vector3(BODY_RADIUS, (EYE_HEIGHT - 0.1) / 2, BODY_RADIUS);
+
+/* ---------- マテリアル ---------- */
+function makeFloorTexture() {
+  const size = 512;
+  const tex = new BABYLON.DynamicTexture("floorTex", size, scene, true);
+  const ctx = tex.getContext();
+  const rows = 8, plank = size / rows;
+  let seed = 7;
+  function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+  for (let i = 0; i < rows; i++) {
+    const shade = 168 + Math.round(rnd() * 26);
+    ctx.fillStyle = "rgb(" + (shade + 30) + "," + (shade - 8) + "," + (shade - 58) + ")";
+    ctx.fillRect(0, i * plank, size, plank);
+    ctx.fillStyle = "rgba(70,42,18,0.45)";
+    ctx.fillRect(0, i * plank, size, 2);
+    ctx.fillRect(rnd() * size, i * plank, 2, plank);
+  }
+  tex.update();
+  tex.wrapU = tex.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  return tex;
+}
+
+function stdMat(name, hex, opts) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.diffuseColor = BABYLON.Color3.FromHexString(hex);
+  m.ambientColor = m.diffuseColor;
+  m.specularColor = new BABYLON.Color3(0.03, 0.03, 0.03);
+  if (opts) Object.assign(m, opts);
+  return m;
+}
+
+const wallMat = stdMat("wallMat", "#F1EEE8");
+const frameMat = stdMat("frameMat", "#FFFFFF");
+const doorMat = stdMat("doorMat", "#9A6B43");
+const glassMat = stdMat("glassMat", "#BFE3F5", { alpha: 0.28 });
+const ceilMat = stdMat("ceilMat", "#FFFFFF", { backFaceCulling: false });
+const floorMat = stdMat("floorMat", "#FFFFFF", { backFaceCulling: false });
+floorMat.diffuseTexture = makeFloorTexture();
+floorMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+const furnMats = {};
+function furnitureMat(hex) {
+  const key = /^#[0-9a-fA-F]{6}$/.test(hex || "") ? hex : (/^#[0-9a-fA-F]{3}$/.test(hex || "") ? "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : "#888888");
+  if (!furnMats[key]) furnMats[key] = stdMat("furn" + key, key);
+  return furnMats[key];
+}
+
+/* ---------- 形状ヘルパー ---------- */
+// エディタのピクセル座標 → メートル (xが右、zが奥。上から見るとエディタと同じ向き)
+function toWorld(px, py) { return { x: px / BASE_SCALE, z: -py / BASE_SCALE }; }
+
+// 2点間に箱を立てる。y0〜y1 の高さ、thick の厚み
+function boxBetween(name, a, b, y0, y1, thick, extend) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  const len = Math.sqrt(dx * dx + dz * dz);
+  if (len < 0.005 || y1 - y0 < 0.005) return null;
+  const box = BABYLON.MeshBuilder.CreateBox(name, { width: len + (extend || 0), height: y1 - y0, depth: thick }, scene);
+  box.position.set((a.x + b.x) / 2, (y0 + y1) / 2, (a.z + b.z) / 2);
+  box.rotation.y = -Math.atan2(dz, dx);
+  return box;
+}
+
+// 単純多角形の三角形分割 (耳切り法)
+function triangulate(pts) {
+  const n = pts.length;
+  let area = 0;
+  for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; area += p.x * q.z - q.x * p.z; }
+  const idx = [];
+  for (let i = 0; i < n; i++) idx.push(area >= 0 ? i : n - 1 - i);
+  const tris = [];
+  function cross(a, b, c) { return (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x); }
+  function inside(p, a, b, c) { return cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0; }
+  let guard = n * n + 10;
+  while (idx.length > 3 && guard-- > 0) {
+    let cut = false;
+    for (let i = 0; i < idx.length; i++) {
+      const ia = idx[(i + idx.length - 1) % idx.length], ib = idx[i], ic = idx[(i + 1) % idx.length];
+      const a = pts[ia], b = pts[ib], c = pts[ic];
+      if (cross(a, b, c) <= 1e-9) continue;
+      let ok = true;
+      for (let j = 0; j < idx.length; j++) {
+        const k = idx[j];
+        if (k === ia || k === ib || k === ic) continue;
+        if (inside(pts[k], a, b, c)) { ok = false; break; }
+      }
+      if (!ok) continue;
+      tris.push(ia, ib, ic);
+      idx.splice(i, 1);
+      cut = true;
+      break;
+    }
+    if (!cut) idx.splice(0, 1);   // 壊れた形状でも止まらないようにする
+  }
+  if (idx.length === 3) tris.push(idx[0], idx[1], idx[2]);
+  return tris;
+}
+
+// 多角形の水平面 (床・天井)
+function flatPolygon(name, pts, y, up, material) {
+  const positions = [], normals = [], uvs = [];
+  pts.forEach(function (p) {
+    positions.push(p.x, y, p.z);
+    normals.push(0, up ? 1 : -1, 0);
+    uvs.push(p.x / 2, p.z / 2);
+  });
+  const mesh = new BABYLON.Mesh(name, scene);
+  const vd = new BABYLON.VertexData();
+  vd.positions = positions; vd.normals = normals; vd.uvs = uvs; vd.indices = triangulate(pts);
+  vd.applyToMesh(mesh);
+  mesh.material = material;
+  return mesh;
+}
+
+function pointInPolygon(x, z, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a.z > z) !== (b.z > z) && x < (b.x - a.x) * (z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function polygonInfo(pts) {
+  let a = 0, cx = 0, cz = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    const f = p.x * q.z - q.x * p.z;
+    a += f; cx += (p.x + q.x) * f; cz += (p.z + q.z) * f;
+  }
+  if (Math.abs(a) < 1e-6) return { area: 0, x: pts[0].x, z: pts[0].z };
+  return { area: Math.abs(a / 2), x: cx / (3 * a), z: cz / (3 * a) };
+}
+
+/* ---------- 間取りデータ → 部屋ごとの壁の辺と開口 ---------- */
+function num(v, fallback) { const n = Number(v); return isFinite(n) ? n : fallback; }
+
+function parseRooms(plan) {
+  const out = [];
+  (plan.rooms || []).forEach(function (r, ri) {
+    let pts, edges;
+    if (Array.isArray(r.vertices) && r.vertices.length >= 3) {
+      pts = r.vertices.map(function (v) { return toWorld(num(v.x, 0), num(v.y, 0)); });
+      edges = pts.map(function (p, i) { return { a: p, b: pts[(i + 1) % pts.length], key: i }; });
+    } else {
+      const x = num(r.wx, NaN), y = num(r.wy, NaN), w = num(r.ww, NaN), h = num(r.wh, NaN);
+      if (!isFinite(x + y + w + h) || w <= 0 || h <= 0) return;
+      const nw = toWorld(x, y), ne = toWorld(x + w, y), se = toWorld(x + w, y + h), sw = toWorld(x, y + h);
+      pts = [nw, ne, se, sw];
+      // 開口の位置はエディタと同じく「左から」「上から」の割合
+      edges = [
+        { a: nw, b: ne, key: "North" }, { a: sw, b: se, key: "South" },
+        { a: nw, b: sw, key: "West" }, { a: ne, b: se, key: "East" }
+      ];
+    }
+    const info = polygonInfo(pts);
+    edges.forEach(function (e) {
+      const dx = e.b.x - e.a.x, dz = e.b.z - e.a.z;
+      e.len = Math.sqrt(dx * dx + dz * dz);
+      e.ux = e.len > 0 ? dx / e.len : 1; e.uz = e.len > 0 ? dz / e.len : 0;
+      // 部屋の内側を向く法線
+      let nx = -e.uz, nz = e.ux;
+      const mx = (e.a.x + e.b.x) / 2, mz = (e.a.z + e.b.z) / 2;
+      if ((info.x - mx) * nx + (info.z - mz) * nz < 0) { nx = -nx; nz = -nz; }
+      e.nx = nx; e.nz = nz;
+      e.holes = [];
+    });
+    (r.openings || []).forEach(function (o) {
+      const e = edges.find(function (ed) { return o.edgeIndex !== undefined ? ed.key === o.edgeIndex : ed.key === o.wall; });
+      if (!e || e.len < 0.05) return;
+      const type = o.type === "window" ? "window" : (o.type === "passage" ? "passage" : "door");
+      let along = num(o.offsetAlongWall, 0.5);
+      if (!(along > 0)) along = 0.5;
+      const center = along <= 1 ? along * e.len : Math.min(along, e.len);   // 割合 (古いデータはメートル)
+      const sill = type === "window" ? 0.9 : 0;
+      const height = Math.min(num(o.height, type === "window" ? 1.0 : 2.0) || 2.0, WALL_H - sill);
+      e.holes.push({ type: type, center: center, width: Math.max(0.2, num(o.width, 0.9)), sill: sill, top: sill + height, doorType: o.doorType || "swing_left", own: true });
+    });
+    out.push({ name: r.name || ("部屋" + (ri + 1)), pts: pts, edges: edges, info: info });
+  });
+  return out;
+}
+
+// 隣の部屋と壁が重なっている所は、相手側の壁にも同じ穴を開ける (でないとドアが塞がる)
+function shareOpenings(rooms) {
+  const all = [];
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) {
+      e.holes.forEach(function (h) {
+        all.push({ edge: e, hole: h, x: e.a.x + e.ux * h.center, z: e.a.z + e.uz * h.center });
+      });
+    });
+  });
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) {
+      all.forEach(function (o) {
+        if (o.edge === e) return;
+        if (Math.abs(e.ux * o.edge.uz - e.uz * o.edge.ux) > 0.08) return;                 // 平行でない
+        const rx = o.x - e.a.x, rz = o.z - e.a.z;
+        if (Math.abs(rx * -e.uz + rz * e.ux) > WALL_T * 1.6) return;                       // 同じ線上でない
+        const t = rx * e.ux + rz * e.uz;
+        if (t < 0.05 || t > e.len - 0.05) return;
+        e.holes.push({ type: o.hole.type, center: t, width: o.hole.width, sill: o.hole.sill, top: o.hole.top, own: false });
+      });
+    });
+  });
+}
+
+/* ---------- 部屋を組み立てる ---------- */
+let planRoot = null;
+let floorMeshes = [];
+let roomAreas = [];
+let currentSpawn = { x: 0, z: 0, rotY: 0 };
+let xrHelper = null;
+let fixedFurn = [], planFreeWalls = [];
+
+function buildWallEdge(e, solid, deco) {
+  const P = function (t) { return { x: e.a.x + e.ux * t, z: e.a.z + e.uz * t }; };
+  const holes = e.holes.map(function (h) {
+    return Object.assign({}, h, { l: Math.max(0, h.center - h.width / 2), r: Math.min(e.len, h.center + h.width / 2) });
+  }).filter(function (h) { return h.r - h.l > 0.05; }).sort(function (p, q) { return p.l - q.l; });
+
+  let cursor = 0;
+  const used = [];
+  holes.forEach(function (h) {
+    if (h.l < cursor - 0.001) return;   // 重なった開口は先のものを優先
+    // 開口の手前の壁
+    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), 0, WALL_H, WALL_T, cursor === 0 ? WALL_T / 2 : 0));
+    // 開口の上と下
+    solid.push(boxBetween("wallTop", P(h.l), P(h.r), h.top, WALL_H, WALL_T));
+    solid.push(boxBetween("wallSill", P(h.l), P(h.r), 0, h.sill, WALL_T));
+    cursor = h.r;
+    used.push(h);
+  });
+  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), 0, WALL_H, WALL_T, WALL_T / 2));
+
+  // 窓ガラスとドア
+  used.forEach(function (h) {
+    if (!h.own) return;
+    if (h.type === "window") {
+      const glass = boxBetween("glass", P(h.l), P(h.r), h.sill, h.top, 0.02);
+      if (glass) { glass.material = glassMat; glass.checkCollisions = true; deco.glass.push(glass); }
+      [[h.sill - 0.03, h.sill + 0.03], [h.top - 0.03, h.top + 0.03]].forEach(function (y) {
+        deco.frame.push(boxBetween("frame", P(h.l), P(h.r), y[0], y[1], WALL_T + 0.04));
+      });
+      deco.frame.push(boxBetween("frame", P(h.center - 0.02), P(h.center + 0.02), h.sill, h.top, 0.05));
+    } else if (h.type === "door") {
+      const dt = h.doorType;
+      const w = h.r - h.l;
+      const right = dt === "swing_right" || dt === "swing_right_out" || dt === "slide_right";
+      const slide = dt.indexOf("slide") === 0;
+      const hingeT = right ? h.r : h.l;
+      const hinge = P(hingeT);
+      let leaf;
+      if (slide) {
+        // 引き戸: 開けた状態 (壁に沿って横へ)
+        const s = right ? 1 : -1, off = WALL_T / 2 + 0.03;
+        const p1 = { x: hinge.x + e.nx * off, z: hinge.z + e.nz * off };
+        const end = P(hingeT + s * w);
+        leaf = boxBetween("door", p1, { x: end.x + e.nx * off, z: end.z + e.nz * off }, 0, h.top - 0.02, 0.035);
+      } else {
+        // 開き戸: 90度開けた状態 (内開きは部屋側、外開きは反対側)
+        const out = dt.indexOf("_out") > 0 ? -1 : 1;
+        leaf = boxBetween("door", hinge, { x: hinge.x + e.nx * out * w, z: hinge.z + e.nz * out * w }, 0, h.top - 0.02, 0.04);
+      }
+      if (leaf) deco.door.push(leaf);
+    }
+  });
+}
+
+function mergeInto(list, name, material, collide) {
+  const meshes = list.filter(Boolean);
+  if (meshes.length === 0) return null;
+  const merged = meshes.length === 1 ? meshes[0] : BABYLON.Mesh.MergeMeshes(meshes, true, true);
+  if (!merged) return null;
+  merged.name = name;
+  merged.material = material;
+  merged.checkCollisions = !!collide;
+  merged.parent = planRoot;
+  merged.freezeWorldMatrix();
+  return merged;
+}
+
+function buildPlan(plan) {
+  if (!plan || typeof plan !== "object") throw new Error("間取りデータの形式が違います");
+  const rooms = parseRooms(plan);
+  const freeWalls = (plan.walls || []).map(function (w) {
+    return { a: toWorld(num(w.x1, 0), num(w.y1, 0)), b: toWorld(num(w.x2, 0), num(w.y2, 0)) };
+  });
+  if (rooms.length === 0 && freeWalls.length === 0 && !allowEmptyPlan) throw new Error("間取りデータに部屋がありません");
+  shareOpenings(rooms);
+
+  if (planRoot) planRoot.dispose(false, false);
+  planRoot = new BABYLON.TransformNode("planRoot", scene);
+  floorMeshes = [];
+  roomAreas = rooms.map(function (r) { return { name: r.name, pts: r.pts, area: r.info.area, cx: r.info.x, cz: r.info.z }; });
+
+  const solid = [], deco = { glass: [], frame: [], door: [] };
+  rooms.forEach(function (room) {
+    room.edges.forEach(function (e) { if (e.len >= 0.02) buildWallEdge(e, solid, deco); });
+    const floor = flatPolygon("floor", room.pts, 0, true, floorMat);
+    floor.parent = planRoot;
+    floorMeshes.push(floor);
+    const ceil = flatPolygon("ceiling", room.pts, WALL_H, false, ceilMat);
+    ceil.parent = planRoot;
+    ceil.isPickable = false;
+  });
+  freeWalls.forEach(function (w) { solid.push(boxBetween("freeWall", w.a, w.b, 0, WALL_H, 0.05)); });
+
+  mergeInto(solid, "walls", wallMat, true);
+  mergeInto(deco.frame, "frames", frameMat, false);
+  mergeInto(deco.door, "doors", doorMat, false);
+  deco.glass.forEach(function (g) { g.parent = planRoot; g.isPickable = false; });
+
+  // 家具
+  const furnBoxes = [];
+  (plan.furnitures || plan.furniture || []).forEach(function (f, i) {
+    const w = num(f.w, 0), d = num(f.d, 0), h = num(f.h, 0.8) || 0.8;
+    if (w <= 0 || d <= 0) return;
+    const p = toWorld(num(f.cx, 0), num(f.cy, 0));
+    const box = BABYLON.MeshBuilder.CreateBox("furniture" + i, { width: w, height: h, depth: d }, scene);
+    box.position.set(p.x, h / 2, p.z);
+    box.rotation.y = num(f.rotation, 0) * Math.PI / 180;
+    box.material = furnitureMat(f.color);
+    box.checkCollisions = true;
+    box.parent = planRoot;
+    box.enableEdgesRendering();
+    box.edgesWidth = 1.5;
+    box.edgesColor = new BABYLON.Color4(0, 0, 0, 0.25);
+    box.freezeWorldMatrix();
+    furnBoxes.push({ x: p.x, z: p.z, r: Math.max(w, d) / 2 + BODY_RADIUS });
+  });
+
+  // 開始位置: 一番広い部屋の中で、家具と重ならない場所
+  let spawn = { x: 0, z: 0 };
+  if (rooms.length > 0) {
+    const big = rooms.slice().sort(function (p, q) { return q.info.area - p.info.area; })[0];
+    const cands = [{ x: big.info.x, z: big.info.z }];
+    const xs = big.pts.map(function (p) { return p.x; }), zs = big.pts.map(function (p) { return p.z; });
+    const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), z0 = Math.min.apply(null, zs), z1 = Math.max.apply(null, zs);
+    for (let i = 1; i < 6; i++) for (let j = 1; j < 6; j++) cands.push({ x: x0 + (x1 - x0) * i / 6, z: z0 + (z1 - z0) * j / 6 });
+    const free = cands.filter(function (c) {
+      if (!pointInPolygon(c.x, c.z, big.pts)) return false;
+      return furnBoxes.every(function (f) { return Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
+    });
+    free.sort(function (p, q) { return Math.hypot(p.x - big.info.x, p.z - big.info.z) - Math.hypot(q.x - big.info.x, q.z - big.info.z); });
+    spawn = free[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, big.pts); }) || cands[0];
+    currentSpawn = { x: spawn.x, z: spawn.z, rotY: Math.atan2(big.info.x - spawn.x, big.info.z - spawn.z) || 0 };
+  } else if (freeWalls.length) {
+    const w = freeWalls[0];
+    currentSpawn = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 + 1, rotY: 0 };
+  } else {
+    currentSpawn = { x: 0, z: 0, rotY: 0 };   // 間取りなし(実写だけ)
+  }
+  // 一番奥まで見通せる向きで始める
+  scene.meshes.forEach(function (m) { m.computeWorldMatrix(true); });
+  let bestDist = -1;
+  for (let i = 0; i < 16; i++) {
+    const a = i * Math.PI / 8;
+    const ray = new BABYLON.Ray(new BABYLON.Vector3(currentSpawn.x, 1.2, currentSpawn.z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
+    const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls" || m.name === "glass" || m.name.indexOf("furniture") === 0; });
+    const d = hit && hit.hit ? hit.distance : 60;
+    if (d > bestDist + 0.01) { bestDist = d; currentSpawn.rotY = a; }
+  }
+  camera.position.set(currentSpawn.x, EYE_HEIGHT, currentSpawn.z);
+  yaw = currentSpawn.rotY; pitch = 0;
+  camera.rotation.set(pitch, yaw, 0);
+
+  fixedFurn = furnBoxes;
+  planFreeWalls = freeWalls;
+  if (xrHelper && xrHelper.teleportation) floorMeshes.forEach(function (m) { xrHelper.teleportation.addFloorMesh(m); });
+  if (typeof onPlanBuilt === "function") onPlanBuilt(plan);
+}
+
+/* ---------- 視点操作 (ドラッグで見回す) ---------- */
+let yaw = 0, pitch = 0;
+const look = { id: null, x: 0, y: 0 };
+const tap = { id: null, x: 0, y: 0, t: 0 };
+canvas.addEventListener("pointerdown", function (e) {
+  tap.id = e.pointerId; tap.x = e.clientX; tap.y = e.clientY; tap.t = performance.now();
+  if (alignMode || dollMode) return;
+  if (furnMode && tryStartFurnDrag(e)) return;
+  if (look.id !== null) return;
+  look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+  canvas.classList.add("dragging");
+});
+canvas.addEventListener("pointermove", function (e) {
+  if (furnDrag && e.pointerId === furnDrag.id) { moveFurnDrag(e); return; }
+  if (e.pointerId !== look.id) return;
+  const k = (isTouch ? 0.0055 : 0.0035);
+  yaw += (e.clientX - look.x) * k;
+  pitch += (e.clientY - look.y) * k;
+  pitch = Math.max(-1.3, Math.min(1.3, pitch));
+  look.x = e.clientX; look.y = e.clientY;
+});
+function endLook(e) { if (e.pointerId === look.id) { look.id = null; canvas.classList.remove("dragging"); } }
+canvas.addEventListener("pointerup", function (e) {
+  endLook(e);
+  const wasDrag = furnDrag && furnDrag.id === e.pointerId && furnDrag.moved;
+  endFurnDrag(e);
+  if (e.pointerId === tap.id) {
+    tap.id = null;
+    if (!wasDrag && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 8 && performance.now() - tap.t < 600) onTap(e);
+  }
+});
+canvas.addEventListener("pointercancel", function (e) { endLook(e); endFurnDrag(e); tap.id = null; });
+canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+/* ---------- 移動 (PC: WASD・矢印 / スマホ: 仮想スティック) ---------- */
+const keys = {};
+window.addEventListener("keydown", function (e) { if (e.target && e.target.closest && e.target.closest("input,textarea")) return; keys[e.code] = true; });
+window.addEventListener("keyup", function (e) { keys[e.code] = false; });
+window.addEventListener("blur", function () { Object.keys(keys).forEach(function (k) { keys[k] = false; }); });
+
+const joy = { x: 0, y: 0, id: null };
+(function setupJoystick() {
+  const base = document.getElementById("joystick");
+  const stick = document.getElementById("stick");
+  const RADIUS = 44;
+  function update(e) {
+    const r = base.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > RADIUS) { dx = dx / d * RADIUS; dy = dy / d * RADIUS; }
+    stick.style.transform = "translate(" + dx + "px," + dy + "px)";
+    joy.x = dx / RADIUS;
+    joy.y = -dy / RADIUS;   // 上に倒すと前進
+  }
+  function release(e) {
+    if (e.pointerId !== joy.id) return;
+    joy.id = null; joy.x = 0; joy.y = 0;
+    stick.style.transform = "translate(0,0)";
+  }
+  base.addEventListener("pointerdown", function (e) { joy.id = e.pointerId; base.setPointerCapture(e.pointerId); update(e); e.preventDefault(); });
+  base.addEventListener("pointermove", function (e) { if (e.pointerId === joy.id) update(e); });
+  base.addEventListener("pointerup", release);
+  base.addEventListener("pointercancel", release);
+})();
+
+const vel = { x: 0, z: 0 };
+let roomTimer = 0;
+let currentRoom = null;
+scene.onBeforeRenderObservable.add(function () {
+  if (scene.activeCamera !== camera) return;   // VR中はヘッドセット側が動かす
+  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+
+  let fwd = joy.y, side = joy.x;
+  if (keys.KeyW || keys.ArrowUp) fwd += 1;
+  if (keys.KeyS || keys.ArrowDown) fwd -= 1;
+  if (keys.KeyD) side += 1;
+  if (keys.KeyA) side -= 1;
+  if (keys.ArrowRight) yaw += 1.8 * dt;
+  if (keys.ArrowLeft) yaw -= 1.8 * dt;
+  if (panoMode) { fwd = 0; side = 0; }
+  const mag = Math.sqrt(fwd * fwd + side * side);
+  if (mag > 0.08) { if (tour) endTour(false); if (live && live.follow) setFollow(false); }
+  if (tour) tourStep(dt);
+  if (live && live.follow) followStep(dt);
+  if (mag > 1) { fwd /= mag; side /= mag; }
+  const speed = WALK_SPEED * (keys.ShiftLeft || keys.ShiftRight ? 1.8 : 1);
+  const tx = (Math.sin(yaw) * fwd + Math.cos(yaw) * side) * speed;
+  const tz = (Math.cos(yaw) * fwd - Math.sin(yaw) * side) * speed;
+  const k = 1 - Math.exp(-dt * 12);   // なめらかに加減速
+  vel.x += (tx - vel.x) * k; vel.z += (tz - vel.z) * k;
+  if (Math.abs(vel.x) < 0.002) vel.x = 0;
+  if (Math.abs(vel.z) < 0.002) vel.z = 0;
+
+  camera.rotation.set(pitch, yaw, 0);
+  camera.cameraDirection.set(vel.x * dt, 0, vel.z * dt);
+  camera.position.y = EYE_HEIGHT;
+
+});
+// 今いる部屋の名前
+scene.onBeforeRenderObservable.add(function () {
+  roomTimer += Math.min(engine.getDeltaTime() / 1000, 0.1);
+  if (roomTimer > 0.25) {
+    roomTimer = 0;
+    const cp = (typeof inXR !== "undefined" && inXR && scene.activeCamera) ? scene.activeCamera.position : camera.position;
+    currentRoom = roomAreas.find(function (r) { return pointInPolygon(cp.x, cp.z, r.pts); }) || null;
+    const name = currentRoom ? currentRoom.name : "";
+    if (roomNameEl.textContent !== name) roomNameEl.textContent = name;
+  }
+});
+
+/* ---------- Questなど (WebXR対応ブラウザのときだけVRボタンが出る) ---------- */
+async function setupXR() {
+  if (!navigator.xr || !navigator.xr.isSessionSupported) return;
+  try {
+    const ok = await navigator.xr.isSessionSupported("immersive-vr");
+    if (!ok) return;
+    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes });
+    if (!xrHelper.baseExperience) return;
+    hookXR();
+    xrHelper.baseExperience.onInitialXRPoseSetObservable.add(function (xrCam) {
+      xrCam.position.x = currentSpawn.x;
+      xrCam.position.z = currentSpawn.z;
+    });
+  } catch (err) {
+    console.warn("WebXRは利用できません:", err);
+  }
+}
+
+/* ---------- 実写(ガウシアンスプラット) ---------- */
+// 実写データは見た目だけに使い、壁の当たり判定は間取りのまま残す。
+let alignMode = false;
+let splatRoot = null, splatMesh = null, splatTf = null, viewMode = "plan";
+const LOADERS_URL = "https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.29.0/babylonjs.loaders.min.js";
+function loadScriptOnce(src) {
+  return new Promise(function (resolve, reject) {
+    if (BABYLON.SceneLoader && BABYLON.SceneLoader.IsPluginForExtensionAvailable && BABYLON.SceneLoader.IsPluginForExtensionAvailable(".spz")) return resolve();
+    const s = document.createElement("script");
+    s.src = src; s.onload = function () { resolve(); }; s.onerror = function () { reject(new Error("読み込み用の部品を取得できませんでした")); };
+    document.head.appendChild(s);
+  });
+}
+async function loadSplat(url, ext) {
+  await loadScriptOnce(LOADERS_URL);
+  loadingEl.classList.remove("hide");
+  loadingText.textContent = "実写データを読み込み中…";
+  const res = await BABYLON.SceneLoader.ImportMeshAsync("", "", url, scene, function (ev) {
+    if (ev && ev.lengthComputable && ev.total) loadingText.textContent = "実写データを読み込み中… " + Math.round(ev.loaded / ev.total * 100) + "%";
+  }, ext || ".spz");
+  splatRoot = new BABYLON.TransformNode("splatRoot", scene);
+  splatMesh = res.meshes[0];
+  res.meshes.forEach(function (m) { if (!m.parent) m.parent = splatRoot; m.isPickable = false; });
+}
+function planCenter() {
+  if (roomAreas.length) {
+    let x1 = Infinity, z1 = Infinity, x2 = -Infinity, z2 = -Infinity;
+    roomAreas.forEach(function (r) { r.pts.forEach(function (p) { x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); z1 = Math.min(z1, p.z); z2 = Math.max(z2, p.z); }); });
+    return { x: (x1 + x2) / 2, z: (z1 + z2) / 2 };
+  }
+  return { x: 0, z: 0 };
+}
+// 位置合わせの初期値: 実写の床を y=0 に、中心を間取りの中心にそろえる
+// (床は「低い位置で点がいちばん密集している高さ」、中心は点の中央値で求める。遠くの点に引っぱられないように)
+function sampleSplatWorld(maxN) {
+  const arr = splatMesh && (splatMesh._splatPositions || splatMesh.splatPositions);
+  if (!arr || !arr.length) return null;
+  const stride = arr.length % 4 === 0 ? 4 : 3;
+  const n = Math.min(Math.floor(arr.length / stride), splatMesh._vertexCount || Infinity), step = Math.max(1, Math.floor(n / (maxN || 60000)));
+  splatRoot.computeWorldMatrix(true); splatMesh.computeWorldMatrix(true);
+  const W = splatMesh.getWorldMatrix(), v = new BABYLON.Vector3(), out = [];
+  for (let i = 0; i < n; i += step) {
+    v.set(arr[i * stride], arr[i * stride + 1], arr[i * stride + 2]);
+    out.push(BABYLON.Vector3.TransformCoordinates(v, W));
+  }
+  return out;
+}
+function median(a) { const b = a.slice().sort(function (p, q) { return p - q; }); return b[b.length >> 1] || 0; }
+// 床はふつう一番点が密集した水平面。それが上半分にあれば、上下が逆さまに読み込まれている
+function looksUpsideDown() {
+  const pts = sampleSplatWorld(40000); if (!pts || pts.length < 50) return false;
+  const ys = pts.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
+  const lo = ys[Math.floor(ys.length * 0.02)], hi = ys[Math.floor(ys.length * 0.98)];
+  const bin = 0.05, nb = Math.max(1, Math.ceil((hi - lo) / bin)), cnt = new Array(nb + 1).fill(0);
+  ys.forEach(function (y) { if (y >= lo && y <= hi) cnt[Math.min(nb, Math.floor((y - lo) / bin))]++; });
+  let best = 0; for (let k = 0; k <= nb; k++) if (cnt[k] > cnt[best]) best = k;
+  return best > nb / 2;
+}
+function guessSplatTransform(base) {
+  const t = Object.assign({ x: 0, y: 0, z: 0, rotY: 0, scale: 1, flip: false }, base || {});
+  t.x = 0; t.y = 0; t.z = 0;
+  applySplatTransform(t);
+  if (!base || base.flip === undefined) {   // 最初の1回だけ、上下の向きを自動で判定
+    if (looksUpsideDown()) { t.flip = !t.flip; applySplatTransform(t); }
+  }
+  const pts = sampleSplatWorld();
+  const c = planCenter();
+  if (pts && pts.length > 50) {
+    const ys = pts.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
+    const lo = ys[Math.floor(ys.length * 0.01)], hi = ys[Math.floor(ys.length * 0.99)];
+    const bin = 0.05, nb = Math.max(1, Math.ceil((hi - lo) / bin)), cnt = new Array(nb + 1).fill(0);
+    ys.forEach(function (y) { if (y >= lo && y <= hi) cnt[Math.min(nb, Math.floor((y - lo) / bin))]++; });
+    // 下から4割の範囲で一番点が多い高さ = 床
+    let best = 0; for (let k = 0; k <= Math.floor(nb * 0.4); k++) if (cnt[k] > cnt[best]) best = k;
+    t.y = -(lo + (best + 0.5) * bin);
+    t.x = c.x - median(pts.map(function (p) { return p.x; }));
+    t.z = c.z - median(pts.map(function (p) { return p.z; }));
+  } else {
+    const b = splatRoot.getHierarchyBoundingVectors(true);
+    t.x = c.x - (b.min.x + b.max.x) / 2; t.z = c.z - (b.min.z + b.max.z) / 2; t.y = -b.min.y;
+  }
+  return t;
+}
+function applySplatTransform(t) {
+  if (!splatRoot) return;
+  splatRoot.position.set(+t.x || 0, +t.y || 0, +t.z || 0);
+  splatRoot.rotation.set(t.flip ? Math.PI : 0, (+t.rotY || 0) * Math.PI / 180, 0);
+  const sc = +t.scale || 1;
+  splatRoot.scaling.set(sc, sc, sc);
+  splatRoot.computeWorldMatrix(true);
+}
+function planMeshes() { return planRoot ? planRoot.getChildMeshes(false) : []; }
+function setViewMode(mode) {
+  viewMode = mode;
+  const real = mode === "real" && !!splatRoot;
+  if (splatRoot) splatRoot.setEnabled(real || alignMode);
+  // 実写のときは間取りの見た目を隠す(当たり判定はそのまま残る)
+  planMeshes().forEach(function (m) { m.isVisible = !real; });
+  scene.clearColor = real ? new BABYLON.Color4(0.08, 0.09, 0.12, 1) : new BABYLON.Color4(0.72, 0.85, 0.96, 1);
+  const btn = document.getElementById("modeBtn");
+  btn.textContent = real ? T("🏠 間取りで見る") : T("📷 実写で見る");
+}
+document.getElementById("modeBtn").addEventListener("click", function () { setViewMode(viewMode === "real" ? "plan" : "real"); });
+
+/* 位置合わせモード(管理者用) */
+let arcCam = null;
+function enterAlignMode() {
+  alignMode = true;
+  document.getElementById("joystick").style.display = "none";
+  document.getElementById("alignPanel").classList.add("show");
+  document.getElementById("modeBtn").style.display = "none";
+  document.body.classList.add("aligning");
+  hintEl.classList.add("hide");
+  const c = planCenter();
+  let size = 8;
+  if (roomAreas.length) { const xs = [], zs = []; roomAreas.forEach(function (r) { r.pts.forEach(function (p) { xs.push(p.x); zs.push(p.z); }); }); size = Math.max(Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, zs) - Math.min.apply(null, zs), 4); }
+  arcCam = new BABYLON.ArcRotateCamera("alignCam", -Math.PI / 2, 0.001, size * 1.6, new BABYLON.Vector3(c.x, 0, c.z), scene);
+  arcCam.lowerRadiusLimit = 1; arcCam.upperRadiusLimit = 80; arcCam.wheelPrecision = 20; arcCam.pinchPrecision = 30;
+  arcCam.minZ = 0.05;
+  arcCam.attachControl(canvas, true);
+  scene.activeCamera = arcCam;
+  // 間取りは半透明の壁だけ見せる
+  planMeshes().forEach(function (m) {
+    const keep = m.name === "walls";
+    m.isVisible = keep;
+    if (keep) { m.material = m.material.clone("wallAlign"); m.material.alpha = 0.5; m.material.diffuseColor = new BABYLON.Color3(0.15, 0.4, 1); }
+  });
+  if (splatRoot) splatRoot.setEnabled(true);
+  scene.clearColor = new BABYLON.Color4(0.08, 0.09, 0.12, 1);
+  syncAlignInputs();
+}
+function syncAlignInputs() {
+  document.getElementById("aRot").value = Math.round(splatTf.rotY * 10) / 10;
+  document.getElementById("aY").value = (+splatTf.y).toFixed(2);
+  document.getElementById("aScale").value = (+splatTf.scale).toFixed(2);
+  document.getElementById("aFlip").checked = !!splatTf.flip;
+}
+function updateAlign() { applySplatTransform(splatTf); syncAlignInputs(); }
+document.querySelectorAll("#alignPanel [data-rot]").forEach(function (b) { b.addEventListener("click", function () { splatTf.rotY = ((splatTf.rotY + (+b.dataset.rot)) % 360 + 540) % 360 - 180; updateAlign(); }); });
+document.querySelectorAll("#alignPanel [data-mv]").forEach(function (b) { b.addEventListener("click", function () {
+  const st = document.getElementById("aFine").checked ? 0.02 : 0.1, v = b.dataset.mv.split(",").map(Number);
+  // 画面の上下左右に合わせて動かす(上から見たカメラの向き基準)
+  const a = arcCam ? arcCam.alpha : -Math.PI / 2;
+  const rx = -Math.sin(a), rz = Math.cos(a);            // 画面の右方向
+  const ux = -Math.cos(a), uz = -Math.sin(a);           // 画面の上方向
+  splatTf.x += (rx * v[0] + ux * v[1]) * st; splatTf.z += (rz * v[0] + uz * v[1]) * st; updateAlign();
+}); });
+document.querySelectorAll("#alignPanel [data-up]").forEach(function (b) { b.addEventListener("click", function () { splatTf.y += (+b.dataset.up) * (document.getElementById("aFine").checked ? 0.01 : 0.05); updateAlign(); }); });
+document.getElementById("aRot").addEventListener("change", function (e) { splatTf.rotY = +e.target.value || 0; updateAlign(); });
+document.getElementById("aY").addEventListener("change", function (e) { splatTf.y = +e.target.value || 0; updateAlign(); });
+document.getElementById("aScale").addEventListener("change", function (e) { const v = +e.target.value; if (v > 0.05) splatTf.scale = v; updateAlign(); });
+document.getElementById("aFlip").addEventListener("change", function (e) { splatTf.flip = e.target.checked; const g = guessSplatTransform(splatTf); g.rotY = splatTf.rotY; g.flip = splatTf.flip; splatTf = g; updateAlign(); });
+document.getElementById("aAuto").addEventListener("click", function () { splatTf = guessSplatTransform({ rotY: splatTf.rotY, flip: splatTf.flip, scale: splatTf.scale }); updateAlign(); });
+document.getElementById("aCancel").addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
+document.getElementById("aSave").addEventListener("click", function () {
+  const t = { x: +splatTf.x.toFixed(3), y: +splatTf.y.toFixed(3), z: +splatTf.z.toFixed(3), rotY: +(+splatTf.rotY).toFixed(2), scale: +(+splatTf.scale).toFixed(3), flip: !!splatTf.flip };
+  postToParent({ type: "vr-viewer-align-save", transform: t });
+});
+
+async function setupSplat(opts) {
+  if (!opts || !opts.splat || !opts.splat.url) return;
+  try {
+    await loadSplat(opts.splat.url, opts.splat.ext);
+  } catch (err) {
+    console.error(err);
+    if (opts.align) throw err;
+    hintEl.textContent = "実写データを読み込めなかったので、間取りで表示しています";
+    hintEl.classList.remove("hide");
+    return;
+  }
+  // 点の位置データは読み込み後に少し遅れて用意されるので待つ(最大8秒)
+  for (let i = 0; i < 80 && !(splatMesh._splatPositions && splatMesh._splatPositions.length); i++) await new Promise(function (r) { setTimeout(r, 100); });
+  splatTf = opts.splat.transform ? Object.assign({ x: 0, y: 0, z: 0, rotY: 0, scale: 1, flip: false }, opts.splat.transform) : guessSplatTransform();
+  applySplatTransform(splatTf);
+  if (opts.align) { enterAlignMode(); return; }
+  document.getElementById("modeBtn").style.display = "block";
+  setViewMode("real");
+}
+
+/* =========================================================
+   追加機能: 言語 / 計測 / ミニマップ / 全体表示 / 案内タグ /
+            自動ツアー / 家具を置いてみる / 一緒に内見 / 閲覧記録
+   ========================================================= */
+
+/* ---------- 言語 ---------- */
+let LANG = (function () { try { return localStorage.getItem("vr_lang") || "ja"; } catch (e) { return "ja"; } })();
+const EN = {
+  "✕ 閉じる": "✕ Close", "⤢ 横向き": "⤢ Landscape", "⤡ 縦に戻す": "⤡ Portrait",
+  "🏠 間取りで見る": "🏠 Floor plan", "📷 実写で見る": "📷 Real photo",
+  "左下のスティックで移動 / 画面ドラッグで見回す": "Move with the stick / drag to look around",
+  "W A S D で移動 / ドラッグで見回す / Shiftで速く": "WASD to move / drag to look / Shift to run",
+  "地図": "Map", "測る": "Measure", "全体": "Overview", "ツアー": "Tour", "家具": "Furniture", "一緒に": "Together",
+  "測りたい場所を2か所タップ": "Tap two points to measure", "もう1か所をタップ": "Tap the second point",
+  "水平に測る": "Level", "消す": "Clear", "終わる": "Done", "次へ": "Next",
+  "ドラッグで回す / 床をタップでその場所へ": "Drag to rotate / tap the floor to go there", "歩いて見る": "Walk",
+  "閉じる": "Close", "家具を置いてみる": "Try furniture",
+  "置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。": "Pick an item to place it in front of you. Drag to move. It turns red if it doesn't fit.",
+  "一緒に内見": "View together",
+  "担当者や家族と、同じ部屋を同時に見ながらチャットできます。始めると6けたの参加コードが出ます。": "Walk through the same room with an agent or family and chat. Starting gives you a 6-digit code.",
+  "この内見を始める": "Start a session", "参加コード": "Join code", "参加": "Join", "コードをコピー": "Copy code",
+  "招待リンクをコピー": "Copy invite link", "案内する人について行く": "Follow the guide", "メッセージ": "Message",
+  "送信": "Send", "退出する": "Leave", "終了する": "End session",
+  "ベッド(シングル)": "Bed (single)", "ベッド(ダブル)": "Bed (double)", "ソファ(2人)": "Sofa (2 seats)",
+  "ダイニングテーブル": "Dining table", "デスク": "Desk", "冷蔵庫": "Fridge", "洗濯機": "Washer", "テレビ台": "TV stand",
+  "本棚": "Bookshelf", "こたつ": "Kotatsu", "サイズを指定": "Custom size", "置いた家具": "Placed item",
+  "幅": "W", "奥行": "D", "高さ": "H", "回転": "Rotate", "削除": "Delete", "全部消す": "Clear all",
+  "収まっています": "Fits", "はみ出しています": "Doesn't fit", "家具を選んでください": "Select an item",
+  "ツアーが終わりました": "Tour finished", "あなた": "You", "案内役": "Guide",
+  "間取りデータがないので使えません": "Not available without floor plan data",
+  "コピーしました": "Copied", "コードは6けたの数字です": "The code is 6 digits",
+  "接続中…": "Connecting…", "参加しました": "Joined", "案内役の人がいません": "The guide is not here",
+  "ほかの人が参加しました": "Someone joined", "畳": "tatami", "約": "about ",
+  "閉じる前に記録しています": "Saving…", "一時停止": "Pause", "再開": "Resume",
+  "チェック": "Checklist", "内見チェック": "Viewing checklist", "メモ（気づいたこと）": "Notes",
+  "見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。": "Mark ◎ △ ✕ as you look around. You can review them on the listing and in Compare.",
+  "冷蔵庫・洗濯機の置き場": "Space for fridge & washer", "ベッド・机を置けるか": "Room for bed & desk", "収納の広さ": "Storage space",
+  "コンセント・照明の位置": "Outlets & lights", "窓の大きさ・向き": "Window size & direction", "日当たり": "Sunlight",
+  "キッチンの広さ": "Kitchen size", "お風呂・トイレ・洗面所": "Bath, toilet & sink", "玄関・廊下（大きい家具が通るか）": "Entrance & hallway (can furniture pass?)",
+  "ベランダ": "Balcony", "まわりの音（現地で確認）": "Noise (check on site)"
+};
+function T(s) { return LANG === "en" && EN[s] ? EN[s] : s; }
+function setLang(l) {
+  LANG = l === "en" ? "en" : "ja";
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-t]").forEach(function (el) { el.textContent = T(el.dataset.t); });
+  document.querySelectorAll("[data-tp]").forEach(function (el) { el.placeholder = T(el.dataset.tp); });
+  if (LANG === "en") document.querySelector("#rotateHint div:nth-child(2)").innerHTML = "Turn your phone sideways<br><small style=\"opacity:.7\">If it doesn't rotate, turn off orientation lock</small>";
+  if (typeof viewMode !== "undefined" && document.getElementById("modeBtn").style.display === "block") setViewMode(viewMode);
+}
+setLang(LANG);
+
+/* ---------- 共通ヘルパー ---------- */
+const labelsEl = document.getElementById("labels");
+const toastEl = document.getElementById("vtoast");
+let toastTimer = null;
+function vtoast(msg, ms) {
+  toastEl.textContent = msg; toastEl.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, ms || 2500);
+}
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function cssScale() { return engine.getHardwareScalingLevel(); }
+const _tmpV = new BABYLON.Vector3();
+// 3Dの位置 → 画面上の位置 (CSSピクセル)
+function toScreen(v) {
+  const cam = scene.activeCamera;
+  if (!cam) return null;
+  BABYLON.Vector3.TransformCoordinatesToRef(v, cam.getViewMatrix(), _tmpV);
+  if (_tmpV.z < 0.05) return null;   // カメラの後ろ
+  const vp = cam.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
+  const p = BABYLON.Vector3.Project(v, BABYLON.Matrix.IdentityReadOnly, scene.getTransformMatrix(), vp);
+  const k = cssScale();
+  return { x: p.x * k, y: p.y * k, depth: _tmpV.z };
+}
+// 画面に追従するラベル
+const screenLabels = [];
+function addLabel(cls, html, getPos, isVisible) {
+  const el = document.createElement("div");
+  el.className = "lbl " + cls;
+  el.innerHTML = html;
+  labelsEl.appendChild(el);
+  const L = { el: el, getPos: getPos, isVisible: isVisible || function () { return true; } };
+  screenLabels.push(L);
+  return L;
+}
+function removeLabel(L) {
+  if (!L) return;
+  const i = screenLabels.indexOf(L);
+  if (i >= 0) screenLabels.splice(i, 1);
+  L.el.remove();
+}
+scene.onAfterRenderObservable.add(function () {
+  for (let i = 0; i < screenLabels.length; i++) {
+    const L = screenLabels[i];
+    let p = null;
+    if (L.isVisible()) { const w = L.getPos(); if (w) p = toScreen(w); }
+    if (!p) { if (L.el.style.display !== "none") L.el.style.display = "none"; continue; }
+    L.el.style.display = "";
+    L.el.style.left = p.x + "px"; L.el.style.top = p.y + "px";
+  }
+});
+const PICK_SOLID = function (m) { return m.isEnabled() && (m.name === "walls" || m.name === "floor" || m.name === "glass" || m.name === "doors" || m.name.indexOf("furniture") === 0); };
+function pickAt(e, pred) {
+  const r = canvas.getBoundingClientRect();
+  return scene.pick(e.clientX - r.left, e.clientY - r.top, pred, false, scene.activeCamera);
+}
+// 画面上の点から床(y=0)の位置を求める
+function floorPointAt(e) {
+  const r = canvas.getBoundingClientRect();
+  const ray = scene.createPickingRay(e.clientX - r.left, e.clientY - r.top, BABYLON.Matrix.Identity(), scene.activeCamera);
+  if (Math.abs(ray.direction.y) < 1e-4) return null;
+  const t = -ray.origin.y / ray.direction.y;
+  if (t <= 0) return null;
+  return { x: ray.origin.x + ray.direction.x * t, z: ray.origin.z + ray.direction.z * t };
+}
+function emissiveMat(name, hex) {
+  const m = new BABYLON.StandardMaterial(name, scene);
+  m.disableLighting = true; m.emissiveColor = BABYLON.Color3.FromHexString(hex);
+  return m;
+}
+function hasPlan() { return roomAreas.length > 0; }
+function planBounds() {
+  let x1 = Infinity, z1 = Infinity, x2 = -Infinity, z2 = -Infinity;
+  roomAreas.forEach(function (r) { r.pts.forEach(function (p) { x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); z1 = Math.min(z1, p.z); z2 = Math.max(z2, p.z); }); });
+  planFreeWalls.forEach(function (w) { [w.a, w.b].forEach(function (p) { x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); z1 = Math.min(z1, p.z); z2 = Math.max(z2, p.z); }); });
+  if (!isFinite(x1)) return { x1: -3, x2: 3, z1: -3, z2: 3 };
+  return { x1: x1, x2: x2, z1: z1, z2: z2 };
+}
+function roomAt(x, z) { return roomAreas.find(function (r) { return pointInPolygon(x, z, r.pts); }) || null; }
+function areaText(r) {
+  const a = r.area || 0;
+  if (LANG === "en") return a.toFixed(1) + " m² (" + (a / 1.62).toFixed(1) + " tatami)";
+  return "約" + a.toFixed(1) + "㎡（" + (a / 1.62).toFixed(1) + "畳）";
+}
+// 部屋の中で家具と重ならない立ち位置
+function freeSpot(room) {
+  const xs = room.pts.map(function (p) { return p.x; }), zs = room.pts.map(function (p) { return p.z; });
+  const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), z0 = Math.min.apply(null, zs), z1 = Math.max.apply(null, zs);
+  const cands = [{ x: room.cx, z: room.cz }];
+  for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) cands.push({ x: x0 + (x1 - x0) * i / 8, z: z0 + (z1 - z0) * j / 8 });
+  const ok = cands.filter(function (c) {
+    if (!pointInPolygon(c.x, c.z, room.pts)) return false;
+    return fixedFurn.every(function (f) { return Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
+  });
+  ok.sort(function (p, q) { return Math.hypot(p.x - room.cx, p.z - room.cz) - Math.hypot(q.x - room.cx, q.z - room.cz); });
+  return ok[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, room.pts); }) || cands[0];
+}
+// 一番遠くまで見通せる向き
+function bestYawFrom(x, z) {
+  let best = 0, bestD = -1;
+  for (let i = 0; i < 16; i++) {
+    const a = i * Math.PI / 8;
+    const ray = new BABYLON.Ray(new BABYLON.Vector3(x, 1.2, z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
+    const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls"; });
+    const d = hit && hit.hit ? hit.distance : 60;
+    if (d > bestD + 0.01) { bestD = d; best = a; }
+  }
+  return best;
+}
+const fadeEl = document.getElementById("fade");
+let fading = false;
+function goTo(x, z, newYaw, instant) {
+  const apply = function () {
+    camera.position.set(x, EYE_HEIGHT, z);
+    if (newYaw !== undefined && newYaw !== null) yaw = newYaw;
+    pitch = 0; vel.x = 0; vel.z = 0;
+    camera.rotation.set(pitch, yaw, 0);
+  };
+  if (instant) { apply(); return Promise.resolve(); }
+  fading = true;
+  fadeEl.classList.add("on");
+  return new Promise(function (res) {
+    setTimeout(function () { apply(); fadeEl.classList.remove("on"); setTimeout(function () { fading = false; res(); }, 300); }, 300);
+  });
+}
+
+/* ---------- 閲覧の記録 (どの部屋を何秒見たか) ---------- */
+const stats = { seconds: 0, realSeconds: 0, rooms: {}, tour: false, measures: 0, furniture: 0 };
+let statsSent = false;
+scene.onBeforeRenderObservable.add(function () {
+  if (!toolsReady || alignMode || document.hidden) return;
+  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+  stats.seconds += dt;
+  if (viewMode === "real" && splatRoot) stats.realSeconds += dt;
+  if (currentRoom && !dollMode) stats.rooms[currentRoom.name] = (stats.rooms[currentRoom.name] || 0) + dt;
+});
+function flushStats() {
+  if (statsSent || !toolsReady || alignMode) return;
+  statsSent = true;
+  const rooms = {};
+  Object.keys(stats.rooms).forEach(function (k) { if (stats.rooms[k] >= 1) rooms[k] = Math.round(stats.rooms[k]); });
+  postToParent({ type: "vr-viewer-stats", propKey: propKey, stats: {
+    seconds: Math.round(stats.seconds), realSeconds: Math.round(stats.realSeconds), rooms: rooms,
+    tour: stats.tour, measures: stats.measures, furniture: stats.furniture } });
+}
+window.addEventListener("pagehide", flushStats);
+
+/* ---------- ツールの切り替え ---------- */
+let toolsReady = false, propKey = "";
+const toolBtns = {};
+document.querySelectorAll("#tools .tbtn").forEach(function (b) { toolBtns[b.dataset.tool] = b; });
+function setToolOn(name, on) { if (toolBtns[name]) toolBtns[name].classList.toggle("on", !!on); }
+function closePanels(except) {
+  if (except !== "measure" && measureMode) setMeasure(false);
+  if (except !== "furn" && furnMode) setFurn(false);
+  if (except !== "sun" && typeof sunOn !== "undefined" && sunOn) setSun(false);
+  if (except !== "live") { document.getElementById("livePanel").classList.remove("show"); setToolOn("live", !!live); }
+  if (except !== "check") { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); }
+}
+toolBtns.map.addEventListener("click", function () { mmOn = !mmOn; setToolOn("map", mmOn); try { localStorage.setItem("vr_minimap", mmOn ? "1" : "0"); } catch (e) {} drawMinimap(); });
+toolBtns.measure.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } const on = !measureMode; closePanels("measure"); setMeasure(on); });
+toolBtns.doll.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } if (dollMode) exitDoll(); else { closePanels(); enterDoll(); } });
+toolBtns.tour.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } if (tour) endTour(false); else { closePanels(); startTour(); } });
+toolBtns.furn.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } const on = !furnMode; closePanels("furn"); setFurn(on); });
+toolBtns.live.addEventListener("click", function () {
+  const p = document.getElementById("livePanel"), on = !p.classList.contains("show");
+  closePanels("live"); p.classList.toggle("show", on); setToolOn("live", on || !!live);
+});
+
+function initTools(opts) {
+  propKey = String(opts.propKey || "");
+  furnStore = opts.furnStore || (isEmbedded ? "session" : "local");
+  furnInit = Array.isArray(opts.furniture) ? opts.furniture : null;
+  toolsReady = true;
+  document.body.classList.add("ready");
+  if (!isEmbedded || !opts.liveOk) toolBtns.live.classList.add("hidden");
+  try { mmOn = localStorage.getItem("vr_minimap") !== "0"; } catch (e) { mmOn = true; }
+  setToolOn("map", mmOn);
+  loadMyFurniture();
+  chkLoad(opts); renderChk();
+  initToolsMore(opts);
+  drawMinimap();
+  if (opts.live && isEmbedded) {
+    document.getElementById("livePanel").classList.add("show");
+    if (opts.live.code) joinLive(opts.live.code); else if (opts.live.start) startLive();
+  }
+}
+
+/* ---------- 間取りを読み込んだあと ---------- */
+let planTags = [];
+function onPlanBuilt(plan) {
+  buildTags(plan.tags || []);
+  planNorth = +plan.north || 0;
+  mmBounds = null;
+  if (toolsReady) { loadMyFurniture(); drawMinimap(); }
+}
+
+/* ---------- タップしたとき ---------- */
+function onTap(e) {
+  if (measureMode) {
+    const hit = pickAt(e, PICK_SOLID);
+    if (hit && hit.hit) addMeasurePoint(hit.pickedPoint.clone());
+    return;
+  }
+  if (dollMode) {
+    const p = floorPointAt(e);
+    if (p && roomAt(p.x, p.z)) exitDoll({ x: p.x, z: p.z });
+    return;
+  }
+  if (furnMode) {
+    const hit = pickAt(e, function (m) { return m.name === "myFurn"; });
+    selectFurn(hit && hit.hit ? hit.pickedMesh.metadata.f : null);
+  }
+}
+
+/* ---------- 計測 ---------- */
+let measureMode = false, mPending = null;
+const measures = [];
+const mMat = emissiveMat("measureMat", "#FACC15");
+function setMeasure(on) {
+  measureMode = on;
+  setToolOn("measure", on);
+  document.getElementById("measureBar").classList.toggle("show", on);
+  document.getElementById("measureMsg").textContent = T("測りたい場所を2か所タップ");
+  if (!on && mPending) { mPending.dot.dispose(); mPending = null; }
+}
+function mDot(p) {
+  const d = BABYLON.MeshBuilder.CreateSphere("mdot", { diameter: 0.06, segments: 8 }, scene);
+  d.position.copyFrom(p); d.material = mMat; d.isPickable = false; d.renderingGroupId = 1;
+  return d;
+}
+function fmtLen(m) { return m >= 1 ? m.toFixed(2) + " m" : Math.round(m * 100) + " cm"; }
+function addMeasurePoint(p) {
+  if (!mPending) {
+    mPending = { a: p, dot: mDot(p) };
+    document.getElementById("measureMsg").textContent = T("もう1か所をタップ");
+    return;
+  }
+  const a = mPending.a, b = p.clone();
+  if (document.getElementById("mFlat").checked) b.y = a.y;
+  const len = BABYLON.Vector3.Distance(a, b);
+  const tube = BABYLON.MeshBuilder.CreateTube("mline", { path: [a, b], radius: 0.007, tessellation: 6 }, scene);
+  tube.material = mMat; tube.isPickable = false; tube.renderingGroupId = 1;
+  const dotB = mDot(b);
+  const mid = a.add(b).scale(0.5);
+  const lab = addLabel("mlabel", fmtLen(len), function () { return mid; });
+  measures.push({ meshes: [mPending.dot, dotB, tube], label: lab });
+  if (typeof inXR !== "undefined" && inXR) measures[measures.length - 1].meshes.push(textPlane(fmtLen(len), mid));
+  mPending = null;
+  stats.measures++;
+  document.getElementById("measureMsg").textContent = fmtLen(len) + " — " + T("測りたい場所を2か所タップ");
+}
+function clearMeasures() {
+  measures.forEach(function (m) { m.meshes.forEach(function (x) { x.dispose(); }); removeLabel(m.label); });
+  measures.length = 0;
+  if (mPending) { mPending.dot.dispose(); mPending = null; }
+  document.getElementById("measureMsg").textContent = T("測りたい場所を2か所タップ");
+}
+document.getElementById("mClear").addEventListener("click", clearMeasures);
+document.getElementById("mDone").addEventListener("click", function () { setMeasure(false); });
+
+/* ---------- ミニマップ ---------- */
+const mm = document.getElementById("minimap"), mctx = mm.getContext("2d");
+let mmOn = true, mmBounds = null, mmMap = null;
+function drawMinimap() {
+  const show = mmOn && toolsReady && hasPlan() && !alignMode;
+  mm.style.display = show ? "block" : "none";
+  if (!show) return;
+  const W = mm.clientWidth, H = mm.clientHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (mm.width !== Math.round(W * dpr)) { mm.width = Math.round(W * dpr); mm.height = Math.round(H * dpr); }
+  if (!mmBounds) mmBounds = planBounds();
+  const b = mmBounds, pad = 10;
+  const s = Math.min((W - pad * 2) / Math.max(0.5, b.x2 - b.x1), (H - pad * 2) / Math.max(0.5, b.z2 - b.z1));
+  const ox = (W - (b.x2 - b.x1) * s) / 2, oy = (H - (b.z2 - b.z1) * s) / 2;
+  const X = function (x) { return ox + (x - b.x1) * s; }, Y = function (z) { return oy + (b.z2 - z) * s; };
+  mmMap = { s: s, ox: ox, oy: oy, b: b };
+  mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  mctx.clearRect(0, 0, W, H);
+  roomAreas.forEach(function (r) {
+    mctx.beginPath();
+    r.pts.forEach(function (p, i) { if (i) mctx.lineTo(X(p.x), Y(p.z)); else mctx.moveTo(X(p.x), Y(p.z)); });
+    mctx.closePath();
+    mctx.fillStyle = r === currentRoom ? "rgba(147,197,253,.95)" : "rgba(255,255,255,.88)";
+    mctx.fill();
+    mctx.lineWidth = 1.5; mctx.strokeStyle = "#334155"; mctx.stroke();
+  });
+  mctx.strokeStyle = "#334155"; mctx.lineWidth = 1.5;
+  planFreeWalls.forEach(function (w) { mctx.beginPath(); mctx.moveTo(X(w.a.x), Y(w.a.z)); mctx.lineTo(X(w.b.x), Y(w.b.z)); mctx.stroke(); });
+  // 置いた家具
+  myFurn.forEach(function (f) {
+    mctx.save(); mctx.translate(X(f.x), Y(f.z)); mctx.rotate(f.rot * Math.PI / 180);
+    mctx.fillStyle = furnFits(f) ? "rgba(34,197,94,.75)" : "rgba(239,68,68,.8)";
+    mctx.fillRect(-f.w * s / 2, -f.d * s / 2, f.w * s, f.d * s); mctx.restore();
+  });
+  // 案内タグ
+  planTags.forEach(function (t) { mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
+  // 一緒に内見している人
+  if (live) Object.keys(avatars).forEach(function (uid) {
+    const a = avatars[uid];
+    mctx.beginPath(); mctx.arc(X(a.x), Y(a.z), 4.5, 0, Math.PI * 2); mctx.fillStyle = a.color; mctx.fill();
+    mctx.lineWidth = 1.5; mctx.strokeStyle = "#fff"; mctx.stroke();
+  });
+  // 自分 (向きつきの矢印)
+  const cx = X(camera.position.x), cy = Y(camera.position.z);
+  mctx.save(); mctx.translate(cx, cy); mctx.rotate(yaw);
+  mctx.beginPath(); mctx.moveTo(0, -8); mctx.lineTo(6, 6); mctx.lineTo(0, 3); mctx.lineTo(-6, 6); mctx.closePath();
+  mctx.fillStyle = "#2563eb"; mctx.fill(); mctx.lineWidth = 1.5; mctx.strokeStyle = "#fff"; mctx.stroke();
+  mctx.restore();
+}
+setInterval(drawMinimap, 120);
+mm.addEventListener("pointerdown", function (e) {
+  e.preventDefault(); e.stopPropagation();
+  if (!mmMap) return;
+  const r = mm.getBoundingClientRect();
+  const x = mmMap.b.x1 + (e.clientX - r.left - mmMap.ox) / mmMap.s;
+  const z = mmMap.b.z2 - (e.clientY - r.top - mmMap.oy) / mmMap.s;
+  if (!roomAt(x, z)) return;
+  if (tour) endTour(false);
+  if (live && live.follow) setFollow(false);
+  if (dollMode) exitDoll({ x: x, z: z }); else goTo(x, z);
+});
+
+/* ---------- 全体表示 (ドールハウス) ---------- */
+let dollMode = false, dollCam = null, meMarker = null, meLabel = null;
+function enterDoll() {
+  if (tour) endTour(false);
+  dollMode = true;
+  setToolOn("doll", true);
+  const b = planBounds(), c = { x: (b.x1 + b.x2) / 2, z: (b.z1 + b.z2) / 2 };
+  const size = Math.max(b.x2 - b.x1, b.z2 - b.z1, 4);
+  dollCam = new BABYLON.ArcRotateCamera("dollCam", -Math.PI / 2 - 0.5, 0.82, size * 1.45, new BABYLON.Vector3(c.x, 0.4, c.z), scene);
+  dollCam.lowerRadiusLimit = 2; dollCam.upperRadiusLimit = size * 4; dollCam.upperBetaLimit = 1.45;
+  dollCam.wheelPrecision = 25; dollCam.pinchPrecision = 40; dollCam.panningSensibility = 0; dollCam.minZ = 0.05;
+  dollCam.fov = 0.9;
+  dollCam.attachControl(canvas, true);
+  scene.activeCamera = dollCam;
+  // 天井を外して上から見えるようにする。実写は外から見ると天井でふさがるので間取りで見せる
+  planMeshes().forEach(function (m) { m.isVisible = m.name !== "ceiling"; });
+  if (splatRoot) splatRoot.setEnabled(false);
+  scene.clearColor = new BABYLON.Color4(0.86, 0.9, 0.95, 1);
+  if (!meMarker) {
+    meMarker = BABYLON.MeshBuilder.CreateCylinder("me", { diameterTop: 0, diameterBottom: 0.36, height: 0.5, tessellation: 16 }, scene);
+    meMarker.material = emissiveMat("meMat", "#2563EB");
+    meMarker.rotation.x = Math.PI; meMarker.isPickable = false;
+  }
+  meMarker.position.set(camera.position.x, 1.9, camera.position.z);
+  meMarker.setEnabled(true);
+  meLabel = addLabel("alabel", T("あなた"), function () { return meMarker.position.add(new BABYLON.Vector3(0, 0.45, 0)); });
+  document.getElementById("joystick").style.visibility = "hidden";
+  document.getElementById("dollBar").classList.add("show");
+  roomNameEl.style.visibility = "hidden";
+}
+function exitDoll(to) {
+  if (!dollMode) return;
+  dollMode = false;
+  setToolOn("doll", false);
+  dollCam.detachControl(); scene.activeCamera = camera; dollCam.dispose(); dollCam = null;
+  if (meMarker) meMarker.setEnabled(false);
+  removeLabel(meLabel); meLabel = null;
+  setViewMode(viewMode);
+  document.getElementById("joystick").style.visibility = "";
+  document.getElementById("dollBar").classList.remove("show");
+  roomNameEl.style.visibility = "";
+  if (to) goTo(to.x, to.z, bestYawFrom(to.x, to.z), true);
+}
+document.getElementById("dWalk").addEventListener("click", function () { exitDoll(); });
+
+/* ---------- 案内タグ ---------- */
+const tagCard = document.getElementById("tagCard");
+function buildTags(list) {
+  planTags.forEach(function (t) { removeLabel(t.label); });
+  planTags = [];
+  (list || []).forEach(function (t) {
+    if (!t || !(t.title || t.text)) return;
+    const p = toWorld(num(t.x, 0), num(t.y, 0));
+    const pos = new BABYLON.Vector3(p.x, Math.max(0.1, Math.min(2.3, num(t.h, 1.2))), p.z);
+    const tag = { title: String(t.title || ""), text: String(t.text || ""), pos: pos, visible: false };
+    tag.label = addLabel("tagb", "<i>i</i><span>" + esc(tag.title || "…") + "</span>", function () { return tag.pos; }, function () { return tag.visible && !alignMode; });
+    tag.label.el.addEventListener("click", function () { openTag(tag); });
+    planTags.push(tag);
+  });
+}
+function openTag(tag) {
+  document.getElementById("tagTitle").textContent = tag.title;
+  document.getElementById("tagText").textContent = tag.text;
+  tagCard.classList.add("show");
+}
+document.getElementById("tagClose").addEventListener("click", function () { tagCard.classList.remove("show"); });
+// 壁の向こうのタグは隠す
+setInterval(function () {
+  if (!planTags.length) return;
+  const cam = scene.activeCamera; if (!cam) return;
+  const from = cam.globalPosition || cam.position;
+  planTags.forEach(function (t) {
+    const d = BABYLON.Vector3.Distance(from, t.pos);
+    if (dollMode) { t.visible = true; return; }
+    if (d > 9) { t.visible = false; return; }
+    const dir = t.pos.subtract(from).normalize();
+    const hit = scene.pickWithRay(new BABYLON.Ray(from, dir, Math.max(0.01, d - 0.12)), function (m) { return m.name === "walls"; }, true);
+    t.visible = !(hit && hit.hit);
+  });
+}, 200);
+
+/* ---------- 自動ツアー ---------- */
+let tour = null;
+const tourCap = document.getElementById("tourCap");
+function startTour() {
+  const stops = roomAreas.filter(function (r) { return r.area > 0.8; }).map(function (r) { const s = freeSpot(r); return { x: s.x, z: s.z, room: r }; });
+  if (!stops.length) return;
+  tour = { stops: stops, i: -1, t: 0, paused: false };
+  stats.tour = true;
+  setToolOn("tour", true);
+  document.getElementById("tourBar").classList.add("show");
+  document.getElementById("tPause").textContent = T("一時停止");
+  nextStop();
+}
+function nextStop() {
+  if (!tour) return;
+  tour.i++;
+  if (tour.i >= tour.stops.length) { endTour(true); return; }
+  const s = tour.stops[tour.i];
+  tour.t = 0;
+  const tags = planTags.filter(function (t) { return pointInPolygon(t.pos.x, t.pos.z, s.room.pts); }).map(function (t) { return "ℹ " + esc(t.title); });
+  tourCap.innerHTML = "<b>" + (tour.i + 1) + "/" + tour.stops.length + "　" + esc(s.room.name) + "</b> " + areaText(s.room) + (tags.length ? "<small>" + tags.join("　") + "</small>" : "");
+  goTo(s.x, s.z, bestYawFrom(s.x, s.z));
+}
+function tourStep(dt) {
+  if (!tour || tour.paused || fading) return;
+  tour.t += dt;
+  yaw += dt * (Math.PI * 2 / 12);   // ゆっくり見回す
+  pitch += (0 - pitch) * Math.min(1, dt * 2);
+  if (tour.t > 10) nextStop();
+}
+function endTour(finished) {
+  if (!tour) return;
+  tour = null;
+  setToolOn("tour", false);
+  document.getElementById("tourBar").classList.remove("show");
+  if (finished) vtoast(T("ツアーが終わりました"));
+}
+document.getElementById("tPause").addEventListener("click", function () { if (!tour) return; tour.paused = !tour.paused; this.textContent = tour.paused ? T("再開") : T("一時停止"); });
+document.getElementById("tNext").addEventListener("click", function () { if (tour) { tour.paused = false; document.getElementById("tPause").textContent = T("一時停止"); nextStop(); } });
+document.getElementById("tEnd").addEventListener("click", function () { endTour(false); });
+
+/* ---------- 家具を置いてみる ---------- */
+const CATALOG = [
+  { n: "ベッド(シングル)", w: 0.97, d: 1.95, h: 0.45, c: "#93A9D1" },
+  { n: "ベッド(ダブル)", w: 1.4, d: 1.95, h: 0.45, c: "#93A9D1" },
+  { n: "ソファ(2人)", w: 1.6, d: 0.85, h: 0.8, c: "#C49A6C" },
+  { n: "ダイニングテーブル", w: 1.2, d: 0.75, h: 0.72, c: "#B07A4F" },
+  { n: "デスク", w: 1.0, d: 0.6, h: 0.72, c: "#A3A3A3" },
+  { n: "冷蔵庫", w: 0.6, d: 0.66, h: 1.7, c: "#E5E7EB" },
+  { n: "洗濯機", w: 0.6, d: 0.6, h: 1.0, c: "#F1F5F9" },
+  { n: "テレビ台", w: 1.5, d: 0.4, h: 0.45, c: "#57534E" },
+  { n: "本棚", w: 0.8, d: 0.3, h: 1.8, c: "#A16207" },
+  { n: "こたつ", w: 0.8, d: 0.8, h: 0.4, c: "#D97706" },
+  { n: "サイズを指定", w: 1.0, d: 1.0, h: 0.8, c: "#8B5CF6" }
+];
+let furnMode = false, myFurn = [], selFurn = null, furnDrag = null, furnSeq = 1;
+const unitBox = { width: 1, height: 1, depth: 1 };
+const furnNgMat = (function () { const m = stdMat("furnNg", "#EF4444"); m.alpha = 0.75; m.emissiveColor = new BABYLON.Color3(0.35, 0.05, 0.05); return m; })();
+function setFurn(on) {
+  furnMode = on;
+  setToolOn("furn", on);
+  document.getElementById("furnPanel").classList.toggle("show", on);
+  if (!on) selectFurn(null);
+  renderFurnPanel();
+}
+document.getElementById("fClose").addEventListener("click", function () { setFurn(false); });
+(function () {
+  const box = document.getElementById("fCatalog");
+  CATALOG.forEach(function (c) {
+    const b = document.createElement("button");
+    b.dataset.t = c.n; b.textContent = T(c.n);
+    b.addEventListener("click", function () { addFurn(c); });
+    box.appendChild(b);
+  });
+})();
+function furnCorners(f) {
+  const r = f.rot * Math.PI / 180, c = Math.cos(r), s = Math.sin(r), out = [];
+  [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, -1], [1, 0], [0, 1], [-1, 0]].forEach(function (k) {
+    const lx = k[0] * f.w / 2 * 0.98, lz = k[1] * f.d / 2 * 0.98;
+    // Babylonの rotation.y は時計回り (上から見て)
+    out.push({ x: f.x + lx * c + lz * s, z: f.z - lx * s + lz * c });
+  });
+  return out;
+}
+function furnFits(f) {
+  const cs = furnCorners(f);
+  const room = roomAt(f.x, f.z);
+  if (!room) return false;
+  // 全部の角が同じ部屋の中にあれば収まっている
+  return cs.every(function (p) { return pointInPolygon(p.x, p.z, room.pts); });
+}
+function makeFurnMesh(f) {
+  const m = BABYLON.MeshBuilder.CreateBox("myFurn", unitBox, scene);
+  const mat = stdMat("myFurnMat" + f.id, f.c || "#8B5CF6"); mat.alpha = 0.92;
+  m.material = mat; f.mat = mat;
+  m.metadata = { f: f };
+  m.enableEdgesRendering(); m.edgesWidth = 2; m.edgesColor = new BABYLON.Color4(0, 0, 0, 0.4);
+  f.mesh = m;
+  updateFurnMesh(f);
+}
+function updateFurnMesh(f) {
+  f.mesh.scaling.set(f.w, f.h, f.d);
+  f.mesh.position.set(f.x, f.h / 2 + 0.002, f.z);
+  f.mesh.rotation.y = f.rot * Math.PI / 180;
+  const fit = furnFits(f);
+  f.mesh.material = fit ? f.mat : furnNgMat;
+  f.mesh.edgesColor = f === selFurn ? new BABYLON.Color4(0.15, 0.4, 1, 1) : new BABYLON.Color4(0, 0, 0, 0.4);
+  f.mesh.edgesWidth = f === selFurn ? 3 : 1.5;
+  if (f.label) f.label.el.className = "lbl flabel" + (fit ? "" : " ng");
+  if (f.label) f.label.el.textContent = sizeText(f) + (fit ? "" : " ⚠");
+}
+function sizeText(f) { return Math.round(f.w * 100) + "×" + Math.round(f.d * 100) + "×" + Math.round(f.h * 100) + "cm"; }
+function addFurn(c) {
+  const dist = 1.2 + Math.max(c.w, c.d) / 2;
+  const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c,
+    x: camera.position.x + Math.sin(yaw) * dist, z: camera.position.z + Math.cos(yaw) * dist,
+    rot: Math.round((yaw * 180 / Math.PI) / 90) * 90 % 360 };
+  myFurn.push(f); makeFurnMesh(f); selectFurn(f);
+  stats.furniture++;
+  saveMyFurniture();
+}
+function selectFurn(f) {
+  const prev = selFurn;
+  selFurn = f;
+  if (prev && prev.mesh) { removeLabel(prev.label); prev.label = null; updateFurnMesh(prev); }
+  if (f) {
+    f.label = addLabel("flabel", "", function () { return f.mesh ? new BABYLON.Vector3(f.x, f.h + 0.25, f.z) : null; });
+    updateFurnMesh(f);
+  }
+  renderFurnPanel();
+}
+function renderFurnPanel() {
+  const el = document.getElementById("fSel");
+  if (!selFurn) {
+    el.innerHTML = myFurn.length ? '<div class="row" style="justify-content:space-between"><span style="color:#64748b">' + T("家具を選んでください") + '（' + myFurn.length + '）</span><button class="red" id="fAllDel">' + T("全部消す") + "</button></div>" : "";
+    const ad = document.getElementById("fAllDel");
+    if (ad) ad.addEventListener("click", function () { myFurn.forEach(function (f) { f.mesh.dispose(); removeLabel(f.label); }); myFurn = []; saveMyFurniture(); renderFurnPanel(); });
+    return;
+  }
+  const f = selFurn, fit = furnFits(f);
+  el.innerHTML =
+    '<div class="row" style="justify-content:space-between"><b>' + esc(T(f.n)) + '</b><span class="' + (fit ? "ok" : "ng") + '">' + (fit ? "✓ " + T("収まっています") : "⚠ " + T("はみ出しています")) + "</span></div>" +
+    '<div class="row"><span>' + T("幅") + '</span><input type="number" data-k="w" value="' + Math.round(f.w * 100) + '" min="10" max="600">' +
+    '<span>' + T("奥行") + '</span><input type="number" data-k="d" value="' + Math.round(f.d * 100) + '" min="10" max="600"></div>' +
+    '<div class="row"><span>' + T("高さ") + '</span><input type="number" data-k="h" value="' + Math.round(f.h * 100) + '" min="5" max="260"><span style="color:#94a3b8">cm</span></div>' +
+    '<div class="row"><span>' + T("回転") + '</span><button class="gray" data-r="-90">-90°</button><button class="gray" data-r="-15">-15°</button><button class="gray" data-r="15">+15°</button><button class="gray" data-r="90">+90°</button></div>' +
+    '<div class="row"><button class="red" id="fDel">' + T("削除") + '</button><button class="gray" id="fDone">OK</button></div>';
+  el.querySelectorAll("input[data-k]").forEach(function (inp) {
+    inp.addEventListener("change", function () {
+      const v = Math.max(5, Math.min(600, +inp.value || 0)) / 100;
+      f[inp.dataset.k] = v; updateFurnMesh(f); saveMyFurniture(); renderFurnPanel();
+    });
+  });
+  el.querySelectorAll("[data-r]").forEach(function (b) { b.addEventListener("click", function () { f.rot = ((f.rot + (+b.dataset.r)) % 360 + 360) % 360; updateFurnMesh(f); saveMyFurniture(); renderFurnPanel(); }); });
+  document.getElementById("fDel").addEventListener("click", function () {
+    myFurn = myFurn.filter(function (x) { return x !== f; });
+    removeLabel(f.label); f.label = null; f.mesh.dispose(); selFurn = null;
+    saveMyFurniture(); renderFurnPanel();
+  });
+  document.getElementById("fDone").addEventListener("click", function () { selectFurn(null); });
+}
+function tryStartFurnDrag(e) {
+  const hit = pickAt(e, function (m) { return m.name === "myFurn"; });
+  if (!hit || !hit.hit) return false;
+  const f = hit.pickedMesh.metadata.f;
+  if (selFurn !== f) selectFurn(f);
+  const p = floorPointAt(e) || { x: f.x, z: f.z };
+  furnDrag = { id: e.pointerId, f: f, dx: f.x - p.x, dz: f.z - p.z, moved: false };
+  canvas.setPointerCapture(e.pointerId);
+  return true;
+}
+function moveFurnDrag(e) {
+  const p = floorPointAt(e);
+  if (!p) return;
+  const f = furnDrag.f;
+  f.x = p.x + furnDrag.dx; f.z = p.z + furnDrag.dz;
+  furnDrag.moved = true;
+  updateFurnMesh(f);
+}
+function endFurnDrag(e) {
+  if (!furnDrag || e.pointerId !== furnDrag.id) return;
+  const moved = furnDrag.moved;
+  furnDrag = null;
+  if (moved) { saveMyFurniture(); renderFurnPanel(); }
+}
+// 家具の保存先: ログイン中 → アカウント(親画面がサーバーに保存) / ゲスト → このタブの間だけ / 単体で開いたとき → この端末
+let furnStore = "local", furnInit = null;
+function furnKey() { return "vr_myfurn_" + (propKey || "sample"); }
+function furnStorage() { return furnStore === "session" ? sessionStorage : localStorage; }
+function saveMyFurniture() {
+  const list = myFurn.map(function (f) { return { n: f.n, w: +(+f.w).toFixed(3), d: +(+f.d).toFixed(3), h: +(+f.h).toFixed(3), c: f.c, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rot: f.rot }; });
+  if (furnStore === "parent") { furnInit = list; postToParent({ type: "vr-furn-save", propKey: propKey, items: list }); return; }
+  try { furnStorage().setItem(furnKey(), JSON.stringify(list)); } catch (e) {}
+}
+function loadMyFurniture() {
+  myFurn.forEach(function (f) { if (f.mesh) f.mesh.dispose(); removeLabel(f.label); });
+  myFurn = []; selFurn = null;
+  let list = [];
+  if (furnStore === "parent") list = furnInit || [];
+  else { try { list = JSON.parse(furnStorage().getItem(furnKey()) || "[]"); } catch (e) { list = []; } }
+  (Array.isArray(list) ? list : []).slice(0, 60).forEach(function (o) {
+    const f = { id: furnSeq++, n: String(o.n || ""), w: +o.w || 1, d: +o.d || 1, h: +o.h || 0.8, c: o.c, x: +o.x || 0, z: +o.z || 0, rot: +o.rot || 0 };
+    myFurn.push(f); makeFurnMesh(f);
+  });
+}
+
+/* ---------- 内見チェック ---------- */
+// 見ながら ◎ △ ✕ とメモを残す。埋め込み時は親画面が保存する（ログイン中はアカウント、ゲストはこのタブの間だけ）
+const CHECK_ITEMS = [
+  ["fridge", "冷蔵庫・洗濯機の置き場", "measure"], ["bed", "ベッド・机を置けるか", "furn"], ["storage", "収納の広さ", ""],
+  ["outlet", "コンセント・照明の位置", ""], ["window", "窓の大きさ・向き", "sun"], ["sun", "日当たり", "sun"],
+  ["kitchen", "キッチンの広さ", ""], ["bath", "お風呂・トイレ・洗面所", ""], ["path", "玄関・廊下（大きい家具が通るか）", "measure"],
+  ["balcony", "ベランダ", ""], ["noise", "まわりの音（現地で確認）", ""]
+];
+const CHECK_TOOL = { measure: "測る", furn: "家具", sun: "日当たり" };
+let chk = { items: {}, memo: "" }, chkStore = "local", chkTimer = null;
+function chkKey() { return "vr_check_" + (propKey || "sample"); }
+function chkLoad(opts) {
+  chkStore = isEmbedded ? "parent" : "local";
+  let d = opts && opts.checks;
+  if (!d && chkStore === "local") { try { d = JSON.parse(localStorage.getItem(chkKey()) || "null"); } catch (e) { d = null; } }
+  const items = {};
+  if (d && d.items && typeof d.items === "object") CHECK_ITEMS.forEach(function (it) { const v = d.items[it[0]]; if (v === "ok" || v === "meh" || v === "ng") items[it[0]] = v; });
+  chk = { items: items, memo: d && typeof d.memo === "string" ? d.memo.slice(0, 500) : "" };
+}
+function chkSave() {
+  clearTimeout(chkTimer);
+  chkTimer = setTimeout(function () {
+    const data = { items: chk.items, memo: chk.memo };
+    if (chkStore === "parent") postToParent({ type: "vr-check-save", propKey: propKey, data: data });
+    else { try { localStorage.setItem(chkKey(), JSON.stringify(data)); } catch (e) {} }
+  }, 400);
+}
+function renderChk() {
+  const list = document.getElementById("cList");
+  list.innerHTML = "";
+  const n = { ok: 0, meh: 0, ng: 0 };
+  CHECK_ITEMS.forEach(function (it) {
+    const v = chk.items[it[0]]; if (v) n[v]++;
+    const row = document.createElement("div"); row.className = "crow";
+    const lab = document.createElement("div"); lab.className = "cl"; lab.textContent = T(it[1]);
+    if (it[2] && CHECK_TOOL[it[2]]) {
+      const h = document.createElement("button"); h.className = "ch"; h.type = "button";
+      h.textContent = (LANG === "en" ? "Check with " : "「") + T(CHECK_TOOL[it[2]]) + (LANG === "en" ? "" : "」で確かめる");
+      h.addEventListener("click", function () { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); toolBtns[it[2]].click(); });
+      const sm = document.createElement("small"); sm.appendChild(h); lab.appendChild(sm);
+    }
+    row.appendChild(lab);
+    [["ok", "◎"], ["meh", "△"], ["ng", "✕"]].forEach(function (cv) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "cv" + (v === cv[0] ? " on" : ""); b.dataset.v = cv[0]; b.textContent = cv[1];
+      b.setAttribute("aria-label", T(it[1]) + " " + cv[1]); b.setAttribute("aria-pressed", v === cv[0] ? "true" : "false");
+      b.addEventListener("click", function () { if (chk.items[it[0]] === cv[0]) delete chk.items[it[0]]; else chk.items[it[0]] = cv[0]; renderChk(); chkSave(); });
+      row.appendChild(b);
+    });
+    list.appendChild(row);
+  });
+  document.getElementById("cSum").textContent = "◎ " + n.ok + "　△ " + n.meh + "　✕ " + n.ng + "　（" + (n.ok + n.meh + n.ng) + " / " + CHECK_ITEMS.length + "）";
+  const memo = document.getElementById("cMemo"); if (document.activeElement !== memo) memo.value = chk.memo;
+}
+document.getElementById("cMemo").addEventListener("input", function () { chk.memo = this.value.slice(0, 500); chkSave(); });
+document.getElementById("cMemo").addEventListener("keydown", function (e) { e.stopPropagation(); });   // 文字入力中に WASD で歩かないように
+document.getElementById("cClose").addEventListener("click", function () { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); });
+toolBtns.check.addEventListener("click", function () {
+  const p = document.getElementById("checkPanel"), on = !p.classList.contains("show");
+  closePanels("check"); p.classList.toggle("show", on); setToolOn("check", on);
+  if (on) renderChk();
+});
+
+/* ---------- 一緒に内見 ---------- */
+// サーバーとのやり取りは親画面(index.html)が受け持つ。ここは見た目と位置の送受信だけ。
+let live = null;
+const avatars = {};
+const AV_COLORS = ["#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
+function colorFor(uid) { let h = 0; for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0; return AV_COLORS[h % AV_COLORS.length]; }
+function showLiveUI() {
+  document.getElementById("liveOff").style.display = live ? "none" : "block";
+  document.getElementById("liveOn").style.display = live ? "block" : "none";
+  setToolOn("live", !!live || document.getElementById("livePanel").classList.contains("show"));
+  if (!live) return;
+  document.getElementById("liveCode").textContent = live.code || T("接続中…");
+  const isHost = live.state && live.state.host === live.uid;
+  document.getElementById("lFollowRow").style.display = isHost ? "none" : "flex";
+  document.getElementById("lFollow").checked = !!live.follow;
+  document.getElementById("lLeave").textContent = isHost ? T("終了する") : T("退出する");
+}
+function startLive() { postToParent({ type: "vr-live-start" }); live = { code: "", uid: "", follow: false, state: null, seen: 0 }; showLiveUI(); }
+function joinLive(code) {
+  code = String(code || "").replace(/\D/g, "");
+  if (code.length !== 6) { vtoast(T("コードは6けたの数字です")); return; }
+  postToParent({ type: "vr-live-join", code: code });
+  live = { code: code, uid: "", follow: true, state: null, seen: 0 }; showLiveUI();
+}
+function leaveLive(silent) {
+  if (!live) return;
+  postToParent({ type: "vr-live-leave" });
+  Object.keys(avatars).forEach(removeAvatar);
+  live = null;
+  if (!silent) showLiveUI();
+}
+function setFollow(on) { if (!live) return; live.follow = on; document.getElementById("lFollow").checked = on; }
+document.getElementById("lStart").addEventListener("click", startLive);
+document.getElementById("lJoin").addEventListener("click", function () { joinLive(document.getElementById("lCodeIn").value); });
+document.getElementById("lCodeIn").addEventListener("keydown", function (e) { if (e.key === "Enter") joinLive(this.value); });
+document.getElementById("lLeave").addEventListener("click", function () { leaveLive(false); });
+document.getElementById("lClose").addEventListener("click", function () { document.getElementById("livePanel").classList.remove("show"); setToolOn("live", !!live); });
+document.getElementById("lFollow").addEventListener("change", function () { setFollow(this.checked); });
+function copyText(t) {
+  const done = function () { vtoast(T("コピーしました")); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, function () { postToParent({ type: "vr-copy", text: t }); });
+  else postToParent({ type: "vr-copy", text: t });
+}
+document.getElementById("lCopy").addEventListener("click", function () { if (live && live.code) copyText(live.code); });
+document.getElementById("lLink").addEventListener("click", function () { if (live && live.code) copyText(new URL("index.html?live=" + live.code, location.href).href); });
+function sendChat() {
+  const inp = document.getElementById("lMsg"), t = inp.value.trim();
+  if (!t || !live) return;
+  postToParent({ type: "vr-live-chat", text: t });
+  inp.value = "";
+}
+document.getElementById("lSend").addEventListener("click", sendChat);
+document.getElementById("lMsg").addEventListener("keydown", function (e) { if (e.key === "Enter") sendChat(); });
+// 自分の位置を親へ (親がまとめてサーバーに送る)
+setInterval(function () {
+  if (!live || !toolsReady) return;
+  let px = camera.position.x, pz = camera.position.z, py = yaw, pp = pitch;
+  if (typeof inXR !== "undefined" && inXR && scene.activeCamera) {
+    const c = scene.activeCamera, d = c.getDirection(BABYLON.Axis.Z);
+    px = c.position.x; pz = c.position.z; py = Math.atan2(d.x, d.z); pp = -Math.asin(Math.max(-1, Math.min(1, d.y)));
+  }
+  postToParent({ type: "vr-live-pose", pose: { x: +px.toFixed(2), z: +pz.toFixed(2), yaw: +py.toFixed(3), pitch: +pp.toFixed(3), mode: viewMode, room: currentRoom ? currentRoom.name : "" } });
+}, 400);
+function makeAvatar(uid, name) {
+  const color = colorFor(uid);
+  const root = new BABYLON.TransformNode("av_" + uid, scene);
+  const mat = stdMat("avMat_" + uid, color);
+  mat.emissiveColor = BABYLON.Color3.FromHexString(color).scale(0.35);
+  const body = BABYLON.MeshBuilder.CreateCylinder("avBody", { height: 1.1, diameterTop: 0.26, diameterBottom: 0.36, tessellation: 16 }, scene);
+  body.position.y = 0.75; body.material = mat; body.parent = root; body.isPickable = false;
+  const head = BABYLON.MeshBuilder.CreateSphere("avHead", { diameter: 0.3, segments: 12 }, scene);
+  head.position.y = 1.5; head.material = mat; head.parent = root; head.isPickable = false;
+  const nose = BABYLON.MeshBuilder.CreateBox("avNose", { width: 0.12, height: 0.06, depth: 0.14 }, scene);
+  nose.position.set(0, 1.5, 0.16); nose.material = emissiveMat("avNoseMat", "#FFFFFF"); nose.parent = root; nose.isPickable = false;
+  const a = { root: root, color: color, name: name, x: 0, z: 0, yaw: 0, tx: 0, tz: 0, tyaw: 0, init: false };
+  a.label = addLabel("alabel", esc(name), function () { return new BABYLON.Vector3(a.x, 1.95, a.z); }, function () { return root.isEnabled(); });
+  avatars[uid] = a;
+  return a;
+}
+function removeAvatar(uid) {
+  const a = avatars[uid]; if (!a) return;
+  a.root.dispose(false, true); removeLabel(a.label); delete avatars[uid];
+}
+scene.onBeforeRenderObservable.add(function () {
+  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1), k = 1 - Math.exp(-dt * 6);
+  Object.keys(avatars).forEach(function (uid) {
+    const a = avatars[uid];
+    a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k;
+    let dy = a.tyaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); a.yaw += dy * k;
+    a.root.position.set(a.x, 0, a.z); a.root.rotation.y = a.yaw;
+    // ついて行っている相手は自分と重なるので隠す
+    const hide = live && live.follow && live.state && uid === live.state.host;
+    a.root.setEnabled(!hide);
+  });
+});
+function hostMember() {
+  if (!live || !live.state) return null;
+  return (live.state.members || []).find(function (m) { return m.uid === live.state.host && !m.me; }) || null;
+}
+function followStep(dt) {
+  const h = hostMember();
+  if (!h) return;
+  const k = 1 - Math.exp(-dt * 4);
+  camera.position.x += (h.x - camera.position.x) * k;
+  camera.position.z += (h.z - camera.position.z) * k;
+  let dy = h.yaw - yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw += dy * k;
+  pitch += (h.pitch - pitch) * k;
+  vel.x = 0; vel.z = 0;
+  if (h.mode && h.mode !== viewMode && splatRoot && !dollMode) setViewMode(h.mode);
+}
+function onLiveState(msg) {
+  if (!live) live = { code: "", uid: "", follow: false, state: null, seen: 0 };
+  const st = msg.state;
+  const first = !live.state;
+  live.state = st; live.uid = msg.uid || live.uid; live.code = st.code;
+  if (first) { vtoast(T("参加しました")); if (st.host === live.uid) live.follow = false; }
+  const seen = {};
+  (st.members || []).forEach(function (m) {
+    if (m.me || m.uid === live.uid) return;
+    seen[m.uid] = true;
+    const a = avatars[m.uid] || makeAvatar(m.uid, m.name + (m.uid === st.host ? "（" + T("案内役") + "）" : ""));
+    a.tx = m.x; a.tz = m.z; a.tyaw = m.yaw;
+    if (!a.init) { a.x = m.x; a.z = m.z; a.yaw = m.yaw; a.init = true; }
+  });
+  Object.keys(avatars).forEach(function (uid) { if (!seen[uid]) removeAvatar(uid); });
+  document.getElementById("liveMembers").innerHTML = (st.members || []).map(function (m) {
+    return '<span style="border-left:4px solid ' + (m.uid === live.uid ? "#2563eb" : colorFor(m.uid)) + '">' + esc(m.name) + (m.uid === st.host ? "★" : "") + (m.uid === live.uid ? "（" + T("あなた") + "）" : "") + "</span>";
+  }).join("");
+  const chat = st.chat || [];
+  const box = document.getElementById("liveChat");
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 10;
+  box.innerHTML = chat.map(function (c) { return '<div class="' + (c.uid === live.uid ? "me" : "") + '"><b>' + esc(c.name) + "</b>: " + esc(c.text) + "</div>"; }).join("");
+  if (atBottom || first) box.scrollTop = box.scrollHeight;
+  const last = chat.length ? chat[chat.length - 1] : null;
+  if (last && last.t > live.seen) {
+    if (live.seen && last.uid !== live.uid && !document.getElementById("livePanel").classList.contains("show")) vtoast("💬 " + last.name + ": " + last.text, 4000);
+    live.seen = last.t;
+  }
+  showLiveUI();
+}
+window.addEventListener("message", function (e) {
+  const msg = e.data;
+  if (!msg || typeof msg !== "object") return;
+  if (msg.type === "vr-live-state") onLiveState(msg);
+  else if (msg.type === "vr-live-error") {
+    vtoast(msg.error || "error", 4000);
+    if (msg.fatal) { Object.keys(avatars).forEach(removeAvatar); live = null; showLiveUI(); }
+  }
+});
+
+/* =========================================================
+   日当たり / 360°写真 / Questのメニュー
+   ========================================================= */
+Object.assign(EN, {
+  "日当たり": "Sunlight", "360°": "360°", "日当たりを見る": "Sunlight", "月": "Month", "時刻": "Time",
+  "晴れの日の目安です。方角は間取りエディタで設定します（未設定なら図の上が北）。": "Clear-sky estimate. Set north in the floor plan editor (default: up is north).",
+  "太陽の高さ": "Sun altitude", "日の出": "Sunrise", "日の入り": "Sunset", "夜（照明）": "Night (lights on)", "1日を再生": "Play day", "止める": "Stop",
+  "360°写真": "360° photos", "歩いて見る": "Walk", "実写は日当たりに対応していないので、間取りで表示しています": "Real-photo mode doesn't support sunlight, showing the floor plan"
+});
+let geoInfo = { lat: 35.68, lng: 139.76 }, planNorth = 0;
+
+/* ---------- 日当たり ---------- */
+let sunOn = false, sunGen = null, sunPlayTimer = null, sunPrevMode = null;
+const sunState = { month: new Date().getMonth() + 1, hour: 12 };
+const sunPanel = document.getElementById("sunPanel");
+function dayOfYear(month) { return Math.floor((month - 1) * 30.44 + 15); }
+// 太陽の高さと方位 (方位は北から時計回り)
+function sunPosition(month, hour, lat, lng) {
+  const n = dayOfYear(month), rad = Math.PI / 180;
+  const decl = 23.44 * Math.sin(2 * Math.PI * (284 + n) / 365) * rad;
+  const B = 2 * Math.PI * (n - 81) / 364;
+  const eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);   // 均時差(分)
+  const solar = hour + (lng - 135) / 15 + eot / 60;
+  const H = (solar - 12) * 15 * rad, phi = lat * rad;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(H));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(decl) * Math.cos(phi)) + Math.PI;
+  return { alt: alt, az: az };
+}
+function sunTimes(month, lat, lng) {
+  let rise = null, set = null;
+  for (let h = 3; h <= 21; h += 1 / 12) {
+    const a = sunPosition(month, h, lat, lng).alt;
+    if (a > 0 && rise === null) rise = h;
+    if (a > 0) set = h;
+  }
+  return { rise: rise, set: set };
+}
+function fmtHour(h) { const m = Math.round(h * 60); return Math.floor(m / 60) + ":" + String(m % 60).padStart(2, "0"); }
+function setSun(on) {
+  if (on === sunOn) return;
+  sunOn = on;
+  setToolOn("sun", on);
+  sunPanel.classList.toggle("show", on);
+  if (on) {
+    if (viewMode === "real" && splatRoot) { sunPrevMode = "real"; setViewMode("plan"); vtoast(T("実写は日当たりに対応していないので、間取りで表示しています"), 3500); }
+    sunGen = new BABYLON.ShadowGenerator(isTouch ? 1024 : 2048, sun);
+    if (engine.webGLVersion >= 2) sunGen.usePercentageCloserFiltering = true; else sunGen.usePoissonSampling = true;
+    sunGen.bias = 0.0008; sunGen.normalBias = 0.02;
+    planMeshes().forEach(function (m) {
+      if (m.name === "glass") return;
+      sunGen.addShadowCaster(m, false);
+      m.receiveShadows = true;
+    });
+    myFurn.forEach(function (f) { if (f.mesh) { sunGen.addShadowCaster(f.mesh); f.mesh.receiveShadows = true; } });
+    sun.shadowEnabled = true;
+    updateSun();
+  } else {
+    stopSunPlay();
+    if (sunGen) { sunGen.dispose(); sunGen = null; }
+    sun.direction = new BABYLON.Vector3(-0.45, -1, 0.35); sun.intensity = 0.1; sun.diffuse = new BABYLON.Color3(1, 1, 1);
+    hemi.intensity = 1.0; hemi.diffuse = new BABYLON.Color3(1, 1, 1);
+    if (sunPrevMode) { setViewMode(sunPrevMode); sunPrevMode = null; } else setViewMode(viewMode);
+  }
+}
+function updateSun() {
+  const s = sunPosition(sunState.month, sunState.hour, geoInfo.lat, geoInfo.lng);
+  const b = planNorth * Math.PI / 180 + s.az;
+  const toSun = new BABYLON.Vector3(Math.cos(s.alt) * Math.sin(b), Math.sin(s.alt), Math.cos(s.alt) * Math.cos(b));
+  const pb = planBounds(), c = new BABYLON.Vector3((pb.x1 + pb.x2) / 2, 0, (pb.z1 + pb.z2) / 2);
+  const sa = Math.sin(Math.max(0, s.alt));
+  if (s.alt > 0.01) {
+    sun.direction = toSun.scale(-1);
+    sun.position = c.add(toSun.scale(40));
+    sun.intensity = Math.min(2.4, 0.6 + 2.2 * sa);
+    const warm = Math.max(0, 1 - sa * 2.2);
+    sun.diffuse = new BABYLON.Color3(1, 1 - 0.25 * warm, 1 - 0.55 * warm);
+    hemi.intensity = 0.62 + 0.25 * sa;
+    hemi.diffuse = new BABYLON.Color3(1, 1, 1);
+    if (viewMode !== "real") scene.clearColor = new BABYLON.Color4(0.55 + 0.2 * sa, 0.72 + 0.15 * sa, 0.92, 1);
+  } else {
+    sun.intensity = 0;
+    hemi.intensity = 0.55;
+    hemi.diffuse = new BABYLON.Color3(1, 0.88, 0.7);   // 室内の照明
+    if (viewMode !== "real") scene.clearColor = new BABYLON.Color4(0.05, 0.07, 0.15, 1);
+  }
+  const tm = sunTimes(sunState.month, geoInfo.lat, geoInfo.lng);
+  document.getElementById("sunMonthV").textContent = LANG === "en" ? String(sunState.month) : sunState.month + "月";
+  document.getElementById("sunHourV").textContent = fmtHour(sunState.hour);
+  document.getElementById("sunMonth").value = sunState.month;
+  document.getElementById("sunHour").value = sunState.hour;
+  document.getElementById("sunInfo").textContent = s.alt > 0.01
+    ? T("太陽の高さ") + " " + Math.round(s.alt * 180 / Math.PI) + "°　" + T("日の出") + " " + (tm.rise ? fmtHour(tm.rise) : "-") + "　" + T("日の入り") + " " + (tm.set ? fmtHour(tm.set) : "-")
+    : T("夜（照明）") + "　" + T("日の出") + " " + (tm.rise ? fmtHour(tm.rise) : "-");
+  if (typeof xrMenuRefresh === "function") xrMenuRefresh();
+}
+function stopSunPlay() { if (sunPlayTimer) { clearInterval(sunPlayTimer); sunPlayTimer = null; } document.getElementById("sunPlay").textContent = T("1日を再生"); }
+document.getElementById("sunMonth").addEventListener("input", function (e) { sunState.month = +e.target.value; updateSun(); });
+document.getElementById("sunHour").addEventListener("input", function (e) { sunState.hour = +e.target.value; updateSun(); });
+document.getElementById("sunPlay").addEventListener("click", function () {
+  if (sunPlayTimer) { stopSunPlay(); return; }
+  if (sunState.hour >= 19.5) sunState.hour = 5;
+  this.textContent = T("止める");
+  sunPlayTimer = setInterval(function () { sunState.hour += 0.1; if (sunState.hour > 20) { sunState.hour = 20; stopSunPlay(); } updateSun(); }, 60);
+});
+document.getElementById("sunClose").addEventListener("click", function () { setSun(false); });
+
+/* ---------- 360°写真 ---------- */
+let panos = [], panoMode = false, dome = null, panoIdx = 0;
+const panoBar = document.getElementById("panoBar");
+function enterPano(i) {
+  if (!panos.length) return;
+  if (dollMode) exitDoll();
+  if (tour) endTour(false);
+  if (sunOn) setSun(false);
+  panoIdx = Math.max(0, Math.min(panos.length - 1, i || 0));
+  const url = panos[panoIdx].url;
+  if (!dome) {
+    dome = new BABYLON.PhotoDome("pano", url, { resolution: 48, size: 400, useDirectMapping: false }, scene);
+    dome.mesh.isPickable = false;
+  } else {
+    dome.photoTexture = new BABYLON.Texture(url, scene, false, false);
+  }
+  dome.setEnabled(true);
+  panoMode = true;
+  planMeshes().forEach(function (m) { m.isVisible = false; });
+  if (splatRoot) splatRoot.setEnabled(false);
+  myFurn.forEach(function (f) { if (f.mesh) f.mesh.setEnabled(false); });
+  document.getElementById("joystick").style.visibility = "hidden";
+  setToolOn("pano", true);
+  renderPanoBar();
+  panoBar.classList.add("show");
+}
+function exitPano() {
+  if (!panoMode) return;
+  panoMode = false;
+  if (dome) dome.setEnabled(false);
+  myFurn.forEach(function (f) { if (f.mesh) f.mesh.setEnabled(true); });
+  setViewMode(viewMode);
+  document.getElementById("joystick").style.visibility = "";
+  setToolOn("pano", false);
+  panoBar.classList.remove("show");
+}
+function renderPanoBar() {
+  const canWalk = hasPlan() || !!splatRoot;
+  panoBar.innerHTML = "<span>📷</span>" + panos.map(function (p, i) {
+    return '<button data-i="' + i + '" class="' + (i === panoIdx ? "pri" : "") + '">' + esc(p.name || (T("360°写真") + (i + 1))) + "</button>";
+  }).join("") + (canWalk ? '<button id="panoExit" class="gray">' + T("歩いて見る") + "</button>" : "");
+  panoBar.querySelectorAll("[data-i]").forEach(function (b) { b.addEventListener("click", function () { enterPano(+b.dataset.i); }); });
+  const ex = document.getElementById("panoExit"); if (ex) ex.addEventListener("click", exitPano);
+}
+scene.onBeforeRenderObservable.add(function () { if (panoMode && dome) dome.position.copyFrom(scene.activeCamera.globalPosition || scene.activeCamera.position); });
+
+/* ---------- ツールの追加分 ---------- */
+toolBtns.sun.addEventListener("click", function () {
+  if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; }
+  if (panoMode) exitPano();
+  if (dollMode) exitDoll();
+  closePanels("sun"); setSun(!sunOn);
+});
+toolBtns.pano.addEventListener("click", function () { if (panoMode) { if (hasPlan() || splatRoot) exitPano(); } else { closePanels(); enterPano(panoIdx); } });
+function initToolsMore(opts) {
+  panos = (opts.panoramas || []).filter(function (p) { return p && p.url; });
+  if (opts.geo && isFinite(+opts.geo.lat) && isFinite(+opts.geo.lng)) geoInfo = { lat: +opts.geo.lat, lng: +opts.geo.lng };
+  toolBtns.pano.classList.toggle("hidden", !panos.length);
+  toolBtns.sun.classList.toggle("hidden", !hasPlan());
+  if (!hasPlan()) ["measure", "doll", "tour", "furn", "map"].forEach(function (k) { toolBtns[k].classList.add("hidden"); });
+  if (panos.length && !hasPlan() && !splatRoot) enterPano(0);
+}
+
+/* ---------- Quest などのVRゴーグルの中のメニュー ---------- */
+// ゴーグルの中では画面のボタンが押せないので、左手のコントローラーにメニューを付ける。
+const GUI_URL = "https://cdn.jsdelivr.net/npm/babylonjs-gui@9.29.0/babylon.gui.min.js";
+let inXR = false, xrMenu = null, xrMeasure = false, xrPlace = false, xrFurnIdx = 0, xrLastFurn = null, xrTourIdx = -1, xrStatus = "";
+function loadGui() {
+  return new Promise(function (res, rej) {
+    if (BABYLON.GUI) return res();
+    const s = document.createElement("script"); s.src = GUI_URL;
+    s.onload = function () { res(); }; s.onerror = function () { rej(new Error("GUI")); };
+    document.head.appendChild(s);
+  });
+}
+function xrCam() { return xrHelper && xrHelper.baseExperience ? xrHelper.baseExperience.camera : null; }
+async function buildXRMenu(parent) {
+  await loadGui();
+  if (xrMenu) { xrMenu.plane.parent = parent || null; return xrMenu; }
+  const plane = BABYLON.MeshBuilder.CreatePlane("xrMenu", { width: 0.3, height: 0.44 }, scene);
+  plane.renderingGroupId = 2;
+  const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane, 600, 880);
+  const bg = new BABYLON.GUI.Rectangle(); bg.background = "rgba(15,23,42,0.88)"; bg.cornerRadius = 30; bg.thickness = 0; ui.addControl(bg);
+  const panel = new BABYLON.GUI.StackPanel(); panel.width = "560px"; panel.top = "10px"; bg.addControl(panel);
+  const title = new BABYLON.GUI.TextBlock(); title.text = "VR Homes"; title.color = "#fff"; title.fontSize = 40; title.height = "64px"; title.fontWeight = "bold"; panel.addControl(title);
+  const status = new BABYLON.GUI.TextBlock(); status.color = "#cbd5e1"; status.fontSize = 26; status.height = "96px"; status.textWrapping = true; panel.addControl(status);
+  const btns = {};
+  function addBtn(key, label, fn) {
+    const b = BABYLON.GUI.Button.CreateSimpleButton("xb_" + key, label);
+    b.height = "78px"; b.color = "#fff"; b.fontSize = 30; b.background = "#334155"; b.cornerRadius = 16; b.thickness = 0; b.paddingTop = "8px";
+    b.onPointerUpObservable.add(function () { fn(); xrMenuRefresh(); });
+    panel.addControl(b); btns[key] = b; return b;
+  }
+  addBtn("mode", "", function () { if (splatRoot) setViewMode(viewMode === "real" ? "plan" : "real"); });
+  addBtn("tour", "", function () { xrNextRoom(); });
+  addBtn("measure", "", function () { xrMeasure = !xrMeasure; xrPlace = false; xrStatus = xrMeasure ? (LANG === "en" ? "Point and pull the trigger at 2 spots" : "トリガーで2か所を指すと長さが出ます") : ""; });
+  addBtn("furn", "", function () { xrFurnIdx = (xrFurnIdx + 1) % (CATALOG.length - 1); xrPlace = true; xrMeasure = false; xrStatus = LANG === "en" ? "Point at the floor and pull the trigger" : "床を指してトリガーで置けます"; });
+  addBtn("rot", LANG === "en" ? "Rotate last item 90°" : "置いた家具を90°回す", function () { if (xrLastFurn) { xrLastFurn.rot = (xrLastFurn.rot + 90) % 360; updateFurnMesh(xrLastFurn); saveMyFurniture(); } });
+  addBtn("sun", "", function () { if (!hasPlan()) return; if (!sunOn) setSun(true); else { sunState.hour = sunState.hour >= 19 ? 6 : Math.round(sunState.hour + 2); updateSun(); } });
+  addBtn("sunOff", LANG === "en" ? "Sunlight off" : "日当たりを終わる", function () { setSun(false); });
+  addBtn("clear", LANG === "en" ? "Clear measures & items" : "測った線・家具を消す", function () {
+    clearMeasures(); myFurn.forEach(function (f) { f.mesh.dispose(); removeLabel(f.label); }); myFurn = []; xrLastFurn = null; saveMyFurniture();
+  });
+  xrMenu = { plane: plane, ui: ui, status: status, btns: btns };
+  plane.parent = parent || null;
+  xrMenuRefresh();
+  return xrMenu;
+}
+function xrMenuRefresh() {
+  if (!xrMenu) return;
+  const en = LANG === "en", b = xrMenu.btns;
+  const setT = function (k, s) { if (b[k] && b[k].textBlock) b[k].textBlock.text = s; };
+  b.mode.isVisible = !!splatRoot;
+  setT("mode", viewMode === "real" ? (en ? "Show floor plan" : "間取りで見る") : (en ? "Show real photo" : "実写で見る"));
+  setT("tour", en ? "Next room ▶" : "次の部屋へ ▶");
+  setT("measure", (en ? "Measure: " : "測る: ") + (xrMeasure ? "ON" : "OFF"));
+  setT("furn", (en ? "Place: " : "家具を置く: ") + T(CATALOG[xrFurnIdx].n));
+  b.measure.background = xrMeasure ? "#2563eb" : "#334155";
+  b.furn.background = xrPlace ? "#2563eb" : "#334155";
+  b.sun.isVisible = hasPlan(); b.sunOff.isVisible = sunOn;
+  setT("sun", sunOn ? (en ? "Sun: " : "日当たり: ") + sunState.month + (en ? "/" : "月 ") + fmtHour(sunState.hour) + (en ? " (+2h)" : "（+2時間）") : (en ? "Show sunlight" : "日当たりを見る"));
+  const room = currentRoom ? currentRoom.name + "  " + areaText(currentRoom) : "";
+  const people = live && live.state ? "\n" + (en ? "Together: " : "一緒に内見中: ") + (live.state.members || []).length + (en ? "" : "人") : "";
+  xrMenu.status.text = (xrStatus || room) + people;
+}
+function xrNextRoom() {
+  const stops = roomAreas.filter(function (r) { return r.area > 0.8; });
+  if (!stops.length) return;
+  xrTourIdx = (xrTourIdx + 1) % stops.length;
+  const r = stops[xrTourIdx], s = freeSpot(r), cam = xrCam();
+  if (cam) { cam.position.x = s.x; cam.position.z = s.z; }
+  stats.tour = true;
+  xrStatus = (xrTourIdx + 1) + "/" + stops.length + "  " + r.name + "  " + areaText(r);
+}
+// コントローラーのトリガーで、指した場所を測る・家具を置く
+function onXRSelect(pointInfo) {
+  if (!inXR || !xrHelper || !xrHelper.pointerSelection) return;
+  const ctrl = xrHelper.pointerSelection.getXRControllerByPointerId(pointInfo.event.pointerId);
+  if (!ctrl) return;
+  const under = xrHelper.pointerSelection.getMeshUnderPointer(ctrl.uniqueId);
+  if (under && under.name === "xrMenu") return;
+  if (!xrMeasure && !xrPlace) return;
+  const ray = new BABYLON.Ray(BABYLON.Vector3.Zero(), BABYLON.Vector3.Forward(), 60);
+  ctrl.getWorldPointerRayToRef(ray);
+  const hit = scene.pickWithRay(ray, PICK_SOLID);
+  if (!hit || !hit.hit) return;
+  if (xrMeasure) { addMeasurePoint(hit.pickedPoint.clone()); return; }
+  if (xrPlace && hit.pickedMesh.name === "floor") {
+    const c = CATALOG[xrFurnIdx], cam = xrCam();
+    const dir = cam ? cam.getDirection(BABYLON.Axis.Z) : new BABYLON.Vector3(0, 0, 1);
+    const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c, x: hit.pickedPoint.x, z: hit.pickedPoint.z,
+      rot: Math.round((Math.atan2(dir.x, dir.z) * 180 / Math.PI) / 90) * 90 % 360 };
+    if (f.rot < 0) f.rot += 360;
+    myFurn.push(f); makeFurnMesh(f); xrLastFurn = f; stats.furniture++; saveMyFurniture();
+    if (sunGen) sunGen.addShadowCaster(f.mesh);
+  }
+}
+// ゴーグルの中では画面の文字が見えないので、測った長さは3Dの札で出す
+function textPlane(text, pos) {
+  const dt = new BABYLON.DynamicTexture("tp", { width: 256, height: 96 }, scene, true);
+  dt.hasAlpha = true;
+  const ctx2 = dt.getContext();
+  ctx2.fillStyle = "#FACC15"; ctx2.beginPath();
+  if (ctx2.roundRect) ctx2.roundRect(8, 12, 240, 72, 16); else ctx2.rect(8, 12, 240, 72);
+  ctx2.fill();
+  ctx2.fillStyle = "#111"; ctx2.font = "bold 46px sans-serif"; ctx2.textAlign = "center"; ctx2.textBaseline = "middle"; ctx2.fillText(text, 128, 50);
+  dt.update();
+  const p = BABYLON.MeshBuilder.CreatePlane("tp", { width: 0.32, height: 0.12 }, scene);
+  const m = new BABYLON.StandardMaterial("tpm", scene); m.diffuseTexture = dt; m.emissiveColor = new BABYLON.Color3(1, 1, 1); m.disableLighting = true; m.useAlphaFromDiffuseTexture = true;
+  p.material = m; p.position.copyFrom(pos); p.position.y += 0.1; p.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; p.isPickable = false; p.renderingGroupId = 1;
+  return p;
+}
+function onXRState(state) {
+  const S = BABYLON.WebXRState;
+  if (state === S.IN_XR) {
+    inXR = true;
+    closePanels(); if (dollMode) exitDoll(); if (tour) endTour(false); if (panoMode) exitPano();
+    buildXRMenu(xrMenuParent || null).then(function (menu) {
+      if (!xrMenuParent) {   // コントローラーがまだ無いときは目の前に浮かべる
+        const cam = xrCam();
+        if (cam) { const d = cam.getDirection(BABYLON.Axis.Z); menu.plane.position = cam.position.add(new BABYLON.Vector3(d.x, 0, d.z).normalize().scale(0.8)); menu.plane.position.y = cam.position.y - 0.25; menu.plane.lookAt(cam.position); menu.plane.rotation.y += Math.PI; }
+      }
+      menu.plane.setEnabled(true);
+    }).catch(function (e) { console.warn("VRメニューを作れませんでした", e); });
+  } else if (state === S.NOT_IN_XR) {
+    inXR = false; xrMeasure = false; xrPlace = false;
+    if (xrMenu) xrMenu.plane.setEnabled(false);
+  }
+}
+let xrMenuParent = null;
+function attachXRController(controller) {
+  controller.onMotionControllerInitObservable.add(function (mc) {
+    if (mc.handedness !== "left") return;
+    const grip = controller.grip || controller.pointer;
+    xrMenuParent = new BABYLON.TransformNode("xrMenuAnchor", scene);
+    xrMenuParent.parent = grip;
+    xrMenuParent.position.set(0.02, 0.12, 0.06);
+    xrMenuParent.rotation.set(Math.PI / 4, 0, 0);
+    if (xrMenu) { xrMenu.plane.parent = xrMenuParent; xrMenu.plane.position.set(0, 0, 0); xrMenu.plane.rotation.set(0, 0, 0); xrMenu.plane.scaling.set(0.8, 0.8, 0.8); }
+  });
+}
+function hookXR() {
+  if (!xrHelper || !xrHelper.baseExperience) return;
+  xrHelper.baseExperience.onStateChangedObservable.add(onXRState);
+  if (xrHelper.input) xrHelper.input.onControllerAddedObservable.add(attachXRController);
+  scene.onPointerObservable.add(function (pi) { if (pi.type === BABYLON.PointerEventTypes.POINTERDOWN && inXR) onXRSelect(pi); });
+  setInterval(function () { if (inXR) xrMenuRefresh(); }, 1000);
+}
+setLang(LANG);
+window.__debugXRMenu = function () { return buildXRMenu(null).then(function (m) { m.plane.position = camera.position.add(new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).scale(0.7)); m.plane.lookAt(camera.position); m.plane.rotation.y += Math.PI; return m; }); };
+
+/* ---------- 読み込み ---------- */
+function showHint() {
+  hintEl.textContent = isTouch
+    ? T("左下のスティックで移動 / 画面ドラッグで見回す")
+    : T("W A S D で移動 / ドラッグで見回す / Shiftで速く");
+  hintEl.classList.remove("hide");
+  setTimeout(function () { hintEl.classList.add("hide"); }, 7000);
+}
+
+let started = false;
+async function startWith(plan, propName, opts) {
+  opts = opts || {};
+  allowEmptyPlan = !!(opts.splat && opts.splat.url) || !!(opts.panoramas && opts.panoramas.length);
+  buildPlan(plan || { rooms: [], walls: [] });
+  titleEl.textContent = propName || "";
+  if (!started) {
+    started = true;
+    if (!opts.align) await setupXR();
+    engine.runRenderLoop(function () { scene.render(); });
+  }
+  await setupSplat(opts);
+  loadingEl.classList.add("hide");
+  if (!opts.align) { showHint(); initTools(opts); }
+}
+function fail(err) {
+  console.error(err);
+  showError("読み込みに失敗しました: " + (err && err.message ? err.message : err));
+}
+
+// ほかのスクリプトからも呼べるようにしておく
+window.loadPlan = function (plan, propName) { return startWith(plan, propName).catch(fail); };
+
+window.addEventListener("message", function (e) {
+  const msg = e.data;
+  if (!msg || typeof msg !== "object") return;
+  if (HERO) {
+    if (msg.type === "vr-hero-init") { gotInit = true; startHero(msg.data).catch(fail); }
+    if (msg.type === "vr-hero-run") heroRun(!!msg.on);
+    return;
+  }
+  if (msg.type !== "vr-viewer-init") return;
+  gotInit = true;
+  if (msg.lang) setLang(msg.lang);
+  if (msg.sample) { startWith(SAMPLE_PLAN, T("サンプルの部屋"), { liveOk: !!msg.liveOk, furnStore: msg.furnStore || "session", propKey: "sample" }).catch(fail); return; }
+  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
+});
+
+/* ---------- トップページ用の模型表示 (?hero=1) ----------
+   家全体を上から見た模型をゆっくり回す。ドラッグで回せて、タップすると親ページに「中に入る」を伝える */
+let heroCam = null, heroOn = true;
+async function startHero(plan) {
+  if (started) return;
+  started = true;
+  buildPlan(plan && plan.rooms && plan.rooms.length ? plan : SAMPLE_PLAN);
+  const b = planBounds(), c = { x: (b.x1 + b.x2) / 2, z: (b.z1 + b.z2) / 2 };
+  const size = Math.max(b.x2 - b.x1, b.z2 - b.z1, 4);
+  const diag = Math.hypot(b.x2 - b.x1, b.z2 - b.z1, 2.4);   // 回しても家全体が画面に収まる距離
+  heroCam = new BABYLON.ArcRotateCamera("heroCam", -Math.PI / 2 - 0.55, 0.78, Math.max(diag * 1.2, 6), new BABYLON.Vector3(c.x, 0.4, c.z), scene);
+  heroCam.fovMode = BABYLON.Camera.FOVMODE_HORIZONTAL_FIXED;
+  heroCam.fov = 1.05;
+  heroCam.lowerRadiusLimit = heroCam.upperRadiusLimit = heroCam.radius;   // ページのスクロールを邪魔しないよう拡大縮小はなし
+  heroCam.lowerBetaLimit = 0.45; heroCam.upperBetaLimit = 1.1;
+  heroCam.panningSensibility = 0; heroCam.minZ = 0.05;
+  heroCam.inputs.removeByType("ArcRotateCameraMouseWheelInput");
+  if (!isTouch) heroCam.attachControl(canvas, true);   // スマホは指でページをスクロールできるように回転操作はなし
+  heroCam.useAutoRotationBehavior = true;
+  const ar = heroCam.autoRotationBehavior;
+  ar.idleRotationSpeed = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 0.16;
+  ar.idleRotationWaitTime = 1500; ar.idleRotationSpinupTime = 1200;
+  scene.activeCamera = heroCam;
+  planMeshes().forEach(function (m) { m.isVisible = m.name !== "ceiling"; });
+  scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
+  canvas.style.touchAction = isTouch ? "pan-y" : "none";
+  let down = null;
+  canvas.addEventListener("pointerdown", function (e) { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener("pointerup", function (e) {
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 8 && performance.now() - down.t < 600) postToParent({ type: "vr-hero-enter" });
+    down = null;
+  });
+  heroRun(true);
+  scene.executeWhenReady(function () { setTimeout(function () { postToParent({ type: "vr-hero-shown" }); }, 120); });
+}
+function heroRun(on) {
+  heroOn = on;
+  engine.stopRenderLoop();
+  if (on && started) engine.runRenderLoop(function () { scene.render(); });
+}
+
+let gotInit = false;
+(async function boot() {
+  const qs = new URLSearchParams(location.search);
+  const planUrl = qs.get("plan"), splatUrl = qs.get("splat");
+  if (splatUrl && !planUrl) {   // 実写だけを試すとき: vr-viewer.html?splat=URL
+    await startWith(null, "", { splat: { url: splatUrl }, align: qs.get("align") === "1" });
+    return;
+  }
+  if (planUrl) {
+    loadingText.textContent = "間取りデータを読み込み中…";
+    const res = await fetch(planUrl);
+    if (!res.ok) throw new Error("間取りデータを取得できませんでした (" + res.status + ")");
+    await startWith(await res.json(), "");
+    return;
+  }
+  if (HERO) {
+    postToParent({ type: "vr-hero-ready" });
+    setTimeout(function () { if (!gotInit && !started) startHero(null).catch(fail); }, 2500);
+    return;
+  }
+  if (isEmbedded) {
+    postToParent({ type: "vr-viewer-ready" });
+    // 親からデータが来なければサンプルを表示
+    setTimeout(function () { if (!gotInit && !started) startWith(SAMPLE_PLAN, "サンプルの部屋").catch(fail); }, 2500);
+    return;
+  }
+  await startWith(SAMPLE_PLAN, "サンプルの部屋");
+})().catch(fail);
+
+window.addEventListener("resize", function () { engine.resize(); updateFov(); });
+
+/* ---------- スマホを横向きで見る ---------- */
+// 全画面にして横向きに固定する(Androidなど対応端末)。固定できない端末(iPhoneなど)では
+// 「横向きにしてください」と案内し、回転したら自動で消す。
+const rotateBtn = document.getElementById("rotateBtn");
+const rotateHint = document.getElementById("rotateHint");
+const isLandscape = () => window.innerWidth > window.innerHeight;
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+async function enterLandscape() {
+  try {
+    const el = document.documentElement;
+    if (!fsElement()) {
+      if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: "hide" });
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }
+  } catch (e) { /* 全画面にできない端末もある */ }
+  let locked = false;
+  try { if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock("landscape"); locked = true; } } catch (e) { locked = false; }
+  if (!locked && !isLandscape()) rotateHint.classList.add("show");
+  rotateBtn.textContent = T("⤡ 縦に戻す"); landscapeOn = true;
+}
+async function exitLandscape() {
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+  try { if (fsElement()) { if (document.exitFullscreen) await document.exitFullscreen(); else if (document.webkitExitFullscreen) document.webkitExitFullscreen(); } } catch (e) {}
+  rotateHint.classList.remove("show");
+  rotateBtn.textContent = T("⤢ 横向き"); landscapeOn = false;
+}
+let landscapeOn = false;
+rotateBtn.addEventListener("click", function () { (landscapeOn ? exitLandscape : enterLandscape)(); });
+document.getElementById("rotateHintClose").addEventListener("click", function () { rotateHint.classList.remove("show"); });
+function onOrientation() {
+  if (isLandscape()) rotateHint.classList.remove("show");
+  // 回転直後は画面サイズがまだ変わっていないことがあるので、少し待ってから合わせ直す
+  setTimeout(function () { engine.resize(); updateFov(); }, 250);
+}
+window.addEventListener("orientationchange", onOrientation);
+if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener("change", onOrientation);
+document.addEventListener("fullscreenchange", function () { if (!fsElement()) { rotateBtn.textContent = T("⤢ 横向き"); landscapeOn = false; } setTimeout(function () { engine.resize(); }, 200); });
+</script>
+</body>
+</html>
