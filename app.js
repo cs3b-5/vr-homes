@@ -1779,7 +1779,7 @@ function initLeafletMap(){
   leafletMap=L.map('leaf-map',{preferCanvas:true,fadeAnimation:false,markerZoomAnimation:false}).setView([35.6762,139.6503],12);
   // ベースマップ：OSM日本（駅名が日本語で読みやすい）
   const osmJp=L.tileLayer('https://tile.openstreetmap.jp/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:18,updateWhenIdle:true,updateWhenZooming:false,keepBuffer:2});
-  const carto=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'&copy; OpenStreetMap &copy; CARTO',subdomains:'abcd',maxZoom:19,updateWhenIdle:true,updateWhenZooming:false,keepBuffer:2});
+  const carto=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19,updateWhenIdle:true,updateWhenZooming:false,keepBuffer:2});
   let osmFailed=false;
   osmJp.on('tileerror',()=>{if(!osmFailed){osmFailed=true;leafletMap.removeLayer(osmJp);carto.addTo(leafletMap);}});
   osmJp.addTo(leafletMap);
@@ -2896,7 +2896,7 @@ function renderPropDetail(prop){
     if(prop.lat&&prop.lng){
       pdMiniMap=L.map('pd-mini-map',{zoomControl:false}).setView([prop.lat,prop.lng],15);pdMiniMap.attributionControl.setPrefix(false);
       if(window.fxBaseLayers) fxBaseLayers(pdMiniMap,false);
-      else L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{maxNativeZoom:18,maxZoom:19}).addTo(pdMiniMap);
+      else L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19}).addTo(pdMiniMap);
       L.marker([prop.lat,prop.lng],{icon:L.divIcon({className:'he-pin-wrap',iconSize:null,html:'<div class="he-pin sel"><span>ここ</span></div>'})}).addTo(pdMiniMap);
     } else {
       miniEl.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;text-align:center"><div><i class="ti ti-map-off" style="font-size:20px;display:block;margin-bottom:4px;opacity:.5"></i>地図データなし</div></div>';

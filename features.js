@@ -2566,13 +2566,14 @@ function heInitMap() {
     }, 140);
   }, { passive: true });
 }
-// 地図の絵（タイル）。ふだんは見やすい OpenStreetMap（CARTO Voyager）。右上で国土地理院の地図・航空写真にも切り替えられる
+// 地図の絵（タイル）。ふだんは OpenStreetMap の標準の地図。左上のボタンで国土地理院の地図・航空写真にも切り替えられる
+// ※ CARTO の地図は APIキーが必要になり「API KEY REQUIRED」と出るようになったので使わない
 function fxBaseLayers(map, withControl) {
   const en = fxLang === 'en';
   const gsi = (id, ext) => L.tileLayer(`https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`, {
     attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>', maxNativeZoom: 18, maxZoom: 19 });
-  const voyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>', subdomains: 'abcd', maxZoom: 19 });
+  const voyager = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors', maxZoom: 19 });
   const layers = {};
   layers[en ? 'Map' : '地図'] = voyager;
   layers[en ? 'Map (GSI)' : '地図（国土地理院）'] = gsi('std', 'png');
@@ -2592,7 +2593,7 @@ function fxBaseLayers(map, withControl) {
 }
 window.fxBaseLayers = fxBaseLayers;
 window.fxHeMap = () => ({ map: heMap, pins: hePins });   // テスト・確認用
-function hePriceLabel(p) { return (Math.round((+p.price || 0) / 1000) / 10).toString() + '万'; }   // 98000 → 9.8万
+function hePriceLabel(p) { return +p.price > 0 ? (Math.round(+p.price / 1000) / 10).toString() + '万' : '−'; }   // 98000 → 9.8万
 function heLatLng(list) {
   // 同じ場所の物件は少しずらして、ピンが重ならないようにする
   const seen = {}, out = {};
@@ -2614,7 +2615,7 @@ function heDraw(fit) {
   list.forEach(p => {
     const vr = heIsVR(p);
     const icon = L.divIcon({ className: 'he-pin-wrap', iconSize: null,
-      html: `<div class="he-pin${vr ? ' vr' : ''}${isPR(p) ? ' pr' : ''}${heSel === p.id ? ' sel' : ''}"><span>${esc(fxLang === 'en' ? '¥' + Math.round((+p.price || 0) / 1000) + 'k' : hePriceLabel(p))}</span></div>` });
+      html: `<div class="he-pin${vr ? ' vr' : ''}${isPR(p) ? ' pr' : ''}${heSel === p.id ? ' sel' : ''}"><span>${esc(fxLang === 'en' ? (+p.price > 0 ? '¥' + Math.round(+p.price / 1000) + 'k' : '−') : hePriceLabel(p))}</span></div>` });
     const m = L.marker(pos[p.id], { icon, title: `${p.name}（${yen(p.price)}）`, alt: p.name, riseOnHover: true, keyboard: true });
     m.on('click', () => heSelect(p.id, { from: 'pin' }));
     m.addTo(heLayer); hePins[p.id] = m;
