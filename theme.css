@@ -334,3 +334,6 @@ body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 /* 地図の部品（ズームボタン・ピンなど）がヘッダーやチャットの上に突き抜けないよう、地図の中に閉じこめる */
 .leaflet-container,.he-map,.he-map-stage{isolation:isolate}
 .he-map,.he-map-stage{z-index:0}
+
+/* ヘッダーを上のタブの真下にぴったり固定（--tabh はタブの実際の高さ。features.js が入れる）*/
+.screen > nav.nav{top:var(--tabh,47px)!important}

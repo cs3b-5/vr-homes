@@ -2650,6 +2650,14 @@ function heFabDodge() {
 }
 let heFabRaf = 0;
 ['scroll', 'resize'].forEach(ev => window.addEventListener(ev, () => { cancelAnimationFrame(heFabRaf); heFabRaf = requestAnimationFrame(heFabDodge); }, { passive: true }));
+// 上のタブの高さを測って、各画面のヘッダーをその真下にぴったり固定する（すき間・潜りこみをなくす）
+function fitStickyNav() {
+  const tb = document.querySelector('.tab-bar'); if (!tb) return;
+  const h = tb.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--tabh', h + 'px');
+}
+if ('ResizeObserver' in window) { const ro = new ResizeObserver(fitStickyNav); const tb0 = document.querySelector('.tab-bar'); if (tb0) ro.observe(tb0); }
+window.addEventListener('resize', fitStickyNav);
 function initMapView() {
   document.querySelectorAll('.he-view-btn').forEach(b => { b.onclick = () => heSetView(b.dataset.view); });
   if (heView === 'map') heSetView('map');
@@ -2667,7 +2675,7 @@ window.fxPicksOnMap = function (ids) {
 
 /* ══════════════ 起動 ══════════════ */
 function boot() {
-  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); fitStickyNav(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
   const help = $('s-help');
   if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
   setGuestClass();
