@@ -34,6 +34,7 @@
   #alignPanel input[type=number] { width: 64px; height: 28px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 0 6px; font-family: inherit; }
   #alignPanel .acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
   #closeBtn, #rotateBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
+  #closeBtn { background: #2563eb; color: #fff; font-weight: 700; }
   body.touch #rotateBtn { display: block; }
   #rotateHint { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(10,14,26,.85); color: #fff; font-size: 15px; text-align: center; padding: 24px; }
   #rotateHint.show { display: flex; }
@@ -141,7 +142,7 @@
   })();
 </script>
 <div id="topbar">
-  <button id="closeBtn" class="pill" data-t="✕ 閉じる">✕ 閉じる</button>
+  <button id="closeBtn" class="pill" data-t="← サイトに戻る">← サイトに戻る</button>
   <button id="rotateBtn" class="pill" title="全画面・横向きで見る" data-t="⤢ 横向き">⤢ 横向き</button>
   <button id="modeBtn" class="pill" title="実写と間取りを切り替える">🏠 間取りで見る</button>
   <div id="title" class="pill"></div>
@@ -296,6 +297,20 @@ function postToParent(msg) {
   try { if (isEmbedded) window.parent.postMessage(msg, "*"); } catch (e) { /* 親がいないだけ */ }
 }
 
+// サイトに戻る: サイトの中で開いたときは閉じる、直接開いたときはトップページへ
+function backToSite() {
+  if (typeof inXR !== "undefined" && inXR && xrHelper && xrHelper.baseExperience) {
+    xrHelper.baseExperience.exitXRAsync().catch(function () {}).then(function () { setTimeout(backToSite, 50); });
+    return;
+  }
+  if (typeof exitLandscape === "function") exitLandscape();
+  if (isEmbedded) closeViewer();
+  else { if (typeof flushStats === "function") flushStats(); location.href = "index.html"; }
+}
+if (!isEmbedded && !HERO) {
+  closeBtn.style.display = "block";
+  closeBtn.addEventListener("click", backToSite);
+}
 if (isEmbedded) {
   closeBtn.style.display = "block";
   closeBtn.addEventListener("click", function () { if (typeof exitLandscape === "function") exitLandscape(); closeViewer(); });
@@ -1038,7 +1053,7 @@ async function setupSplat(opts) {
 /* ---------- 言語 ---------- */
 let LANG = (function () { try { return localStorage.getItem("vr_lang") || "ja"; } catch (e) { return "ja"; } })();
 const EN = {
-  "✕ 閉じる": "✕ Close", "⤢ 横向き": "⤢ Landscape", "⤡ 縦に戻す": "⤡ Portrait",
+  "✕ 閉じる": "✕ Close", "← サイトに戻る": "← Back to site", "⤢ 横向き": "⤢ Landscape", "⤡ 縦に戻す": "⤡ Portrait",
   "🏠 間取りで見る": "🏠 Floor plan", "📷 実写で見る": "📷 Real photo",
   "左下のスティックで移動 / 画面ドラッグで見回す": "Move with the stick / drag to look around",
   "W A S D で移動 / ドラッグで見回す / Shiftで速く": "WASD to move / drag to look / Shift to run",
@@ -1360,15 +1375,20 @@ function drawMinimap() {
   mmMap = { s: s, ox: ox, oy: oy, b: b };
   mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   mctx.clearRect(0, 0, W, H);
+  paintMinimap(mctx, X, Y, s, { x: camera.position.x, z: camera.position.z, yaw: yaw });
+}
+// ミニマップの中身を描く（画面のミニマップと、VRゴーグルの中のミニマップで共通）
+function paintMinimap(mctx, X, Y, s, me) {
+  const k = me.k || 1;
   roomAreas.forEach(function (r) {
     mctx.beginPath();
     r.pts.forEach(function (p, i) { if (i) mctx.lineTo(X(p.x), Y(p.z)); else mctx.moveTo(X(p.x), Y(p.z)); });
     mctx.closePath();
     mctx.fillStyle = r === currentRoom ? "rgba(147,197,253,.95)" : "rgba(255,255,255,.88)";
     mctx.fill();
-    mctx.lineWidth = 1.5; mctx.strokeStyle = "#334155"; mctx.stroke();
+    mctx.lineWidth = 1.5 * k; mctx.strokeStyle = "#334155"; mctx.stroke();
   });
-  mctx.strokeStyle = "#334155"; mctx.lineWidth = 1.5;
+  mctx.strokeStyle = "#334155"; mctx.lineWidth = 1.5 * k;
   planFreeWalls.forEach(function (w) { mctx.beginPath(); mctx.moveTo(X(w.a.x), Y(w.a.z)); mctx.lineTo(X(w.b.x), Y(w.b.z)); mctx.stroke(); });
   // 置いた家具
   myFurn.forEach(function (f) {
@@ -1377,19 +1397,27 @@ function drawMinimap() {
     mctx.fillRect(-f.w * s / 2, -f.d * s / 2, f.w * s, f.d * s); mctx.restore();
   });
   // 案内タグ
-  planTags.forEach(function (t) { mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
+  planTags.forEach(function (t) { mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2 * k, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
   // 一緒に内見している人
   if (live) Object.keys(avatars).forEach(function (uid) {
     const a = avatars[uid];
-    mctx.beginPath(); mctx.arc(X(a.x), Y(a.z), 4.5, 0, Math.PI * 2); mctx.fillStyle = a.color; mctx.fill();
-    mctx.lineWidth = 1.5; mctx.strokeStyle = "#fff"; mctx.stroke();
+    mctx.beginPath(); mctx.arc(X(a.x), Y(a.z), 4.5 * k, 0, Math.PI * 2); mctx.fillStyle = a.color; mctx.fill();
+    mctx.lineWidth = 1.5 * k; mctx.strokeStyle = "#fff"; mctx.stroke();
   });
   // 自分 (向きつきの矢印)
-  const cx = X(camera.position.x), cy = Y(camera.position.z);
-  mctx.save(); mctx.translate(cx, cy); mctx.rotate(yaw);
+  const cx = X(me.x), cy = Y(me.z);
+  mctx.save(); mctx.translate(cx, cy); mctx.rotate(me.yaw); if (me.k) mctx.scale(me.k, me.k);
   mctx.beginPath(); mctx.moveTo(0, -8); mctx.lineTo(6, 6); mctx.lineTo(0, 3); mctx.lineTo(-6, 6); mctx.closePath();
   mctx.fillStyle = "#2563eb"; mctx.fill(); mctx.lineWidth = 1.5; mctx.strokeStyle = "#fff"; mctx.stroke();
   mctx.restore();
+  // ゴーグルの中では部屋の名前も出す
+  if (k > 1) {
+    mctx.fillStyle = "#0f172a"; mctx.font = "bold " + Math.round(11 * k) + "px sans-serif"; mctx.textAlign = "center"; mctx.textBaseline = "middle";
+    roomAreas.forEach(function (r) {
+      if (!r.name || r.area < 1.5) return;
+      mctx.fillText(r.name, X(r.cx), Y(r.cz));
+    });
+  }
 }
 setInterval(drawMinimap, 120);
 mm.addEventListener("pointerdown", function (e) {
@@ -2098,9 +2126,9 @@ function xrCam() { return xrHelper && xrHelper.baseExperience ? xrHelper.baseExp
 async function buildXRMenu(parent) {
   await loadGui();
   if (xrMenu) { xrMenu.plane.parent = parent || null; return xrMenu; }
-  const plane = BABYLON.MeshBuilder.CreatePlane("xrMenu", { width: 0.3, height: 0.44 }, scene);
+  const plane = BABYLON.MeshBuilder.CreatePlane("xrMenu", { width: 0.3, height: 0.52 }, scene);
   plane.renderingGroupId = 2;
-  const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane, 600, 880);
+  const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane, 600, 1040);
   const bg = new BABYLON.GUI.Rectangle(); bg.background = "rgba(15,23,42,0.88)"; bg.cornerRadius = 30; bg.thickness = 0; ui.addControl(bg);
   const panel = new BABYLON.GUI.StackPanel(); panel.width = "560px"; panel.top = "10px"; bg.addControl(panel);
   const title = new BABYLON.GUI.TextBlock(); title.text = "VR Homes"; title.color = "#fff"; title.fontSize = 40; title.height = "64px"; title.fontWeight = "bold"; panel.addControl(title);
@@ -2122,11 +2150,51 @@ async function buildXRMenu(parent) {
   addBtn("clear", LANG === "en" ? "Clear measures & items" : "測った線・家具を消す", function () {
     clearMeasures(); myFurn.forEach(function (f) { f.mesh.dispose(); removeLabel(f.label); }); myFurn = []; xrLastFurn = null; saveMyFurniture();
   });
+  addBtn("map", "", function () { xrMapOn = !xrMapOn; xrMapUpdate(); });
+  const back = addBtn("back", LANG === "en" ? "← Back to site" : "← サイトに戻る", function () { backToSite(); });
+  back.background = "#2563eb";
   xrMenu = { plane: plane, ui: ui, status: status, btns: btns };
   plane.parent = parent || null;
   xrMenuRefresh();
   return xrMenu;
 }
+// ゴーグルの中のミニマップ: メニューの上に、自分の位置と向きが分かる間取り図を出す
+let xrMapOn = true, xrMap = null;
+function xrMapBuild() {
+  if (xrMap || !xrMenu) return xrMap;
+  const S = 512;
+  const dt = new BABYLON.DynamicTexture("xrMapTex", { width: S, height: S }, scene, true);
+  dt.hasAlpha = true;
+  const plane = BABYLON.MeshBuilder.CreatePlane("xrMenu", { width: 0.3, height: 0.3 }, scene);   // 名前を xrMenu にして、トリガーで指しても床扱いにしない
+  const m = new BABYLON.StandardMaterial("xrMapMat", scene);
+  m.diffuseTexture = dt; m.emissiveColor = new BABYLON.Color3(1, 1, 1); m.disableLighting = true; m.useAlphaFromDiffuseTexture = true; m.backFaceCulling = false;
+  plane.material = m; plane.renderingGroupId = 2; plane.isPickable = false;
+  plane.parent = xrMenu.plane; plane.position.set(0, 0.42, 0);
+  xrMap = { dt: dt, plane: plane, S: S };
+  return xrMap;
+}
+function xrMapUpdate() {
+  if (!inXR || !xrMenu || !hasPlan()) { if (xrMap) xrMap.plane.setEnabled(false); return; }
+  const mp = xrMapBuild(); if (!mp) return;
+  mp.plane.setEnabled(xrMapOn);
+  if (!xrMapOn) return;
+  const ctx = mp.dt.getContext(), W = mp.S, H = mp.S, pad = 34;
+  const b = mmBounds || (mmBounds = planBounds());
+  const s = Math.min((W - pad * 2) / Math.max(0.5, b.x2 - b.x1), (H - pad * 2) / Math.max(0.5, b.z2 - b.z1));
+  const ox = (W - (b.x2 - b.x1) * s) / 2, oy = (H - (b.z2 - b.z1) * s) / 2;
+  const X = function (x) { return ox + (x - b.x1) * s; }, Y = function (z) { return oy + (b.z2 - z) * s; };
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(15,23,42,0.85)"; ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(0, 0, W, H, 40); else ctx.rect(0, 0, W, H);
+  ctx.fill();
+  const cam = xrCam(), p = cam ? cam.position : camera.position;
+  const d = cam ? cam.getDirection(BABYLON.Axis.Z) : new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  ctx.lineWidth = 3;
+  paintMinimap(ctx, X, Y, s, { x: p.x, z: p.z, yaw: Math.atan2(d.x, d.z), k: 2.4 });
+  mp.dt.update();
+}
+setInterval(function () { if (inXR) xrMapUpdate(); }, 200);
 function xrMenuRefresh() {
   if (!xrMenu) return;
   const en = LANG === "en", b = xrMenu.btns;
@@ -2139,6 +2207,8 @@ function xrMenuRefresh() {
   b.measure.background = xrMeasure ? "#2563eb" : "#334155";
   b.furn.background = xrPlace ? "#2563eb" : "#334155";
   b.sun.isVisible = hasPlan(); b.sunOff.isVisible = sunOn;
+  b.map.isVisible = hasPlan();
+  setT("map", (en ? "Mini map: " : "ミニマップ: ") + (xrMapOn ? "ON" : "OFF"));
   setT("sun", sunOn ? (en ? "Sun: " : "日当たり: ") + sunState.month + (en ? "/" : "月 ") + fmtHour(sunState.hour) + (en ? " (+2h)" : "（+2時間）") : (en ? "Show sunlight" : "日当たりを見る"));
   const room = currentRoom ? currentRoom.name + "  " + areaText(currentRoom) : "";
   const people = live && live.state ? "\n" + (en ? "Together: " : "一緒に内見中: ") + (live.state.members || []).length + (en ? "" : "人") : "";
@@ -2206,6 +2276,7 @@ function onXRState(state) {
   } else if (state === S.NOT_IN_XR) {
     inXR = false; xrMeasure = false; xrPlace = false;
     if (xrMenu) xrMenu.plane.setEnabled(false);
+    if (xrMap) xrMap.plane.setEnabled(false);
   }
 }
 let xrMenuParent = null;

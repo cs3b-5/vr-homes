@@ -260,7 +260,12 @@ def main():
     dev_pred = [set(labels[j] for j in range(len(labels)) if Pd[i, j] >= THRESHOLD) for i in range(len(dev_items))]
     dev_gold = [set(ls) for _, ls in dev_items]
     m_dev = evaluate(dev_pred, dev_gold, labels)
-    m_dev_rule = evaluate([rule_baseline(t) for t, _ in dev_items], dev_gold, labels)
+    dev_rule = [rule_baseline(t) for t, _ in dev_items]
+    m_dev_rule = evaluate(dev_rule, dev_gold, labels)
+    # ハイブリッド: やどかりんAI ＋ キーワード（調整用データで適合率90%以上だった条件だけ）を安全網として足す
+    hyb_labels = [k for k in labels if m_dev_rule['per_label'][k]['support'] and m_dev_rule['per_label'][k]['precision'] >= 0.9]
+    m_dev_hyb = evaluate([a | (b & set(hyb_labels)) for a, b in zip(dev_pred, dev_rule)], dev_gold, labels)
+    m_hyb = evaluate([a | (b & set(hyb_labels)) for a, b in zip(model_pred, rule_pred)], gold, labels)
 
     # 学習データでの成績（覚えすぎていないかの目安）
     Ptr = sigmoid(featurize(train_items, vocab) @ W + b)
@@ -289,7 +294,7 @@ def main():
         'bias': [round(float(x), 3) for x in b], 'w': w_out,
         # 重みを捨てた文字のかたまりも「文の長さ」の計算には入るので、名前だけ残す（ブラウザでも同じ計算にするため）
         'zero': sorted(g for g in vocab if g not in w_out),
-        'trainedOn': len(train_items), 'testMicroF1': round(m_model['micro_f1'], 3)
+        'trainedOn': len(train_items), 'testMicroF1': round(m_model['micro_f1'], 3), 'hybridRuleLabels': hyb_labels
     }
     with open(OUT_MODEL, 'w', encoding='utf-8') as f:
         json.dump(model, f, ensure_ascii=False, separators=(',', ':'))
@@ -313,9 +318,12 @@ def main():
          '| 方式 | 適合率 | 再現率 | F1 | 条件が完全に一致した文 |', '|---|---|---|---|---|',
          '| ルール方式（キーワード） | %s | %s | %s | %s |' % (pct(m_rule['micro_precision']), pct(m_rule['micro_recall']), pct(m_rule['micro_f1']), pct(m_rule['exact_match'])),
          '| やどかりんAI（学習） | %s | %s | %s | %s |' % (pct(m_model['micro_precision']), pct(m_model['micro_recall']), pct(m_model['micro_f1']), pct(m_model['exact_match'])),
+         '| **ハイブリッド（AI＋キーワードの安全網）※サイトで使う方式** | %s | %s | %s | %s |' % (pct(m_hyb['micro_precision']), pct(m_hyb['micro_recall']), pct(m_hyb['micro_f1']), pct(m_hyb['exact_match'])),
+         '', 'ハイブリッドでキーワードも使う条件（調整用データでキーワードの適合率が90%%以上だったもの）: %s' % '・'.join(names[k][0] for k in hyb_labels),
          '', '| 参考 | F1 |', '|---|---|',
          '| 調整用データ（dev）ルール方式 | %s |' % pct(m_dev_rule['micro_f1']),
          '| 調整用データ（dev）やどかりんAI | %s |' % pct(m_dev['micro_f1']),
+         '| 調整用データ（dev）ハイブリッド | %s |' % pct(m_dev_hyb['micro_f1']),
          '| 学習データ やどかりんAI（覚えすぎていないかの目安） | %s |' % pct(m_train['micro_f1']), '',
          '- 適合率: AIが「ある」と言った条件のうち、本当に合っていた割合',
          '- 再現率: 本当にある条件のうち、AIが見つけられた割合',
@@ -329,13 +337,15 @@ def main():
         L.append('| %s | %s | %s |' % (t, '・'.join(names[x][0] for x in g) or '（なし）', '・'.join(names[x][0] for x in p) or '（なし）'))
     L += ['', '## 注意', '',
           '- テスト文は学習用の文とは別に書いたが、同じ人が書いているので、本物の利用者の文より簡単な可能性がある。',
-          '- 開発の記録: 最初のテスト文を見ながら改良してしまったため、それを調整用（dev.tsv）に回し、新しいテスト文（test.tsv）を書き直した。新しいテスト文で成績を見たのは、学習データを増やした版と、3文つなぎを足した最終版の2回。',
+          '- 開発の記録: 最初のテスト文を見ながら改良してしまったため、それを調整用（dev.tsv）に回し、新しいテスト文（test.tsv）を書き直した。新しいテスト文で成績を見たのは、学習データを増やした版・3文つなぎを足した版・ハイブリッドを足した最終版の3回（ハイブリッドを使うかどうかは調整用データだけで決めた）。',
           '- アンケートで集めた本物の悩みを data/survey.tsv に入れて学習し直し、別の人の文でテストすると、より正確に評価できる。']
     open(os.path.join(HERE, 'report.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
     json.dump({'model': m_model, 'rule': m_rule, 'dev': {'model': m_dev['micro_f1'], 'rule': m_dev_rule['micro_f1']},
                'train': {'micro_f1': m_train['micro_f1']}, 'settings': {'l2': L2, 'threshold': THRESHOLD, 'cv': {'%g/%g' % k: v for k, v in cv.items()}}},
               open(os.path.join(HERE, 'metrics.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    print('調整用(dev)   ルール方式 F1 %s / やどかりんAI F1 %s' % (pct(m_dev_rule['micro_f1']), pct(m_dev['micro_f1'])))
+    print('調整用(dev)   ルール方式 F1 %s / やどかりんAI F1 %s / ハイブリッド F1 %s' % (pct(m_dev_rule['micro_f1']), pct(m_dev['micro_f1']), pct(m_dev_hyb['micro_f1'])))
+    print('ハイブリッドでキーワードも使う条件: %s  ← サーバー(lambda_function.py)の YK_HYBRID と同じにしておく' % ','.join(hyb_labels))
+    print('テストの成績  ハイブリッド F1 %s (完全一致 %s)' % (pct(m_hyb['micro_f1']), pct(m_hyb['exact_match'])))
     print('\nテストの成績  ルール方式 F1 %s / やどかりんAI F1 %s  (完全一致 %s → %s)'
           % (pct(m_rule['micro_f1']), pct(m_model['micro_f1']), pct(m_rule['exact_match']), pct(m_model['exact_match'])))
     print('くわしくは report.md を見てください')

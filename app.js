@@ -1077,7 +1077,7 @@ function _enterApp(user){
   refreshAllFilters();
   refreshPermissionViews();   // ログイン前に描いた「鍵マーク」のままにならないように描き直す
   // お問い合わせフォームに自分の名前とメールを入れておく
-  [['mc-name',user.name],['mc-email',user.email]].forEach(([id,v])=>{const el=document.getElementById(id);if(el&&!el.value) el.value=v||'';});
+  try{ renderContactSender(); }catch(e){}
   if(isMaster()){
     renderMasterUserTable();renderRoleTable();renderFieldManagement();
     showScreen('master');
@@ -2343,22 +2343,25 @@ async function sendRealMail(to, subject, body){
 }
 
 /* 物件へのお問い合わせフォームを開く */
+function escapeHtml(v){ return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function openContactForm(propId){
   const prop=PROPS.find(p=>p.id===propId);
   if(!prop){alert('物件が見つかりません');return;}
+  if(!isLoggedIn){ if(window.fxRequireLogin) fxRequireLogin('お問い合わせにはログインが必要です',()=>openContactForm(propId)); return; }
   const ov=document.getElementById('contact-overlay');
   const body=document.getElementById('contact-body');
-  const ownerLabel = prop.ownerName ? `${prop.ownerName} さん` : '担当者';
+  const ownerLabel = prop.ownerName ? `${escapeHtml(prop.ownerName)} さん（この物件を登録した担当者）` : '運営';
   body.innerHTML=`
-    <div style="font-size:12px;color:#64748b;margin-bottom:16px;line-height:1.7">
-      <strong style="color:var(--navy)">${prop.name}</strong> について、${ownerLabel}へお問い合わせします。
+    <div style="font-size:12px;color:#64748b;margin-bottom:14px;line-height:1.7">
+      <strong style="color:var(--navy)">${escapeHtml(prop.name)}</strong> について、${ownerLabel}へお問い合わせします。
     </div>
-    <div class="field"><div class="flabel">お名前</div>
-      <input class="finput" id="ct-name" value="${currentUser?currentUser.name:''}" placeholder="お名前"></div>
-    <div class="field"><div class="flabel">返信先メールアドレス</div>
-      <input class="finput" id="ct-email" value="${currentUser?currentUser.email:''}" placeholder="you@example.com"></div>
+    <div style="font-size:12px;background:var(--surface2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px;line-height:1.7">
+      <div><span style="color:#64748b">送信者：</span><b>${escapeHtml(currentUser.name||'')}</b></div>
+      <div><span style="color:#64748b">返信先：</span>${escapeHtml(currentUser.email||'')}</div>
+      <div style="color:#94a3b8;font-size:11px">返事はサイトの受信箱とメールに届きます</div>
+    </div>
     <div class="field"><div class="flabel">お問い合わせ内容</div>
-      <textarea class="finput" id="ct-msg" rows="5" placeholder="内見希望日、質問など" style="resize:vertical"></textarea></div>
+      <textarea class="finput" id="ct-msg" rows="5" maxlength="3000" placeholder="内見希望日、質問など" style="resize:vertical"></textarea></div>
     <div id="ct-status" style="display:none;font-size:12px;margin-bottom:10px"></div>
     <button class="btn btn-p" style="width:100%;justify-content:center;padding:11px" onclick="submitContact(${propId})">
       <i class="ti ti-send"></i> 送信する
@@ -2367,6 +2370,14 @@ function openContactForm(propId){
   // 履歴に積む（戻る／スワイプで閉じられるように）
   const cur=history.state;
   pushNavState({screen:(cur&&cur.screen)||'top', modal:'contact', propId:propId});
+}
+/* お問い合わせを送る。宛先はサーバーが決める（物件を登録した人／運営） */
+async function sendContact(propId, text){
+  const res=await fetch(AWS_API_URL+'?action=contact',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(propId==null?{body:text}:{propId:propId, body:text})});
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(d.error||('HTTP '+res.status));
+  return d;
 }
 function closeContactForm(){
   const ov=document.getElementById('contact-overlay');
@@ -2379,51 +2390,37 @@ function closeContactForm(){
 
 async function submitContact(propId){
   const prop=PROPS.find(p=>p.id===propId);if(!prop) return;
-  const name=(document.getElementById('ct-name')||{}).value?.trim()||'';
-  const email=(document.getElementById('ct-email')||{}).value?.trim()||'';
   const text=(document.getElementById('ct-msg')||{}).value?.trim()||'';
   const status=document.getElementById('ct-status');
   const show=(t,ok)=>{status.style.cssText=`display:block;font-size:12px;margin-bottom:10px;color:${ok?'var(--green)':'var(--red)'}`;status.textContent=t;};
-  if(!name||!email){show('お名前とメールアドレスを入力してください',false);return;}
   if(!text){show('お問い合わせ内容を入力してください',false);return;}
-  const to=prop.ownerEmail||MASTER_EMAIL; // 登録者、なければマスター
-  const msg={
-    id:'m'+Date.now(), to, from:email, fromName:name,
-    subject:`【物件お問い合わせ】${prop.name}`,
-    body:text, propId:prop.id, propName:prop.name,
-    time:new Date().toISOString(), read:false
-  };
-  // サイト内メール保存
   show('送信中...',true);
-  const saved=await saveMessage(msg);
-  if(!saved){show('送信できませんでした。通信状態を確認して、もう一度お試しください',false);return;}
-  // 実メール送信
-  const mailOk=await sendRealMail(to, msg.subject, `${name} 様（${email}）からお問い合わせがありました。\n\n物件：${prop.name}\n\n${text}`);
-  show(mailOk?'✓ 送信しました（サイト内メール＋メール送信）':'✓ サイト内メールに送信しました',true);
-  updateInboxBadge();
-  setTimeout(closeContactForm,1600);
+  try{
+    const d=await sendContact(propId, text);
+    show(d.mailed?`✓ ${d.toName}に送信しました（サイト内メール＋メール）`:`✓ ${d.toName}のサイト内メールに送信しました`,true);
+    setTimeout(closeContactForm,1600);
+  }catch(e){ show('送信できませんでした：'+e.message,false); }
 }
 
-/* マスター宛お問い合わせ送信 */
+/* 運営へのお問い合わせ（宛先・差出人は自動） */
 async function submitMasterContact(){
-  const name=(document.getElementById('mc-name')||{}).value?.trim()||'';
-  const email=(document.getElementById('mc-email')||{}).value?.trim()||'';
   const text=(document.getElementById('mc-msg')||{}).value?.trim()||'';
   const status=document.getElementById('mc-status');
   const show=(t,ok)=>{if(status){status.style.cssText=`display:block;font-size:12px;margin:10px 0;color:${ok?'var(--green)':'var(--red)'}`;status.textContent=t;}};
-  if(!name||!email||!text){show('すべての項目を入力してください',false);return;}
-  const msg={
-    id:'m'+Date.now(), to:MASTER_EMAIL, from:email, fromName:name,
-    subject:'【運営へのお問い合わせ】', body:text,
-    time:new Date().toISOString(), read:false
-  };
+  if(!isLoggedIn){ if(window.fxRequireLogin) fxRequireLogin('お問い合わせにはログインが必要です'); return; }
+  if(!text){show('お問い合わせ内容を入力してください',false);return;}
   show('送信中...',true);
-  const saved=await saveMessage(msg);
-  if(!saved){show('送信できませんでした。通信状態を確認して、もう一度お試しください',false);return;}
-  const mailOk=await sendRealMail(MASTER_EMAIL,'【運営へのお問い合わせ】',`${name} 様（${email}）\n\n${text}`);
-  show(mailOk?'✓ 送信しました':'✓ サイト内メールに送信しました',true);
-  updateInboxBadge();
-  ['mc-name','mc-email','mc-msg'].forEach(id=>{const el=document.getElementById(id);if(el&&id==='mc-msg') el.value='';});
+  try{
+    const d=await sendContact(null, text);
+    show(d.mailed?'✓ 運営に送信しました（サイト内メール＋メール）':'✓ 運営のサイト内メールに送信しました',true);
+    const el=document.getElementById('mc-msg'); if(el) el.value='';
+  }catch(e){ show('送信できませんでした：'+e.message,false); }
+}
+function renderContactSender(){
+  const box=document.getElementById('mc-sender'); if(!box) return;
+  box.innerHTML=isLoggedIn&&currentUser
+    ?`<span style="color:#64748b">送信者：</span><b>${escapeHtml(currentUser.name||'')}</b>　<span style="color:#64748b">返信先：</span>${escapeHtml(currentUser.email||'')}`
+    :'お問い合わせにはログインが必要です';
 }
 
 /* 受信箱を描画（マイページ・受信箱タブ） */

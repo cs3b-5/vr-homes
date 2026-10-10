@@ -548,14 +548,11 @@
     <!-- マスター宛お問い合わせ -->
     <div style="margin-top:32px">
       <h2 style="font-size:20px;font-weight:800;color:var(--navy);margin-bottom:6px"><i class="ti ti-mail" style="color:var(--blue)"></i> 運営へのお問い合わせ</h2>
-      <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">ヘルプで解決しない場合は、運営（マスター）へお問い合わせください。</p>
+      <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">ヘルプで解決しない場合は、運営へお問い合わせください。返事はサイトの受信箱とメールに届きます。</p>
       <div class="card" style="max-width:560px">
-        <div class="field"><div class="flabel">お名前 <span class="req">*</span></div>
-          <input class="finput" id="mc-name" placeholder="お名前" onkeydown="handleFormKey(event,'mc-email')"></div>
-        <div class="field"><div class="flabel">返信先メールアドレス <span class="req">*</span></div>
-          <input class="finput" id="mc-email" placeholder="you@example.com" onkeydown="handleFormKey(event,'mc-msg')"></div>
+        <div id="mc-sender" style="font-size:12px;background:var(--surface2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px;line-height:1.7">お問い合わせにはログインが必要です</div>
         <div class="field"><div class="flabel">お問い合わせ内容 <span class="req">*</span></div>
-          <textarea class="finput" id="mc-msg" rows="5" placeholder="ご質問・ご要望など" style="resize:vertical"></textarea></div>
+          <textarea class="finput" id="mc-msg" rows="5" maxlength="3000" placeholder="ご質問・ご要望など" style="resize:vertical"></textarea></div>
         <div id="mc-status" style="display:none"></div>
         <button class="btn btn-p" style="width:100%;justify-content:center;padding:12px" onclick="submitMasterContact()">
           <i class="ti ti-send"></i> 送信する

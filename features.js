@@ -2489,9 +2489,37 @@ function heSetView(v, opts) {
   document.body.classList.toggle('he-mapview', isMap);
   if (isMap) { heInitMap(); setTimeout(() => { if (heMap) { heMap.invalidateSize(); heDraw(!(opts && opts.keepView)); } }, 30); }
   setTimeout(heFabDodge, 60);
+  heTabMark();
   if (opts && opts.scroll) { const tgt = $('he-list-anchor') || document.querySelector('.he-list-title'); if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 window.fxSetView = heSetView;
+// 上のタブ: トップで地図表示のときは「マップ」を光らせる
+function heTabMark() {
+  const top = $('s-top'); if (!top || !top.classList.contains('active')) return;
+  const tm = $('tab-map'), tt = $('tab-top');
+  if (tm) tm.classList.toggle('active', heView === 'map');
+  if (tt) tt.classList.toggle('active', heView !== 'map');
+}
+// 古い「マップ」画面はもう使わない。どこから開かれても（戻るボタン・#map のURLなど）トップの地図表示にする
+const _showScreenOld = window.showScreen;
+window.showScreen = function (id) {
+  if (id === 'map') {
+    const r = _showScreenOld.call(this, 'top');
+    setTimeout(() => { heSetView('map'); heTabMark(); }, 30);
+    return r;
+  }
+  const r = _showScreenOld.apply(this, arguments);
+  if (id === 'top') setTimeout(heTabMark, 0);
+  return r;
+};
+window.initLeafletMap = function () {};   // 古い地図は作らない
+const _applyScreenOld = window._applyScreen;
+if (typeof _applyScreenOld === 'function') window._applyScreen = function (id) {
+  if (id === 'map') { const r = _applyScreenOld.call(this, 'top'); setTimeout(() => { heSetView('map'); heTabMark(); }, 30); return r; }
+  const r = _applyScreenOld.apply(this, arguments);
+  if (id === 'top') setTimeout(heTabMark, 0);
+  return r;
+};
 
 function heInitMap() {
   if (heMap || typeof L === 'undefined' || !$('he-map-canvas')) return;
@@ -2685,9 +2713,23 @@ window.fxPicksOnMap = function (ids) {
    運営ができるのは「掲載を止める／再開する」と「おすすめ掲載（PR）の設定」だけ。物件の中身は不動産会社（管理者）が編集する */
 async function renderModeration() {
   const box = $('master-listings'); if (!box) return;
-  box.innerHTML = `<h2 class="fx-mod-h">掲載の管理</h2><p class="fx-mini">不適切な掲載を止めたり、おすすめ掲載（PR）の期間を設定したりできます。物件の内容（家賃・写真など）は、掲載した不動産会社が編集します。</p><div class="fx-mod-list" id="fx-mod-list">読み込み中…</div>`;
+  const nSample = PROPS.filter(p => p.sample).length;
+  box.innerHTML = `<h2 class="fx-mod-h">掲載の管理</h2><p class="fx-mini">不適切な掲載を止めたり、おすすめ掲載（PR）の期間を設定したりできます。物件の内容（家賃・写真など）は、掲載した不動産会社が編集します。</p>
+    <div class="fx-mod-sample"><b><i class="ti ti-database-plus"></i> サンプル物件（発表・テスト用）</b>
+      <p class="fx-mini">東京・大阪などの物件を、VR内見できる間取りつきで自動で作ります。名前に【サンプル】が付き、まとめて消せます。いまのサンプル：${nSample}件</p>
+      <div class="fx-mod-sample-row"><select class="finput" id="fx-seed-n"><option>20</option><option selected>50</option><option>100</option><option>200</option></select>
+      <button class="btn btn-sm btn-p" type="button" id="fx-seed-go">サンプル物件を追加</button>
+      <button class="btn btn-sm" type="button" id="fx-seed-clear" ${nSample ? '' : 'disabled'}>サンプル物件を全部消す</button></div></div>
+    <input class="finput fx-mod-q" id="fx-mod-q" placeholder="物件名・登録者でしぼりこむ" value="${esc(fxModQ)}">
+    <div class="fx-mod-list" id="fx-mod-list">読み込み中…</div>`;
+  $('fx-seed-go').onclick = () => seedSamples(+$('fx-seed-n').value);
+  $('fx-seed-clear').onclick = () => clearSamples(nSample);
+  const q = $('fx-mod-q');
+  q.oninput = () => { fxModQ = q.value; clearTimeout(fxModT); fxModT = setTimeout(() => { renderModeration(); const n = $('fx-mod-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); };
   const list = $('fx-mod-list'); list.innerHTML = '';
-  const props = PROPS.slice().sort((a, b) => (+!!b.modHidden) - (+!!a.modHidden) || (+b.id || 0) - (+a.id || 0));
+  const kw = fxModQ.trim().toLowerCase();
+  const props = PROPS.filter(p => !kw || `${p.name} ${p.ownerName || ''} ${p.ownerEmail || ''}`.toLowerCase().includes(kw))
+    .sort((a, b) => (+!!b.modHidden) - (+!!a.modHidden) || (+b.id || 0) - (+a.id || 0));
   if (!props.length) { list.textContent = '物件がありません'; return; }
   const today = ymd(new Date());
   props.forEach(p => {
@@ -2714,6 +2756,25 @@ async function renderModeration() {
     row.appendChild(info); row.appendChild(pr); row.appendChild(act);
     list.appendChild(row);
   });
+}
+let fxModQ = '', fxModT = 0;
+async function seedSamples(n) {
+  const btn = $('fx-seed-go'); if (btn) { btn.disabled = true; btn.textContent = '作成中…'; }
+  try {
+    const r = await api('seedSamples', { body: { count: n } });
+    toast(`サンプル物件を${r.added}件追加しました`, 'success');
+    await fetchAndRenderProps();
+  } catch (e) { toast('追加できませんでした: ' + e.message, 'error'); }
+  renderModeration();
+}
+async function clearSamples(n) {
+  if (!confirm(`サンプル物件（${n}件）を全部消しますか？\n不動産会社が登録した物件は消えません。`)) return;
+  try {
+    const r = await api('clearSamples', { body: {} });
+    toast(`サンプル物件を${r.deleted}件消しました`, 'info');
+    await fetchAndRenderProps();
+  } catch (e) { toast('消せませんでした: ' + e.message, 'error'); }
+  renderModeration();
 }
 async function moderate(p, change, msg) {
   try {
@@ -2790,6 +2851,7 @@ window.doLogout = function () {
   ['nav-admin-btn', 'tab-admin', 'tab-master'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   try { sessionStorage.clear(); } catch (e) {}
   setGuestClass(); renderCards(); renderCompareBar();
+  try { renderContactSender(); } catch (e) {}
   try { if (PROPS.some(p => p.modHidden || p.status === 'hidden') && typeof fetchAndRenderProps === 'function') fetchAndRenderProps(); } catch (e) {}
   return r;
 };

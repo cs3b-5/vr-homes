@@ -183,6 +183,8 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,'Hiragin
 .ykc-fab svg{width:52px;height:52px}
 body.ykc-open .ykc-fab,body:has(#vr-viewer-overlay) .ykc-fab,body:has(#pd-overlay.show) .ykc-fab,body:has(.fx-overlay) .ykc-fab{display:none}
 body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
+/* 物件の管理・運営の画面では、編集ボタンなどにかぶるので相談ボタンを出さない */
+body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(#contact-overlay.show) .ykc-fab{display:none}
 #ykc{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:calc(16px + env(safe-area-inset-bottom));z-index:950;width:min(400px,calc(100vw - 32px));height:min(620px,calc(100vh - 120px));display:flex;flex-direction:column;background:var(--cream);border:2.5px solid var(--ink);border-radius:22px;box-shadow:0 8px 0 var(--ink),0 20px 50px rgba(45,42,50,.25);overflow:hidden;color:var(--ink)}
 #ykc[hidden]{display:none}
 .ykc-head{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 12px;background:#fff;border-bottom:2px solid var(--ink)}
@@ -348,3 +350,9 @@ body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 .fx-mod-pr{display:flex;align-items:center;gap:6px}
 .fx-mod-pr .finput{width:auto;padding:5px 8px;font-size:12px}
 .fx-mod-notice{background:var(--coral-l);border:1.5px solid var(--coral-d);color:var(--ink);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:4px}
+
+/* 掲載の管理: サンプル物件 */
+.fx-mod-sample{border:1.5px dashed var(--line,#cbd5e1);border-radius:14px;padding:12px 14px;margin:12px 0}
+.fx-mod-sample-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.fx-mod-sample-row select{width:auto;min-width:80px}
+.fx-mod-q{margin:4px 0 10px;max-width:420px}
