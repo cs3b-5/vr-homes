@@ -1,7 +1,6 @@
 /* ══════════════════════════════════════
    STATE & CONSTANTS
 ══════════════════════════════════════ */
-const MASTER_EMAIL = 'nori1216chopper@gmail.com';
 // 管理者・マスターのコードはサーバー(Lambdaの環境変数)だけが知っている。ここには書かない
 const AWS_API_URL  = 'https://h5mx5gy6l2y7v6k46kxxfsm4li0cxnpr.lambda-url.ap-northeast-3.on.aws/';
 
@@ -55,10 +54,9 @@ function saveFieldDefs(defs) {
 let fieldDefs = loadFieldDefs();
 
 // マスターはサーバー(DynamoDB)に登録されたアカウントでログインする。パスワードはここに書かない
-const MASTER_USER = { name:'のり', email:MASTER_EMAIL, role:'master', active:true, photoURL:null, wishlist:{} };
 const DEMO_USER  = { name:'デモユーザー', email:'demo@vrhomes.jp', password:'demo1234', role:'user',  active:true, photoURL:null, wishlist:{}, favs:[], history:[] };
 const DEMO_ADMIN = { name:'デモ管理者',   email:'admin@vrhomes.jp', password:'admin1234', role:'admin', active:true, photoURL:null, wishlist:{}, favs:[], history:[] };
-let userStore = [MASTER_USER, DEMO_USER, DEMO_ADMIN];
+let userStore = [DEMO_USER, DEMO_ADMIN];
 
 let leafletMap  = null;
 let mapMarkers  = {};
@@ -456,7 +454,6 @@ function loadUserCache(){
 function mergeUserCache(){
   const cache=loadUserCache();
   Object.values(cache).forEach(cu=>{
-    if(cu.email===MASTER_EMAIL) return; // マスターは固定
     const existing=userStore.find(u=>u.email===cu.email);
     if(existing){
       // AWSより新しいローカル値で上書き（ユーザー個人データのみ・パスワードは扱わない）
@@ -498,8 +495,7 @@ async function fetchUsers(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const users=await res.json();
     const awsUsers=users.filter(u=>u.email!==DEMO_USER.email&&u.email!==DEMO_ADMIN.email);
-    const hasMaster=awsUsers.some(u=>u.email===MASTER_EMAIL);
-    userStore=[...(hasMaster?[]:[MASTER_USER]),DEMO_USER,DEMO_ADMIN,...awsUsers];
+    userStore=[DEMO_USER,DEMO_ADMIN,...awsUsers];
   }catch(e){ console.warn('ユーザー取得失敗（デモモードで続行）:',e.message); }
   // AWS取得後、ローカルキャッシュを必ずマージ（データ消失を防ぐ）
   mergeUserCache();
@@ -528,7 +524,7 @@ async function saveUserToAWS(user){
 
 async function deleteUserFromAWS(email){
   removeCachedUser(email); // ローカルからも削除
-  if(!AWS_API_URL||email===MASTER_EMAIL) return true;
+  if(!AWS_API_URL) return true;
   try{
     const res=await fetch(AWS_API_URL+'?action=deleteUser&email='+encodeURIComponent(email),{method:'DELETE'});
     if(!res.ok){ const d=await res.json().catch(()=>({})); showToast('削除できませんでした: '+(d.error||res.status),'error'); return false; }
@@ -843,6 +839,8 @@ function canEditProp(prop){
   if(!currentUser) return false;
   if(!isAdmin()) return false;             // 管理者未満は不可（isAdmin はマスターも含む）
   if(!prop) return false;
+  // サーバーが「この人は編集できる」と教えてくれたときはそれを使う（登録者のアドレスは編集できる人にしか届かない）
+  if(prop.canEdit!==undefined) return !!prop.canEdit;
   // 自分が追加した物件
   if(prop.ownerEmail && prop.ownerEmail===currentUser.email) return true;
   // 登録者のいない古い物件は、マスター（運営）が引き取る
@@ -859,7 +857,7 @@ function canEditProp(prop){
 function isRegular(u){return (u||currentUser)?.role==='user';}
 /* デモアカウントは端末の中だけの存在なので、管理画面の一覧には出さない */
 function isDemoUser(u){return !!u && (u.email===DEMO_USER.email||u.email===DEMO_ADMIN.email);}
-function realUsers(){return userStore.filter(u=>!isDemoUser(u) && u!==MASTER_USER);}
+function realUsers(){return userStore.filter(u=>!isDemoUser(u));}
 /* 他のユーザーを停止・削除できるか(サーバー側のルールと同じ) */
 function canManageUser(u){
   // 利用停止・再開と権限の変更はマスター（運営）だけ。管理者（不動産会社）はユーザーを管理しない
@@ -1135,7 +1133,6 @@ async function gateResetPassword(){
   const pass=(document.getElementById('rst-pass')||{}).value||'';
   const pass2=(document.getElementById('rst-pass2')||{}).value||'';
   if(!email){showGateMsg('メールアドレスを入力してください',true);return;}
-  if(email===MASTER_EMAIL){showGateMsg('このアカウントは変更できません',true);return;}
   if(pass.length<6){showGateMsg('パスワードは6文字以上で入力してください',true);return;}
   if(pass!==pass2){showGateMsg('パスワードが一致しません',true);return;}
 
@@ -1391,7 +1388,7 @@ function renderMasterUserTable(){
   const tbody=document.getElementById('master-user-table-body');if(!tbody) return;
   const list=realUsers().filter(u=>!q||(u.name.toLowerCase().includes(q)||u.email.toLowerCase().includes(q))).filter(u=>!f||u.role===f);
   tbody.innerHTML=list.map(u=>`<div class="admin-table-row" style="grid-template-columns:1.5fr 2fr 1fr 1fr 1fr">
-    <span style="font-weight:600;color:var(--navy)">${u.name}${u.email===MASTER_EMAIL?'<span class="master-badge" style="font-size:9px;margin-left:4px"><i class="ti ti-crown" style="font-size:9px"></i></span>':''}</span>
+    <span style="font-weight:600;color:var(--navy)">${u.name}${u.role==='master'?'<span class="master-badge" style="font-size:9px;margin-left:4px"><i class="ti ti-crown" style="font-size:9px"></i></span>':''}</span>
     <span style="color:#64748b;font-size:11px">${u.email}</span>
     <span>${roleLabel(u.role)}</span>
     <span><span class="tag ${u.active?'tg':'tr'}" style="font-size:9px">${u.active?'有効':'停止中'}</span></span>
@@ -1405,7 +1402,7 @@ function renderMasterUserTable(){
 function confirmToggleActive(email){
   const u=userStore.find(u=>u.email===email);if(!u) return;
   if(!canManageUser(u)){alert('このユーザーを変更する権限がありません');return;}
-  if(email===MASTER_EMAIL){alert('マスターアカウントは変更できません');return;}
+  if(u.role==='master'){alert('マスターアカウントは変更できません');return;}
   if(email===currentUser?.email){alert('自分自身のアカウントは変更できません');return;}
   if(!confirm(`ユーザー「${u.name}」を${u.active?'利用停止にします。ログインできなくなります。よろしいですか？':'利用再開しますか？'}`)) return;
   toggleUserActive(email);
@@ -1499,7 +1496,7 @@ async function sendMailToUser(email){
   show('送信中...',true);
   // サイト内メールにも保存
   await saveMessage({
-    id:'m'+Date.now(), to:email, from:(currentUser&&currentUser.email)||MASTER_EMAIL,
+    id:'m'+Date.now(), to:email, from:(currentUser&&currentUser.email)||'',
     fromName:(currentUser&&currentUser.name)||'運営',
     subject, body:bodyText, time:new Date().toISOString(), read:false
   });
@@ -1569,7 +1566,7 @@ async function changeMyPassword(){
   if(cur===np){show('現在のパスワードと同じです',false);return;}
 
   // デモ・マスターなどフロント定数アカウントはサーバーに無いので変更不可
-  const isLocalOnly=[DEMO_USER,DEMO_ADMIN,MASTER_USER].some(u=>u.email===currentUser.email);
+  const isLocalOnly=[DEMO_USER,DEMO_ADMIN].some(u=>u.email===currentUser.email);
   if(isLocalOnly){
     show('デモアカウントのパスワードは変更できません',false);return;
   }
@@ -2443,12 +2440,9 @@ async function renderInbox(){
         <div style="font-size:11px;color:#94a3b8;flex-shrink:0;margin-left:8px">${m.time?formatTimeAgo(new Date(m.time)):''}</div>
       </div>
       <div style="font-size:12px;color:#64748b;margin-bottom:8px">
-        <i class="ti ti-user"></i> ${m.fromName||'不明'} <span style="color:#94a3b8">（${m.from||''}）</span>
+        <i class="ti ti-user"></i> ${escapeHtml(m.fromName||'不明')}
       </div>
       <div style="font-size:13px;color:var(--navy);line-height:1.7;white-space:pre-wrap;background:var(--surface2);border-radius:8px;padding:12px">${m.body||''}</div>
-      <div style="margin-top:10px">
-        <a href="mailto:${m.from}?subject=Re: ${encodeURIComponent(m.subject||'')}" class="btn btn-sm"><i class="ti ti-corner-up-left"></i> メールで返信</a>
-      </div>
     </div>`).join('');
 }
 
@@ -2854,11 +2848,11 @@ function renderPropDetail(prop){
   // 詳細情報（任意項目・入力されているものだけ表示）
   const d=prop.details||{};
   const detailRows=[
-    ['入居時期',d.available],['取引態様',d.transaction],['総戸数',d.units],
+    ['入居時期',d.available],['所在階',d.floor],['取引態様',d.transaction],['総戸数',d.units],
     ['駐車場',d.parking],['契約期間',d.contract],['更新料',d.renewal],
     ['保証会社',d.guarantor],['入居条件',d.conditions],['損保',d.insurance],
     ['その他費用',d.otherfees]
-  ].filter(([l,v])=>v&&v.trim());
+  ].filter(([l,v])=>v&&String(v).trim());
   const detailsSection=document.getElementById('pd-details-section');
   if(detailRows.length){
     detailsSection.style.display='block';
@@ -2890,8 +2884,9 @@ function renderPropDetail(prop){
     if(!miniEl||typeof L==='undefined') return;
     if(pdMiniMap){pdMiniMap.remove();pdMiniMap=null;}
     if(prop.lat&&prop.lng){
-      pdMiniMap=L.map('pd-mini-map',{zoomControl:false,attributionControl:false}).setView([prop.lat,prop.lng],15);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:20}).addTo(pdMiniMap);
+      pdMiniMap=L.map('pd-mini-map',{zoomControl:false}).setView([prop.lat,prop.lng],15);pdMiniMap.attributionControl.setPrefix(false);
+      if(window.fxBaseLayers) fxBaseLayers(pdMiniMap,false);
+      else L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{maxNativeZoom:18,maxZoom:19}).addTo(pdMiniMap);
       L.marker([prop.lat,prop.lng]).addTo(pdMiniMap);
     } else {
       miniEl.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;text-align:center"><div><i class="ti ti-map-off" style="font-size:20px;display:block;margin-bottom:4px;opacity:.5"></i>地図データなし</div></div>';
@@ -3256,6 +3251,7 @@ async function saveMyGroup(groupId, groupName, action){
     const s=userStore.find(x=>x.email===currentUser.email); if(s) ['groupId','groupName','groupOwner'].forEach(k=>{ s[k]=currentUser[k]; });
     cacheUserLocal(currentUser);
     await fetchUsers();          // 同じグループのメンバーを読み直す
+    try{ await fetchAndRenderProps(); }catch(e){}   // 編集できる物件が変わるので読み直す
     return true;
   }catch(e){ showToast('サーバーにつながりませんでした','error'); return false; }
 }

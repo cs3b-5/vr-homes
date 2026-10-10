@@ -356,3 +356,7 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 .fx-mod-sample-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
 .fx-mod-sample-row select{width:auto;min-width:80px}
 .fx-mod-q{margin:4px 0 10px;max-width:420px}
+
+/* 物件の詳細: お気に入りボタン */
+.pd-fav.on{background:#FFE4E1;border-color:#F43F5E;color:#E11D48}
+.pd-fav.on i{color:#E11D48}

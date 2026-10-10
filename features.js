@@ -812,7 +812,7 @@ window.fxOpenNotif = async function (ev) {
     <div class="fx-np-sec">${hasWish ? t('希望条件に合う新着物件') : t('新着物件')}</div>
     ${props.length ? props.slice(0, 8).map(p => `<div class="fx-np-item" onclick="document.getElementById('fx-notif').remove();showPropDetail(${p.id})"><i class="ti ti-building"></i><div><b>${esc(p.name)}</b><small>${yen(p.price)} ・ ${esc(p.madori || '')} ・ ${esc(p.station || p.area || '')}</small></div></div>`).join('') : `<div class="fx-np-none">${t('新着はありません')}</div>`}
     <div class="fx-np-sec">${t('未読のメッセージ')}</div>
-    ${msgs.length ? msgs.map(m => `<div class="fx-np-item" onclick="document.getElementById('fx-notif').remove();guardedScreen('mypage');setTimeout(()=>switchMp('inbox'),100)"><i class="ti ti-mail"></i><div><b>${esc(m.subject || '')}</b><small>${esc(m.fromName || m.from || '')} ・ ${esc(m.time || '')}</small></div></div>`).join('') : `<div class="fx-np-none">${t('未読はありません')}</div>`}
+    ${msgs.length ? msgs.map(m => `<div class="fx-np-item" onclick="document.getElementById('fx-notif').remove();guardedScreen('mypage');setTimeout(()=>switchMp('inbox'),100)"><i class="ti ti-mail"></i><div><b>${esc(m.subject || '')}</b><small>${esc(m.fromName || '')} ・ ${esc(m.time || '')}</small></div></div>`).join('') : `<div class="fx-np-none">${t('未読はありません')}</div>`}
     <div class="fx-np-foot">
       ${!hasWish ? `<a onclick="document.getElementById('fx-notif').remove();guardedScreen('mypage');setTimeout(()=>switchMp('wish'),100)">${t('希望条件を登録すると、合う物件だけお知らせします')}</a>` : ''}
       ${'Notification' in window ? `<label><input type="checkbox" id="fx-np-browser" ${browserNotifyOn() ? 'checked' : ''}> ${t('ブラウザの通知も受け取る')}</label>` : ''}
@@ -1811,15 +1811,15 @@ window.renderInbox = async function () {
   }
   box.innerHTML = msgs.map((m, i) => `<div class="card fx-msg" style="margin-bottom:10px;padding:16px">
     <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px"><b style="font-size:13px;color:var(--navy)">${esc(m.subject || '(件名なし)')}</b><small style="color:#94a3b8;flex-shrink:0">${esc(m.time || '')}</small></div>
-    <div class="fx-mini" style="margin:0 0 8px"><i class="ti ti-user"></i> ${esc(m.fromName || '不明')} ${m.from && m.from !== 'system' ? `（${esc(m.from)}）` : ''}${m.propId != null && findProp(m.propId) ? ` ・ <span class="fx-link" onclick="showPropDetail(${+m.propId})">${esc(m.propName || '物件を見る')}</span>` : ''}</div>
+    <div class="fx-mini" style="margin:0 0 8px"><i class="ti ti-user"></i> ${esc(m.fromName || '不明')} ${m.from && m.from.indexOf('@') > 0 ? `（${esc(m.from)}）` : ''}${m.propId != null && findProp(m.propId) ? ` ・ <span class="fx-link" onclick="showPropDetail(${+m.propId})">${esc(m.propName || '物件を見る')}</span>` : ''}</div>
     <div style="font-size:13px;color:var(--navy);line-height:1.7;white-space:pre-wrap;background:var(--surface2,#f8fafc);border-radius:8px;padding:12px">${esc(m.body || '')}</div>
-    ${m.from && m.from !== 'system' && m.from.indexOf('@') > 0 ? `<div class="fx-row"><button class="btn btn-sm btn-p" onclick="fxReply(${i})"><i class="ti ti-corner-up-left"></i> サイト内で返信</button></div>` : ''}
+    ${m.canReply || (m.from && m.from !== 'system') ? `<div class="fx-row"><button class="btn btn-sm btn-p" onclick="fxReply(${i})"><i class="ti ti-corner-up-left"></i> サイト内で返信</button></div>` : ''}
   </div>`).join('');
 };
 window.fxReply = function (i) {
   const m = (typeof _inboxCache !== 'undefined' ? _inboxCache : [])[i]; if (!m) return;
   const body = openModal('fx-reply', '<i class="ti ti-corner-up-left"></i> 返信', `
-    <div class="fx-prop-line" style="font-size:13px">${esc(m.fromName || m.from)} さんへ</div>
+    <div class="fx-prop-line" style="font-size:13px">${esc(m.fromName || '相手')} さんへ</div>
     <label class="fx-field">件名<input id="fx-rp-sub" maxlength="100" value="${esc(/^Re:/.test(m.subject || '') ? m.subject : 'Re: ' + (m.subject || ''))}"></label>
     <label class="fx-field">本文<textarea id="fx-rp-body" rows="6" maxlength="2000"></textarea></label>
     <button class="btn btn-p fx-wide" id="fx-rp-go"><i class="ti ti-send"></i> 送信する</button>`, { width: 480 });
@@ -1827,7 +1827,7 @@ window.fxReply = function (i) {
     const text = body.querySelector('#fx-rp-body').value.trim(); if (!text) { toast('本文を入れてください', 'warn'); return; }
     const btn = body.querySelector('#fx-rp-go'); btn.disabled = true;
     try {
-      await api('sendMessage', { body: { to: m.from, subject: body.querySelector('#fx-rp-sub').value.trim(), body: text, fromName: currentUser.name, time: new Date().toISOString(), propId: m.propId, propName: m.propName } });
+      await api('sendMessage', { body: { replyTo: m.id, to: m.from, subject: body.querySelector('#fx-rp-sub').value.trim(), body: text, fromName: currentUser.name, time: new Date().toISOString(), propId: m.propId, propName: m.propName } });
       closeModal('fx-reply'); toast('返信しました', 'success');
     } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
   };
@@ -2156,6 +2156,7 @@ function heChip(btn) {
   });
   if (c.walkMax) filterState.walkMax = on ? c.walkMax : null;
   if (c.vr) heVR = on;
+  heSearchReset();
   heRefresh();
   const n = getFilteredProps().length;
   toast(on ? `${btn.textContent.trim()}：${n}件` : t('条件を外しました'), on && !n ? 'warn' : 'info');
@@ -2170,7 +2171,7 @@ window.getFilteredProps = function () {
 };
 const _resetFilters = window.resetFilters;
 window.resetFilters = function () {
-  heVR = false;
+  heVR = false; heSearchReset();
   document.querySelectorAll('.he-chip.on').forEach(b => { b.classList.remove('on'); b.setAttribute('aria-pressed', 'false'); });
   return _resetFilters.apply(this, arguments);
 };
@@ -2259,7 +2260,7 @@ function initHero() {
    サーバーの ykChat が答える（AIモード / かんたんモード）。会話はこのタブの中だけに残る */
 Object.assign(EN, {
   'やどかりんに相談': 'Ask Yadokarin', '住まいの悩みを聞かせてね': 'Tell me your housing worries', '相談する': 'Ask',
-  '最初から': 'Start over', '詳しく見る': 'Details', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
+  '最初から': 'Start over', '詳しく見る': 'Details', 'お気に入りに追加': 'Add to favorites', 'お気に入り済み': 'Saved', 'もう一度押すとお気に入りから外します': 'Tap again to remove from favorites', 'お気に入りから外しました': 'Removed from favorites', 'お気に入りに追加しました': 'Added to favorites', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
   '自分の悩みを相談してみる': 'Ask about your own situation', 'かんたん': 'Basic', '送る': 'Send',
   'やどかりんAIが読み取った条件': 'What Yadokarin AI understood', '内見チェック': 'Viewing checklist', '内見メモ': 'Viewing notes',
   'メモ（気づいたこと）': 'Notes', 'VRで確かめる': 'Check in VR', 'VR内見の「チェック」ボタンからも記録できます。': 'You can also record this from the Checklist button in VR viewing.',
@@ -2476,6 +2477,16 @@ function heActive() {
   box.hidden = !box.childNodes.length;
 }
 function heRefresh() { currentPage = 1; renderCards(); updateResultsCount(); heActive(); }
+// 検索したら: 前の「この範囲で探す」は外して、地図を検索結果に合わせて動かす
+let heFitNext = false;
+function heSearchReset() { heBounds = null; heOnlyIds = null; heFitNext = true; setTimeout(heActive, 0); }
+const _applyFiltersMap = window.applyFilters;
+window.applyFilters = function () {
+  heSearchReset();
+  const r = _applyFiltersMap.apply(this, arguments);
+  if (heMap && heView === 'map') { heFitNext = false; heDraw(true); }
+  return r;
+};
 
 function heSetView(v, opts) {
   heView = v === 'map' ? 'map' : 'list';
@@ -2524,11 +2535,7 @@ if (typeof _applyScreenOld === 'function') window._applyScreen = function (id) {
 function heInitMap() {
   if (heMap || typeof L === 'undefined' || !$('he-map-canvas')) return;
   heMap = L.map('he-map-canvas', { zoomControl: true, scrollWheelZoom: true, tap: true }).setView([35.6762, 139.6503], 12);
-  const osmJp = L.tileLayer('https://tile.openstreetmap.jp/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 });
-  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19 });
-  let failed = false;
-  osmJp.on('tileerror', () => { if (!failed) { failed = true; heMap.removeLayer(osmJp); carto.addTo(heMap); } });
-  osmJp.addTo(heMap);
+  fxBaseLayers(heMap, true);
   heLayer = L.layerGroup().addTo(heMap);
   heCommuteLayer = L.layerGroup().addTo(heMap);
   // 利用者が地図を動かしたら「この範囲で探す」を出す（こちらが動かしたときは出さない）
@@ -2555,6 +2562,32 @@ function heInitMap() {
     }, 140);
   }, { passive: true });
 }
+// 地図の絵（タイル）。国土地理院の地図（国が更新している最新の地図）を使い、右上で切り替えられる
+function fxBaseLayers(map, withControl) {
+  const gsi = (id, ext, name, z) => L.tileLayer(`https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`, {
+    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>', maxNativeZoom: z || 18, maxZoom: 19 });
+  const layers = {
+    [fxLang === 'en' ? 'Map (light)' : '地図（淡色）']: gsi('pale', 'png'),
+    [fxLang === 'en' ? 'Map (standard)' : '地図（標準）']: gsi('std', 'png'),
+    [fxLang === 'en' ? 'Aerial photo' : '航空写真']: gsi('seamlessphoto', 'jpg'),
+    'OpenStreetMap': L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19 })
+  };
+  const names = Object.keys(layers);
+  let pick = 0;
+  try { const i = +localStorage.getItem('fx_map_layer'); if (i >= 0 && i < names.length) pick = i; } catch (e) {}
+  const first = layers[names[pick]];
+  // 国土地理院の地図が読めないときは OpenStreetMap にする
+  let errs = 0;
+  first.on('tileerror', () => { if (++errs === 6 && pick !== 3 && map.hasLayer(first)) { map.removeLayer(first); layers.OpenStreetMap.addTo(map); } });
+  first.addTo(map);
+  if (withControl) {
+    L.control.layers(layers, null, { position: 'topright', collapsed: true }).addTo(map);
+    map.on('baselayerchange', e => { try { localStorage.setItem('fx_map_layer', String(names.indexOf(e.name))); } catch (er) {} });
+  }
+  return layers;
+}
+window.fxBaseLayers = fxBaseLayers;
+window.fxHeMap = () => ({ map: heMap, pins: hePins });   // テスト・確認用
 function hePriceLabel(p) { return (Math.round((+p.price || 0) / 1000) / 10).toString() + '万'; }   // 98000 → 9.8万
 function heLatLng(list) {
   // 同じ場所の物件は少しずらして、ピンが重ならないようにする
@@ -2664,7 +2697,7 @@ function heLocate() {
 const _renderCards4 = window.renderCards;
 window.renderCards = function () {
   const r = _renderCards4.apply(this, arguments);
-  if (heMap && heView === 'map') heDraw(false);
+  if (heMap && heView === 'map') { heDraw(heFitNext); heFitNext = false; }
   return r;
 };
 // 古い「マップ」画面へ行こうとしたら、トップの地図表示にする
@@ -2716,13 +2749,14 @@ async function renderModeration() {
   const nSample = PROPS.filter(p => p.sample).length;
   box.innerHTML = `<h2 class="fx-mod-h">掲載の管理</h2><p class="fx-mini">不適切な掲載を止めたり、おすすめ掲載（PR）の期間を設定したりできます。物件の内容（家賃・写真など）は、掲載した不動産会社が編集します。</p>
     <div class="fx-mod-sample"><b><i class="ti ti-database-plus"></i> サンプル物件（発表・テスト用）</b>
-      <p class="fx-mini">東京・大阪などの物件を、VR内見できる間取りつきで自動で作ります。名前に【サンプル】が付き、まとめて消せます。いまのサンプル：${nSample}件</p>
-      <div class="fx-mod-sample-row"><select class="finput" id="fx-seed-n"><option>20</option><option selected>50</option><option>100</option><option>200</option></select>
+      <p class="fx-mini">実在の駅・町名をもとに、家賃・設備・間取り（毎回ランダムで、VR内見できる）までそれらしい物件を自動で作ります。番地と建物名は架空です。名前に【サンプル】が付き、まとめて消せます。いまのサンプル：${nSample}件</p>
+      <div class="fx-mod-sample-row"><select class="finput" id="fx-seed-pref" aria-label="作る場所">${SAMPLE_PREF_OPTS.map(o => `<option${o === fxSeedPref ? ' selected' : ''}>${o}</option>`).join('')}</select>
+      <select class="finput" id="fx-seed-n" aria-label="件数"><option>20</option><option selected>50</option><option>100</option><option>200</option></select>
       <button class="btn btn-sm btn-p" type="button" id="fx-seed-go">サンプル物件を追加</button>
       <button class="btn btn-sm" type="button" id="fx-seed-clear" ${nSample ? '' : 'disabled'}>サンプル物件を全部消す</button></div></div>
     <input class="finput fx-mod-q" id="fx-mod-q" placeholder="物件名・登録者でしぼりこむ" value="${esc(fxModQ)}">
     <div class="fx-mod-list" id="fx-mod-list">読み込み中…</div>`;
-  $('fx-seed-go').onclick = () => seedSamples(+$('fx-seed-n').value);
+  $('fx-seed-go').onclick = () => { fxSeedPref = $('fx-seed-pref').value; seedSamples(+$('fx-seed-n').value, fxSeedPref); };
   $('fx-seed-clear').onclick = () => clearSamples(nSample);
   const q = $('fx-mod-q');
   q.oninput = () => { fxModQ = q.value; clearTimeout(fxModT); fxModT = setTimeout(() => { renderModeration(); const n = $('fx-mod-q'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); };
@@ -2757,12 +2791,13 @@ async function renderModeration() {
     list.appendChild(row);
   });
 }
-let fxModQ = '', fxModT = 0;
-async function seedSamples(n) {
+let fxModQ = '', fxModT = 0, fxSeedPref = '全国（ランダム）';
+const SAMPLE_PREF_OPTS = ['全国（ランダム）', '首都圏', '関西', '東京都', '神奈川県', '埼玉県', '千葉県', '大阪府', '京都府', '兵庫県', '愛知県', '福岡県', '北海道', '宮城県', '広島県'];
+async function seedSamples(n, pref) {
   const btn = $('fx-seed-go'); if (btn) { btn.disabled = true; btn.textContent = '作成中…'; }
   try {
-    const r = await api('seedSamples', { body: { count: n } });
-    toast(`サンプル物件を${r.added}件追加しました`, 'success');
+    const r = await api('seedSamples', { body: { count: n, prefs: pref && pref !== '全国（ランダム）' ? pref : '全国' } });
+    toast(`サンプル物件を${r.added}件追加しました（${pref || '全国'}）`, 'success');
     await fetchAndRenderProps();
   } catch (e) { toast('追加できませんでした: ' + e.message, 'error'); }
   renderModeration();
@@ -2800,6 +2835,28 @@ function modNotice() {
 }
 const _renderAdminPropTable = window.renderAdminPropTable;
 if (typeof _renderAdminPropTable === 'function') window.renderAdminPropTable = function () { const r = _renderAdminPropTable.apply(this, arguments); try { modNotice(); } catch (e) {} return r; };
+
+/* ══════════════ 31. 物件の詳細画面でお気に入り ══════════════ */
+function pdFavSync() {
+  const b = $('pd-fav-btn'); if (!b || typeof pdCurrentId === 'undefined') return;
+  const on = !!(isLoggedIn && favs && favs.has(pdCurrentId));
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const sp = b.querySelector('span'); if (sp) sp.textContent = on ? t('お気に入り済み') : t('お気に入りに追加');
+  b.title = on ? t('もう一度押すとお気に入りから外します') : '';
+  const ic = b.querySelector('i'); if (ic) ic.className = 'ti ti-heart';
+}
+const _toggleFavPd = window.toggleFav;
+window.toggleFav = function (id, el) {
+  const before = isLoggedIn && favs.has(id);
+  const r = _toggleFavPd.apply(this, arguments);
+  pdFavSync();
+  if (isLoggedIn && typeof pdCurrentId !== 'undefined' && id === pdCurrentId && document.getElementById('pd-overlay').classList.contains('show'))
+    toast(before ? t('お気に入りから外しました') : t('お気に入りに追加しました'), before ? 'info' : 'success');
+  return r;
+};
+const _renderPropDetailFav = window.renderPropDetail;
+window.renderPropDetail = function () { const r = _renderPropDetailFav.apply(this, arguments); try { pdFavSync(); } catch (e) {} return r; };
 
 /* ══════════════ 起動 ══════════════ */
 function boot() {
