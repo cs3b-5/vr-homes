@@ -1,0 +1,176 @@
+/* ══════════════════════════════════════════════
+   VR Homes テーマ「行く前に、住んでみる。」
+   やどかりんの色（サンゴ・貝のクリーム・屋根の緑）でサイト全体をそろえる
+   site.css のあとに読み込んで上書きする
+══════════════════════════════════════════════ */
+:root{
+  --ink:#2D2A32;
+  --cream:#FFF7EC;
+  --coral:#E8604A;
+  --coral-d:#B8432F;
+  --coral-l:#FFE3DA;
+  --mint:#D6F1EC;
+  --sun:#FFF0C2;
+  --muted:#5E5866;
+
+  /* 既存の変数を置き換え（ボタン・タブ・リンクなどがまとめて新しい色になる） */
+  --blue:#178277;
+  --blue2:#0F5E56;
+  --blue3:#0B4A44;
+  --blue-l:#D6F1EC;
+  --blue-l2:#A8DFD6;
+  --navy:#2D2A32;
+  --surface2:#FFF7EC;
+  --surface3:#F6EEE2;
+  --border:#E8DFD3;
+  --border2:#D3C8BA;
+  --violet:#B8432F;
+  --violet-l:#FFE3DA;
+}
+body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,'Hiragino Sans','Noto Sans JP',sans-serif;background:var(--cream);color:var(--ink)}
+
+/* ─── 共通パーツ ─── */
+.tab-bar{background:var(--cream);border-bottom:1px solid var(--border);box-shadow:none}
+.tab{color:var(--muted)}
+.nav{background:var(--cream);border-bottom:1px solid var(--border);box-shadow:none}
+.logo{font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:19px;letter-spacing:0;color:var(--ink);gap:6px}
+.logo-yk{display:inline-flex;width:38px;height:38px;flex-shrink:0}
+.logo-yk svg{width:100%;height:100%}
+.btn-p{background:var(--blue);box-shadow:none}
+.btn-p:hover{background:var(--blue2);box-shadow:none}
+.page-btn.on{background:var(--blue);box-shadow:none}
+.finput:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(23,130,119,.18)}
+.tb{background:var(--mint);color:#0F5E56}
+
+/* ログイン画面 */
+#login-gate{background:var(--ink)}
+.login-bg-orb1{background:radial-gradient(circle,rgba(232,96,74,.28),transparent 70%)}
+.login-bg-orb2{background:radial-gradient(circle,rgba(31,165,151,.25),transparent 70%)}
+.login-bg-orb3{background:radial-gradient(circle,rgba(255,240,194,.12),transparent 70%)}
+.login-logo-icon.logo-yk{background:none!important;box-shadow:none!important;width:72px;height:72px;margin:0 auto 6px}
+.login-title{font-family:'Zen Maru Gothic',sans-serif;font-weight:900}
+.lbtn{background:var(--coral)!important;box-shadow:none!important}
+
+/* ─── 物件カード ─── */
+.card-grid{max-width:1200px;margin:0 auto;padding:8px 24px 24px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px}
+.prop-card{border:2px solid var(--ink);border-radius:20px;box-shadow:0 5px 0 var(--ink)}
+.prop-card:hover{border-color:var(--ink);box-shadow:0 8px 0 var(--ink);transform:translateY(-3px)}
+.prop-card:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
+.prop-img{height:150px;background:var(--coral-l);border-bottom:2px solid var(--ink)}
+.prop-card:nth-child(3n+2) .prop-img{background-color:var(--mint)}
+.prop-card:nth-child(3n) .prop-img{background-color:var(--sun)}
+/* 写真がなくて間取りがある物件は、模型の絵を出す */
+.prop-img:has(>.prop-img-placeholder):has(>.prop-vr-badge){background-image:url(img/doll.webp);background-repeat:no-repeat;background-position:center 60%;background-size:84% auto}
+.prop-img:has(>.prop-img-placeholder):has(>.prop-vr-badge) .prop-img-placeholder{display:none}
+.prop-img-placeholder{color:var(--ink);opacity:.25}
+.prop-vr-badge{background:var(--ink);backdrop-filter:none;font-size:11px;padding:4px 10px}
+.prop-price{font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:20px;color:var(--ink)}
+.prop-price-sub{color:var(--muted)}
+.prop-name{font-weight:700}
+.prop-loc,.prop-area{color:var(--muted)}
+.prop-footer{background:#fff;border-top:1px solid var(--border)}
+.results-bar{max-width:1200px;margin:0 auto;background:none;border:0;box-shadow:none;padding:0 24px 14px}
+.pagination{padding:12px 24px 40px}
+
+/* ─── トップ: ヒーロー ─── */
+.hero.he{background:var(--cream);padding:28px 24px 12px;overflow:visible}
+.he-inner{max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:28px}
+.he-copy{flex:1 1 400px;min-width:0;display:flex;flex-direction:column;gap:20px}
+.he-title{margin:0;font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:clamp(44px,6vw,68px);line-height:1.15;color:var(--ink);letter-spacing:-.01em}
+.he-title em{font-style:normal;color:var(--coral)}
+.he-sub{margin:0;font-size:17px;line-height:1.85;color:#4A4552;max-width:30em}
+.he-ctas{display:flex;flex-wrap:wrap;gap:12px}
+.he-btn-main,.he-btn-sub{font:inherit;font-weight:700;font-size:16px;border-radius:16px;padding:15px 24px;min-height:52px;cursor:pointer;display:inline-flex;align-items:center;gap:10px;transition:transform .12s,box-shadow .12s}
+.he-btn-main{background:var(--blue);color:#fff;border:0;box-shadow:0 6px 0 var(--blue2)}
+.he-btn-main:hover{transform:translateY(2px);box-shadow:0 4px 0 var(--blue2)}
+.he-btn-main:active{transform:translateY(6px);box-shadow:0 0 0 var(--blue2)}
+.he-btn-sub{background:#fff;color:var(--ink);border:2px solid var(--ink)}
+.he-btn-sub:hover{background:var(--surface3)}
+.he-btn-main:focus-visible,.he-btn-sub:focus-visible,.he-chip:focus-visible,.he-q:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
+.he-note{margin:0;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+
+.he-stage{flex:1 1 500px;min-width:0;position:relative;height:480px}
+.he-blob{position:absolute;inset:34px 8px 14px 30px;background:var(--mint);border-radius:52% 48% 54% 46%/45% 55% 45% 55%}
+.he-model{position:absolute;left:5%;top:52px;width:90%;height:auto;transition:opacity .6s}
+.he-frame-wrap{position:absolute;inset:0;opacity:0;transition:opacity .6s}
+.he-frame-wrap iframe{width:100%;height:100%;border:0;display:block;background:transparent}
+.he-stage.live .he-frame-wrap{opacity:1}
+.he-stage.live .he-model{opacity:0}
+.he-cap{position:absolute;right:6px;top:8px;background:#fff;border:2px solid var(--ink);border-radius:14px;padding:8px 14px;font-size:13px;font-weight:700;line-height:1.45;max-width:60%;display:none}
+.he-cap.show{display:block}
+.he-cap small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+/* やどかりん（features.js が入れる）を模型の左下に置く */
+.he-stage #fx-yk-hero{position:absolute;left:-8px;right:auto;top:auto;bottom:-6px;margin:0;display:flex;flex-direction:row;align-items:flex-end;gap:0;z-index:3;pointer-events:none}
+.he-stage #fx-yk-hero .fx-yk-btn{order:1}
+.he-stage #fx-yk-hero .fx-yk-bubble{order:2;margin:0 0 92px -14px;max-width:240px;background:#fff;border:2.5px solid var(--ink);border-radius:18px 18px 18px 4px;box-shadow:none;font-family:'Zen Maru Gothic',sans-serif;font-size:14px;color:var(--ink);flex:none}
+.he-stage #fx-yk-hero .fx-yk-bubble::after{display:none}
+.he-stage #fx-yk-hero .yadokarin{width:140px;height:140px}
+
+/* ─── トップ: 検索 ─── */
+.he-search{max-width:1200px;margin:0 auto;padding:22px 24px 44px;scroll-margin-top:120px}
+.he-search .search-bar{background:#fff;border:2px solid var(--ink);border-radius:20px;box-shadow:0 6px 0 var(--ink);padding:18px 20px}
+.he-chips{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px}
+.he-chips-label{font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:16px;margin-right:6px}
+.he-chip{font:inherit;font-weight:700;font-size:14px;color:var(--ink);background:var(--cream);border:2px solid var(--ink);border-radius:999px;padding:8px 16px;min-height:42px;cursor:pointer}
+.he-chip:hover{background:var(--surface3)}
+.he-chip.on{background:var(--ink);color:#fff}
+.he-chip.on::before{content:'✓ '}
+.he-search .search-label{font-size:12.5px;color:var(--ink);letter-spacing:0;text-transform:none}
+.he-search .finput{font-size:15px;padding:11px 13px;border-radius:12px;background:#FFFCF7}
+.he-go{background:var(--coral)!important;font-size:15px;padding:12px 24px;border-radius:12px;min-height:46px}
+.he-go:hover{background:var(--coral-d)!important}
+.he-search-tools{display:flex;justify-content:flex-end;gap:6px;margin-top:10px}
+.he-search #fx-commute{margin-top:12px;padding-top:12px;border-top:1.5px dashed var(--border)}
+.he-h2{font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:clamp(26px,3.4vw,36px);line-height:1.3;color:var(--ink);margin:0}
+.he-list-title{max-width:1200px;margin:0 auto;padding:6px 24px 6px}
+
+/* ─── トップ: やどかりんに聞いてみて ─── */
+.he-ask{background:#fff;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);margin-top:24px}
+.he-ask-inner{max-width:1100px;margin:0 auto;padding:60px 24px;display:flex;flex-direction:column;gap:22px}
+.he-ask-lead{margin:-8px 0 0;color:var(--muted);font-size:15px}
+.he-qs{display:flex;flex-wrap:wrap;gap:10px}
+.he-q{font:inherit;font-weight:700;font-size:15px;color:var(--ink);background:#fff;border:2px solid var(--ink);border-radius:999px;padding:11px 20px;min-height:46px;cursor:pointer}
+.he-q:hover{background:var(--cream)}
+.he-q.on{background:var(--ink);color:#fff}
+.he-answer{display:flex;flex-wrap:wrap;align-items:flex-start;gap:22px}
+.he-say{flex:1 1 300px;min-width:0;display:flex;align-items:flex-start;gap:10px}
+.he-say-yk{width:96px;height:96px;flex:0 0 auto}
+.he-say-yk svg{width:100%;height:100%}
+.he-say-text{margin:0;background:var(--cream);border:2.5px solid var(--ink);border-radius:4px 20px 20px 20px;padding:16px 20px;font-family:'Zen Maru Gothic',sans-serif;font-weight:700;font-size:18px;line-height:1.7}
+.he-answer-img{flex:1.4 1 420px;min-width:0;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border-radius:18px;border:2px solid var(--ink);background:var(--surface3)}
+
+/* ─── トップ: フッター ─── */
+.he-footer{background:var(--ink);color:#FFF4E0}
+.he-footer-inner{max-width:1200px;margin:0 auto;padding:30px 24px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
+.he-footer-logo{display:flex;align-items:center;gap:8px;font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:19px}
+.he-footer-logo .logo-yk{width:46px;height:46px}
+.he-footer-links{display:flex;flex-wrap:wrap;gap:18px;font-size:13px}
+.he-footer-links a{color:#FFF4E0}
+#fx-help-links a{color:var(--blue)}
+
+/* ─── スマホ ─── */
+@media(max-width:760px){
+  .hero.he{padding:18px 16px 4px}
+  .he-inner{gap:10px}
+  .he-copy{gap:14px}
+  .he-sub{font-size:15px}
+  .he-btn-main,.he-btn-sub{font-size:15px;padding:13px 18px;min-height:48px}
+  .he-note{font-size:12px}
+  .he-stage{flex-basis:100%;height:300px}
+  .he-model{top:30px}
+  .he-blob{inset:20px 0 10px 16px}
+  .he-cap{max-width:70%;font-size:12px;padding:6px 10px}
+  .he-stage #fx-yk-hero .yadokarin{width:92px;height:92px}
+  .he-stage #fx-yk-hero .fx-yk-bubble{margin-bottom:60px;max-width:190px;font-size:12.5px;padding:7px 10px}
+  .he-search{padding:14px 16px 30px}
+  .he-search .search-bar{padding:14px}
+  .he-search .search-row{flex-direction:column;align-items:stretch}
+  .he-go{justify-content:center}
+  .he-chips-label{width:100%}
+  .he-list-title,.results-bar{padding-left:16px;padding-right:16px}
+  .card-grid{padding:8px 16px 20px;gap:16px}
+  .he-ask-inner{padding:44px 16px}
+  .he-footer-inner{padding-bottom:90px}
+  .he-say-yk{width:70px;height:70px}
+  .he-say-text{font-size:16px;padding:12px 14px}
+}

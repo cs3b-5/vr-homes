@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>VR Homes — VR内見不動産サイト</title>
+<title>VR Homes — 行く前に、住んでみる。</title>
 <script>
   /* ログインしなくても物件を見られるので、ログイン画面は最初は出さない（必要なときだけ出す） */
   document.documentElement.classList.add('has-session');
@@ -16,7 +16,7 @@
 
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#FFF7EC">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VR Homes">
@@ -24,12 +24,16 @@
 <meta name="mobile-web-app-capable" content="yes">
 <!-- OGP -->
 <meta property="og:title" content="VR Homes — VR内見不動産">
-<meta property="og:description" content="自宅から360° VR内見できる不動産サービス">
+<meta property="og:description" content="行く前に、住んでみる。ブラウザだけで部屋の中を歩ける内見サービス">
 <meta property="og:type" content="website">
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="theme.css">
 <style>
   /* PWA インストールバナー */
   #pwa-banner{
@@ -73,7 +77,7 @@
   <div class="login-bg-orb login-bg-orb3"></div>
   <div class="login-card">
     <div class="login-logo">
-      <div class="login-logo-icon"><i class="ti ti-building"></i></div>
+      <div class="login-logo-icon logo-yk" aria-hidden="true"></div>
       <div class="login-title">VR Homes</div>
       <div class="login-sub">VR内見不動産サービス</div>
     </div>
@@ -122,7 +126,7 @@
 <div class="screen active" id="s-top">
   <nav class="nav">
     <div class="logo" onclick="guardedScreen('top')">
-      <div class="logo-icon"><i class="ti ti-building"></i></div>VR<span class="logo-dot">.</span>Homes
+      <span class="logo-yk" aria-hidden="true"></span>VR Homes
     </div>
     <div class="nav-links">
       <span class="nl on">物件を探す</span>
@@ -134,64 +138,83 @@
     </div>
   </nav>
 
-  <!-- HERO -->
-  <div class="hero">
-    <div class="hero-particles" id="hero-particles"></div>
-    <div style="max-width:960px;margin:0 auto;position:relative;z-index:1">
-      <div class="hero-eyebrow">
-        <span class="hero-eyebrow-dot"></span>
-        VR対応物件 掲載中
+  <!-- HERO（トップ）: 左にコピー、右に回る模型 -->
+  <div class="hero he">
+    <div class="he-inner">
+      <div class="he-copy">
+        <h1 class="he-title">行く前に、<br><em>住んでみる。</em></h1>
+        <p class="he-sub">気になる部屋に、いま入ってみよう。案内するのは、おうちを背負ったヤドカリの「やどかりん」。</p>
+        <div class="he-ctas">
+          <button type="button" class="he-btn-main" id="he-enter"><i class="ti ti-player-play-filled" aria-hidden="true"></i><span>この部屋に入ってみる</span></button>
+          <button type="button" class="he-btn-sub" onclick="document.getElementById('he-search').scrollIntoView({behavior:'smooth',block:'start'})">物件をさがす</button>
+        </div>
+        <p class="he-note"><i class="ti ti-device-desktop" aria-hidden="true"></i> スマホ・PC・Meta Quest のブラウザで、そのまま歩けます</p>
       </div>
-      <h1 class="hero-title">
-        自宅から、360°<span class="hero-title-accent">VR内見</span>できる<br>不動産サービス
-      </h1>
-      <p class="hero-sub">物件を選ぶだけ。スマホ・PC・VRゴーグルのブラウザで、移動なしの内見体験を。</p>
-      <div class="search-bar">
-        <div class="search-row">
-          <div class="search-field">
-            <span class="search-label">エリア・駅名</span>
-            <input class="finput" id="f-search-text" placeholder="渋谷、新宿、池袋など"
-              onkeydown="handleFormKey(event,'f-search-price')" style="padding:8px 11px;font-size:13px">
-          </div>
-          <div class="search-field">
-            <span class="search-label">家賃上限（万円）</span>
-            <input class="finput" type="number" id="f-search-price" placeholder="例: 10" min="1"
-              onkeydown="handleFormKey(event,'f-search-madori')" style="padding:8px 11px;font-size:13px">
-          </div>
-          <div class="search-field">
-            <span class="search-label">間取り</span>
-            <input class="finput" id="f-search-madori" placeholder="1LDK、2LDKなど"
-              onkeydown="if(event.key==='Enter')applyFilters()" style="padding:8px 11px;font-size:13px">
-          </div>
-          <button class="btn btn-p" style="padding:8px 22px;white-space:nowrap" onclick="applyFilters()">
-            <i class="ti ti-search"></i> 検索
-          </button>
-        </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px">
-          <button class="btn btn-sm" onclick="toggleAdvFilter()" style="font-size:11px">
-            <i class="ti ti-adjustments-horizontal"></i> 詳細条件
-          </button>
-          <button class="btn btn-sm" onclick="resetFilters()" style="font-size:11px;color:#64748b">
-            <i class="ti ti-refresh"></i> リセット
-          </button>
-        </div>
-
-        <!-- 詳細フィルター -->
-        <div class="adv-filter-panel" id="adv-filter-panel">
-          <div class="adv-filter-body" id="adv-filter-body">
-            <!-- JS で動的生成 -->
-          </div>
-          <div class="adv-filter-foot">
-            <button class="btn btn-sm" onclick="resetFilters()"><i class="ti ti-refresh"></i> リセット</button>
-            <button class="btn btn-p btn-sm" onclick="applyFilters();toggleAdvFilter()">
-              <i class="ti ti-search"></i> この条件で検索
-            </button>
-          </div>
-        </div>
+      <div class="he-stage" id="he-stage">
+        <div class="he-blob" aria-hidden="true"></div>
+        <img class="he-model" id="he-model" src="img/doll.webp" alt="間取りから立ち上げた部屋の模型" width="877" height="642">
+        <div class="he-frame-wrap" id="he-frame-wrap"></div>
+        <div class="he-cap" id="he-cap"></div>
       </div>
     </div>
   </div>
 
+  <!-- 検索 -->
+  <section class="he-search" id="he-search">
+    <div class="search-bar">
+      <div class="he-chips" role="group" aria-label="どんなおうち？">
+        <span class="he-chips-label">どんなおうち？</span>
+        <button type="button" class="he-chip" data-chip="solo">ひとり暮らし</button>
+        <button type="button" class="he-chip" data-chip="two">ふたりで</button>
+        <button type="button" class="he-chip" data-chip="pet">ペットと</button>
+        <button type="button" class="he-chip" data-chip="near">駅ちかく</button>
+        <button type="button" class="he-chip" data-chip="vr">VRで歩ける</button>
+      </div>
+      <div class="search-row">
+        <div class="search-field">
+          <label class="search-label" for="f-search-text">エリア・駅</label>
+          <input class="finput" id="f-search-text" placeholder="渋谷、新宿 など"
+            onkeydown="handleFormKey(event,'f-search-price')">
+        </div>
+        <div class="search-field">
+          <label class="search-label" for="f-search-price">家賃の上限（万円）</label>
+          <input class="finput" type="number" id="f-search-price" placeholder="例: 10" min="1"
+            onkeydown="handleFormKey(event,'f-search-madori')">
+        </div>
+        <div class="search-field">
+          <label class="search-label" for="f-search-madori">間取り</label>
+          <input class="finput" id="f-search-madori" placeholder="1LDK など"
+            onkeydown="if(event.key==='Enter')applyFilters()">
+        </div>
+        <button class="btn btn-p he-go" onclick="applyFilters()">
+          <i class="ti ti-search"></i> さがす
+        </button>
+      </div>
+      <div class="he-search-tools">
+        <button class="btn btn-sm" onclick="toggleAdvFilter()">
+          <i class="ti ti-adjustments-horizontal"></i> 詳細条件
+        </button>
+        <button class="btn btn-sm" onclick="resetFilters()">
+          <i class="ti ti-refresh"></i> リセット
+        </button>
+      </div>
+
+      <!-- 詳細フィルター -->
+      <div class="adv-filter-panel" id="adv-filter-panel">
+        <div class="adv-filter-body" id="adv-filter-body">
+          <!-- JS で動的生成 -->
+        </div>
+        <div class="adv-filter-foot">
+          <button class="btn btn-sm" onclick="resetFilters()"><i class="ti ti-refresh"></i> リセット</button>
+          <button class="btn btn-p btn-sm" onclick="applyFilters();toggleAdvFilter()">
+            <i class="ti ti-search"></i> この条件で検索
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <h2 class="he-h2 he-list-title">いま見られる部屋</h2>
   <div class="results-bar">
     <span style="font-size:13px;color:#64748b">
       <strong style="color:var(--navy)" id="results-count">0</strong> 件の物件
@@ -209,110 +232,36 @@
     <button class="page-btn"><i class="ti ti-chevron-right" style="font-size:13px"></i></button>
   </div>
 
-  <!-- HOW IT WORKS -->
-  <section class="lp-section lp-how">
-    <div class="lp-inner">
-      <div class="lp-eyebrow"><i class="ti ti-vr"></i> HOW IT WORKS</div>
-      <h2 class="lp-title">VR内見、<span>たった3ステップ</span></h2>
-      <div class="lp-steps">
-        <div class="lp-step">
-          <div class="lp-step-num">01</div>
-          <div class="lp-step-icon"><i class="ti ti-search"></i></div>
-          <div class="lp-step-title">物件を選ぶ</div>
-          <div class="lp-step-desc">エリア・家賃・間取りで絞り込み、気になる物件を選択します。</div>
+  <!-- やどかりんに聞いてみる -->
+  <section class="he-ask" aria-labelledby="he-ask-title">
+    <div class="he-ask-inner">
+      <h2 class="he-h2" id="he-ask-title">やどかりんに、聞いてみて。</h2>
+      <p class="he-ask-lead">写真や間取り図だけではわからないことを、部屋の中で確かめられます。</p>
+      <div class="he-qs" role="tablist" aria-label="質問">
+        <button type="button" class="he-q on" role="tab" aria-selected="true" data-q="0">冷蔵庫、入る？</button>
+        <button type="button" class="he-q" role="tab" aria-selected="false" data-q="1">冬の朝、日は入る？</button>
+        <button type="button" class="he-q" role="tab" aria-selected="false" data-q="2">ソファ、置ける？</button>
+        <button type="button" class="he-q" role="tab" aria-selected="false" data-q="3">家族にも見せたい</button>
+      </div>
+      <div class="he-answer" role="tabpanel">
+        <div class="he-say">
+          <span class="he-say-yk" id="he-say-yk" aria-hidden="true"></span>
+          <p class="he-say-text" id="he-say-text" aria-live="polite">「測る」で壁を2か所タップしてみて。壁から壁までの長さが、その場でわかるよ。</p>
         </div>
-        <div class="lp-step-arrow"><i class="ti ti-arrow-right"></i></div>
-        <div class="lp-step">
-          <div class="lp-step-num">02</div>
-          <div class="lp-step-icon"><i class="ti ti-3d-cube-sphere"></i></div>
-          <div class="lp-step-title">間取りを確認</div>
-          <div class="lp-step-desc">物件詳細から3D間取りを確認。AIが精密に再現します。</div>
-        </div>
-        <div class="lp-step-arrow"><i class="ti ti-arrow-right"></i></div>
-        <div class="lp-step">
-          <div class="lp-step-num">03</div>
-          <div class="lp-step-icon"><i class="ti ti-vr"></i></div>
-          <div class="lp-step-title">VRで内見開始</div>
-          <div class="lp-step-desc">ブラウザの中で部屋を自由に歩いて体験。アプリのインストールは不要です。</div>
-        </div>
+        <img class="he-answer-img" id="he-answer-img" src="img/measure.webp" alt="部屋の中で壁の幅を測っている画面" width="800" height="411" loading="lazy">
       </div>
     </div>
   </section>
 
-  <!-- FEATURES -->
-  <section class="lp-section lp-features-section">
-    <div class="lp-inner">
-      <div class="lp-eyebrow"><i class="ti ti-star"></i> FEATURES</div>
-      <h2 class="lp-title">選ばれる<span>4つの理由</span></h2>
-      <div class="lp-features-grid">
-        <div class="lp-feat">
-          <div class="lp-feat-icon lp-feat-icon--blue"><i class="ti ti-map-pin"></i></div>
-          <div class="lp-feat-title">全国の物件に対応</div>
-          <div class="lp-feat-desc">都市部から郊外まで、幅広いエリアの物件をVR内見で体験できます。</div>
-        </div>
-        <div class="lp-feat">
-          <div class="lp-feat-icon lp-feat-icon--green"><i class="ti ti-clock"></i></div>
-          <div class="lp-feat-title">24時間いつでも内見</div>
-          <div class="lp-feat-desc">不動産会社の営業時間を気にせず、自分のペースで内見できます。</div>
-        </div>
-        <div class="lp-feat">
-          <div class="lp-feat-icon lp-feat-icon--purple"><i class="ti ti-3d-cube-sphere"></i></div>
-          <div class="lp-feat-title">精密な3D間取り</div>
-          <div class="lp-feat-desc">OpenCVが生成する精密な3D間取りで、部屋の広さや動線を直感的に確認。</div>
-        </div>
-        <div class="lp-feat">
-          <div class="lp-feat-icon lp-feat-icon--teal"><i class="ti ti-device-vr"></i></div>
-          <div class="lp-feat-title">スマホ・PC・Quest対応</div>
-          <div class="lp-feat-desc">スマホやPCのブラウザだけで内見でき、Meta Quest ならヘッドセットで没入体験もできます。</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- STATS -->
-  <section class="lp-stats-banner">
-    <div class="lp-inner lp-stats-inner">
-      <div class="lp-stat-item">
-        <div class="lp-stat-num" id="lp-stat-props">0件</div>
-        <div class="lp-stat-label">掲載物件数</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat-item">
-        <div class="lp-stat-num">24h</div>
-        <div class="lp-stat-label">いつでも内見可</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat-item">
-        <div class="lp-stat-num">360°</div>
-        <div class="lp-stat-label">VR体験</div>
-      </div>
-      <div class="lp-stat-divider"></div>
-      <div class="lp-stat-item">
-        <div class="lp-stat-num">¥0</div>
-        <div class="lp-stat-label">完全無料</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA -->
-  <section class="lp-section lp-cta-section">
-    <div class="lp-inner lp-cta-inner">
-      <span class="lp-cta-icon">🏠</span>
-      <h2 class="lp-cta-title">VR内見を今すぐ体験しよう</h2>
-      <p class="lp-cta-desc">物件を選んで「VRで内見する」ボタンを押すだけ。その場で部屋の中を歩けます。</p>
-      <button class="btn btn-p lp-cta-btn" onclick="document.querySelector('.card-grid').scrollIntoView({behavior:'smooth'})">
-        <i class="ti ti-arrow-up"></i> 物件一覧を見る
-      </button>
-    </div>
-  </section>
-
-  <footer class="lp-footer">
-    <div class="lp-inner lp-footer-inner">
-      <div class="lp-footer-logo">
-        <div class="logo-icon"><i class="ti ti-building"></i></div>
-        VR Homes
-      </div>
-      <div class="lp-footer-copy">© 2025 VR Homes. 卒業研究プロジェクト</div>
+  <footer class="he-footer">
+    <div class="he-footer-inner">
+      <div class="he-footer-logo"><span class="logo-yk" aria-hidden="true"></span>VR Homes</div>
+      <nav class="he-footer-links" aria-label="サイト情報">
+        <a href="help.html" target="_blank" rel="noopener">使い方</a>
+        <a href="privacy.html" target="_blank" rel="noopener">プライバシーポリシー</a>
+        <a href="terms.html" target="_blank" rel="noopener">利用規約</a>
+        <span>卒業研究プロジェクト（CS3B）</span>
+      </nav>
     </div>
   </footer>
 </div>
@@ -321,7 +270,7 @@
 <div class="screen" id="s-map">
   <nav class="nav">
     <div class="logo" onclick="guardedScreen('top')">
-      <div class="logo-icon"><i class="ti ti-building"></i></div>VR<span class="logo-dot">.</span>Homes
+      <span class="logo-yk" aria-hidden="true"></span>VR Homes
     </div>
     <div class="nav-links">
       <span class="nl" onclick="guardedScreen('top')">← 一覧</span>
@@ -393,7 +342,7 @@
 <div class="screen" id="s-mypage">
   <nav class="nav">
     <div class="logo" onclick="guardedScreen('top')">
-      <div class="logo-icon"><i class="ti ti-building"></i></div>VR<span class="logo-dot">.</span>Homes
+      <span class="logo-yk" aria-hidden="true"></span>VR Homes
     </div>
     <div class="nav-r">
       <button class="btn btn-sm" onclick="guardedScreen('top')"><i class="ti ti-home"></i>トップ</button>
@@ -580,7 +529,7 @@
 <div class="screen" id="s-help">
   <nav class="nav">
     <div class="logo" onclick="guardedScreen('top')">
-      <div class="logo-icon"><i class="ti ti-building"></i></div>VR<span class="logo-dot">.</span>Homes
+      <span class="logo-yk" aria-hidden="true"></span>VR Homes
     </div>
     <div class="nav-r">
       <button class="btn btn-sm" onclick="guardedScreen('top')"><i class="ti ti-home"></i>トップ</button>
@@ -873,7 +822,6 @@
       <div class="admin-nav-item on" onclick="switchMaster('users',this)"><i class="ti ti-users"></i>全ユーザー管理</div>
       <div class="admin-nav-item" onclick="switchMaster('roles',this)"><i class="ti ti-shield"></i>ロール変更</div>
       <div class="admin-nav-item" onclick="switchMaster('fields',this)"><i class="ti ti-list-details"></i>物件条件管理</div>
-      <!-- 広告管理タブは隠し機能（コード入力で解放） -->
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06)">
         <div class="stat-mini"><div class="stat-mini-label">全ユーザー数</div><div class="stat-mini-val" id="master-user-count">-</div></div>
         <div class="stat-mini"><div class="stat-mini-label">管理者数</div><div class="stat-mini-val" id="master-admin-count">-</div></div>
@@ -955,25 +903,6 @@
             <button class="btn btn-p btn-sm" onclick="addFieldItem('madori')"><i class="ti ti-plus"></i> 追加</button>
           </div>
         </div>
-      </div>
-      <!-- 広告管理 -->
-      <div id="master-ads" style="display:none">
-        <!-- JS で動的生成 -->
-      </div>
-      <!-- 隠しコード入力（master-fieldsの最下部に埋め込み） -->
-      <div id="master-secret-unlock" style="display:none;margin-top:32px;padding-top:20px;border-top:1px solid rgba(255,255,255,.06)">
-        <div style="font-size:11px;color:rgba(255,255,255,.2);margin-bottom:8px;letter-spacing:.05em">シークレットコード</div>
-        <div style="display:flex;gap:8px">
-          <input id="secret-code-input" type="password" class="finput"
-            placeholder="••••••••"
-            style="max-width:180px;background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.5);font-size:13px;letter-spacing:.15em"
-            onkeydown="if(event.key==='Enter')submitSecretCode()">
-          <button class="btn btn-sm" onclick="submitSecretCode()"
-            style="border-color:rgba(255,255,255,.1);color:rgba(255,255,255,.3);background:transparent;font-size:11px">
-            解除
-          </button>
-        </div>
-        <div id="secret-code-msg" style="font-size:11px;margin-top:6px;display:none"></div>
       </div>
     </div>
   </div>
