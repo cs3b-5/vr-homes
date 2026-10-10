@@ -313,7 +313,6 @@ body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
   .he-map-legend{bottom:auto;top:12px;left:56px}
   .he-map-area{top:52px}
   .he-map-note{top:auto;bottom:150px}
-  body.he-mapview .ykc-fab{bottom:calc(175px + env(safe-area-inset-bottom))}
 }
 #s-top .card-grid[hidden],#s-top .pagination[hidden]{display:none!important}
 
@@ -331,3 +330,7 @@ body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 .fx-chk-memo{margin:4px 0 8px;resize:vertical}
 .fx-chk-cmp span{display:block;font-size:12px;line-height:1.6}
 .fx-chk-cmp .ok{color:#15803d}.fx-chk-cmp .meh{color:#b45309}.fx-chk-cmp .ng{color:#b91c1c}
+
+/* 地図の部品（ズームボタン・ピンなど）がヘッダーやチャットの上に突き抜けないよう、地図の中に閉じこめる */
+.leaflet-container,.he-map,.he-map-stage{isolation:isolate}
+.he-map,.he-map-stage{z-index:0}

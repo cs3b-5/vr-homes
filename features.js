@@ -2481,6 +2481,7 @@ function heSetView(v, opts) {
   if (map) map.hidden = !isMap;
   document.body.classList.toggle('he-mapview', isMap);
   if (isMap) { heInitMap(); setTimeout(() => { if (heMap) { heMap.invalidateSize(); heDraw(!(opts && opts.keepView)); } }, 30); }
+  setTimeout(heFabDodge, 60);
   if (opts && opts.scroll) { const tgt = $('he-list-anchor') || document.querySelector('.he-list-title'); if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 window.fxSetView = heSetView;
@@ -2637,6 +2638,18 @@ window.guardedScreen = function (name) {
   if (name === 'map') { const r = _guarded2.call(this, 'top'); setTimeout(() => heSetView('map', { scroll: true }), 50); return r; }
   return _guarded2.apply(this, arguments);
 };
+// スマホの地図表示: 下のカードが画面の下にあるときだけ、やどかりんボタンをカードの上に逃がす
+function heFabDodge() {
+  const fab = $('ykc-fab'); if (!fab) return;
+  let lift = 0;
+  if (heView === 'map' && matchMedia('(max-width: 760px)').matches && $('s-top').classList.contains('active')) {
+    const st = document.querySelector('.he-map-stage'), vh = window.innerHeight;
+    if (st) { const r = st.getBoundingClientRect(); const bandTop = r.bottom - 150; if (r.bottom > vh - 90 && bandTop < vh) lift = Math.max(0, vh - bandTop + 8 - 16); }
+  }
+  fab.style.transform = lift ? `translateY(-${lift}px)` : '';
+}
+let heFabRaf = 0;
+['scroll', 'resize'].forEach(ev => window.addEventListener(ev, () => { cancelAnimationFrame(heFabRaf); heFabRaf = requestAnimationFrame(heFabDodge); }, { passive: true }));
 function initMapView() {
   document.querySelectorAll('.he-view-btn').forEach(b => { b.onclick = () => heSetView(b.dataset.view); });
   if (heView === 'map') heSetView('map');
