@@ -35,34 +35,6 @@
 <link rel="stylesheet" href="site.css">
 <link rel="stylesheet" href="theme.css">
 <style>
-  /* PWA インストールバナー */
-  #pwa-banner{
-    position:fixed;bottom:0;left:0;right:0;z-index:9000;
-    background:linear-gradient(135deg,#1e3a6e,#1e1b4b);
-    border-top:1px solid rgba(255,255,255,.12);
-    padding:12px 16px;display:none;align-items:center;gap:12px;
-    box-shadow:0 -4px 24px rgba(0,0,0,.3);
-  }
-  #pwa-banner.show{display:flex}
-  #pwa-banner .pwa-icon{
-    width:44px;height:44px;border-radius:10px;flex-shrink:0;
-    background:linear-gradient(135deg,#2563eb,#7c3aed);
-    display:flex;align-items:center;justify-content:center;
-    font-size:22px;color:#fff;
-  }
-  #pwa-banner .pwa-text{flex:1;min-width:0}
-  #pwa-banner .pwa-text strong{display:block;font-size:13px;font-weight:800;color:#fff;margin-bottom:2px}
-  #pwa-banner .pwa-text span{font-size:11px;color:rgba(255,255,255,.6)}
-  #pwa-banner .pwa-install{
-    background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;
-    border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;
-    cursor:pointer;white-space:nowrap;font-family:inherit;
-    box-shadow:0 2px 8px rgba(37,99,235,.4);flex-shrink:0;
-  }
-  #pwa-banner .pwa-close{
-    background:none;border:none;color:rgba(255,255,255,.4);
-    font-size:18px;cursor:pointer;padding:4px;flex-shrink:0;
-  }
 </style>
 </head>
 <body>
@@ -219,18 +191,30 @@
     <span style="font-size:13px;color:#64748b">
       <strong style="color:var(--navy)" id="results-count">0</strong> 件の物件
     </span>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="btn btn-sm" onclick="guardedScreen('map')" style="background:var(--blue-l);color:var(--blue);border-color:var(--blue-l2)">
-        <i class="ti ti-map-pin"></i>マップで見る
-      </button>
+    <div class="he-view" role="group" aria-label="表示の切り替え">
+      <button type="button" class="he-view-btn on" data-view="list" aria-pressed="true"><i class="ti ti-layout-grid" aria-hidden="true"></i>リスト</button>
+      <button type="button" class="he-view-btn" data-view="map" aria-pressed="false"><i class="ti ti-map-2" aria-hidden="true"></i>地図</button>
     </div>
   </div>
+  <div class="he-active" id="he-active" hidden></div>
   <div class="card-grid" id="card-grid"></div>
   <div class="pagination">
     <button class="page-btn"><i class="ti ti-chevron-left" style="font-size:13px"></i></button>
     <button class="page-btn on">1</button>
     <button class="page-btn"><i class="ti ti-chevron-right" style="font-size:13px"></i></button>
   </div>
+
+  <!-- 地図で探す（リストと切り替え）-->
+  <section class="he-map" id="he-map" hidden aria-label="地図で探す">
+    <div class="he-map-stage">
+      <div id="he-map-canvas" class="he-map-canvas"></div>
+      <button type="button" class="he-map-area" id="he-map-area" hidden><i class="ti ti-search" aria-hidden="true"></i> この範囲で探す</button>
+      <button type="button" class="he-map-loc" id="he-map-loc" aria-label="現在地を表示" title="現在地"><i class="ti ti-current-location" aria-hidden="true"></i></button>
+      <div class="he-map-legend" aria-hidden="true"><span class="he-lg vr">VRで歩ける</span><span class="he-lg">写真のみ</span></div>
+      <div class="he-map-note" id="he-map-note" hidden></div>
+    </div>
+    <div class="he-map-list" id="he-map-list" aria-label="地図の物件"></div>
+  </section>
 
   <!-- やどかりんに聞いてみる -->
   <section class="he-ask" aria-labelledby="he-ask-title">
@@ -371,7 +355,6 @@
       <div class="mp-nav-item" onclick="switchMp('hist',this)"><i class="ti ti-history"></i>閲覧履歴</div>
       <div class="mp-nav-item" onclick="switchMp('prof',this)"><i class="ti ti-settings"></i>プロフィール</div>
       <div class="mp-nav-item" onclick="switchMp('wish',this)"><i class="ti ti-heart-search"></i>希望条件</div>
-      <div class="mp-nav-item hidden" id="mp-nav-code" onclick="switchMp('code',this)"><i class="ti ti-key"></i>コード入力</div>
     </div>
     <div class="mypage-main">
       <div id="mp-fav">
@@ -504,24 +487,6 @@
             <button class="btn btn-p" style="padding:9px 22px;font-size:13px" onclick="alert('希望条件を保存しました！')"><i class="ti ti-check"></i> 保存する</button>
             <button class="btn" style="padding:9px 18px;font-size:13px" onclick="applyWishlistToFilter()"><i class="ti ti-search"></i> この条件で検索</button>
           </div>
-        </div>
-      </div>
-      <div id="mp-code" style="display:none">
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:8px;color:var(--navy)">コード入力</h2>
-        <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">
-          特別なコードを入力すると、追加機能が解放されます。
-        </p>
-        <div class="card" style="max-width:380px">
-          <div class="field">
-            <div class="flabel">シークレットコード <span class="req">*</span></div>
-            <input class="finput" id="code-input" type="password" placeholder="コードを入力"
-              style="letter-spacing:.15em;font-size:16px;text-align:center"
-              onkeydown="if(event.key==='Enter')submitCode()">
-          </div>
-          <div id="code-msg" style="display:none;border-radius:var(--r-md);padding:9px 13px;font-size:13px;margin-bottom:14px"></div>
-          <button class="btn btn-p" onclick="submitCode()" style="width:100%;padding:11px;justify-content:center;font-size:13px">
-            <i class="ti ti-lock-open"></i> 解除する
-          </button>
         </div>
       </div>
     </div>
@@ -1019,15 +984,7 @@
 <div class="toast-container" id="toast-container"></div>
 
 <!-- PWA インストールバナー -->
-<div id="pwa-banner">
-  <div class="pwa-icon">🏠</div>
-  <div class="pwa-text">
-    <strong>VR Homes をインストール</strong>
-    <span>ホーム画面に追加してアプリとして使えます</span>
-  </div>
-  <button class="pwa-install" id="pwa-install-btn">追加する</button>
-  <button class="pwa-close" onclick="document.getElementById('pwa-banner').classList.remove('show');localStorage.setItem('pwa_dismissed','1')">✕</button>
-</div>
+
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="mascot.js"></script>
@@ -1044,34 +1001,13 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ── インストールバナー ── */
-let _deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  _deferredPrompt = e;
-  // 過去に閉じていなければバナー表示
-  if (!localStorage.getItem('pwa_dismissed') && !localStorage.getItem('pwa_installed')) {
-    setTimeout(() => document.getElementById('pwa-banner').classList.add('show'), 2000);
-  }
-});
-
-document.getElementById('pwa-install-btn').addEventListener('click', async () => {
-  const banner = document.getElementById('pwa-banner');
-  banner.classList.remove('show');
-  if (_deferredPrompt) {
-    _deferredPrompt.prompt();
-    const { outcome } = await _deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      localStorage.setItem('pwa_installed', '1');
-      console.log('[PWA] インストールされました');
-    }
-    _deferredPrompt = null;
-  }
-});
+/* ── ホーム画面に追加（PWA）──
+   機能としては残すが、こちらからはすすめない（ブラウザの自動のおすすめ表示も止める）。
+   追加したい人は、ブラウザのメニューの「ホーム画面に追加」から追加できる */
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); });
 
 window.addEventListener('appinstalled', () => {
-  localStorage.setItem('pwa_installed', '1');
-  document.getElementById('pwa-banner').classList.remove('show');
+  try { localStorage.setItem('pwa_installed', '1'); } catch (e) {}
   console.log('[PWA] アプリとしてインストール完了');
 });
 </script>

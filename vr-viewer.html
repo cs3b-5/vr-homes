@@ -98,6 +98,16 @@
   .panel .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
   .panel .chips button { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-weight: 600; padding: 5px 9px; }
   .panel .row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; }
+  .crow { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
+  .crow .cl { flex: 1; min-width: 0; line-height: 1.35; }
+  .crow .cl small { display: block; }
+  .crow .ch { background: none; border: 0; padding: 0; color: #2563eb; font-size: 11px; text-decoration: underline; cursor: pointer; }
+  .crow .cv { width: 32px; height: 32px; padding: 0; border-radius: 8px; background: #f1f5f9; color: #64748b; font-size: 14px; font-weight: 800; border: 1.5px solid transparent; }
+  .crow .cv.on[data-v=ok] { background: #dcfce7; color: #15803d; border-color: #15803d; }
+  .crow .cv.on[data-v=meh] { background: #fef3c7; color: #b45309; border-color: #b45309; }
+  .crow .cv.on[data-v=ng] { background: #fee2e2; color: #b91c1c; border-color: #b91c1c; }
+  .csum { font-weight: 700; margin-bottom: 4px; }
+  #cMemo { width: 100%; box-sizing: border-box; margin-top: 8px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 13px; resize: vertical; }
   .panel .row > span { color: #475569; min-width: 34px; }
   .panel input[type=number], .panel input[type=text] { height: 30px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 8px; font-family: inherit; font-size: 13px; min-width: 0; }
   .panel input[type=number] { width: 62px; }
@@ -161,6 +171,7 @@
   <button class="tbtn" data-tool="furn"><span>🛋</span><b data-t="家具">家具</b></button>
   <button class="tbtn" data-tool="sun"><span>☀</span><b data-t="日当たり">日当たり</b></button>
   <button class="tbtn hidden" data-tool="pano"><span>📷</span><b data-t="360°">360°</b></button>
+  <button class="tbtn" data-tool="check"><span>📝</span><b data-t="チェック">チェック</b></button>
   <button class="tbtn" data-tool="live"><span>👥</span><b data-t="一緒に">一緒に</b></button>
 </div>
 <div id="measureBar" class="bar"><span id="measureMsg" data-t="測りたい場所を2か所タップ">測りたい場所を2か所タップ</span><label><input type="checkbox" id="mFlat" checked> <span data-t="水平に測る">水平に測る</span></label><button id="mClear" data-t="消す">消す</button><button id="mDone" class="pri" data-t="終わる">終わる</button></div>
@@ -189,6 +200,13 @@
     <div class="row"><input type="text" id="lMsg" maxlength="200" placeholder="メッセージ" data-tp="メッセージ" style="flex:1"><button id="lSend" class="pri" data-t="送信">送信</button></div>
     <button id="lLeave" class="red" style="width:100%" data-t="退出する">退出する</button>
   </div>
+</div>
+<div id="checkPanel" class="panel">
+  <h4><span data-t="内見チェック">内見チェック</span><button id="cClose" data-t="閉じる">閉じる</button></h4>
+  <div class="sub" data-t="見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。">見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。</div>
+  <div id="cSum" class="csum"></div>
+  <div id="cList"></div>
+  <textarea id="cMemo" maxlength="500" rows="3" placeholder="メモ（気づいたこと）" data-tp="メモ（気づいたこと）"></textarea>
 </div>
 <div id="sunPanel" class="panel">
   <h4><span data-t="日当たりを見る">日当たりを見る</span><button id="sunClose" data-t="閉じる">閉じる</button></h4>
@@ -1036,7 +1054,13 @@ const EN = {
   "コピーしました": "Copied", "コードは6けたの数字です": "The code is 6 digits",
   "接続中…": "Connecting…", "参加しました": "Joined", "案内役の人がいません": "The guide is not here",
   "ほかの人が参加しました": "Someone joined", "畳": "tatami", "約": "about ",
-  "閉じる前に記録しています": "Saving…", "一時停止": "Pause", "再開": "Resume"
+  "閉じる前に記録しています": "Saving…", "一時停止": "Pause", "再開": "Resume",
+  "チェック": "Checklist", "内見チェック": "Viewing checklist", "メモ（気づいたこと）": "Notes",
+  "見ながら ◎ △ ✕ をつけておくと、物件ページと比較画面で見返せます。": "Mark ◎ △ ✕ as you look around. You can review them on the listing and in Compare.",
+  "冷蔵庫・洗濯機の置き場": "Space for fridge & washer", "ベッド・机を置けるか": "Room for bed & desk", "収納の広さ": "Storage space",
+  "コンセント・照明の位置": "Outlets & lights", "窓の大きさ・向き": "Window size & direction", "日当たり": "Sunlight",
+  "キッチンの広さ": "Kitchen size", "お風呂・トイレ・洗面所": "Bath, toilet & sink", "玄関・廊下（大きい家具が通るか）": "Entrance & hallway (can furniture pass?)",
+  "ベランダ": "Balcony", "まわりの音（現地で確認）": "Noise (check on site)"
 };
 function T(s) { return LANG === "en" && EN[s] ? EN[s] : s; }
 function setLang(l) {
@@ -1204,6 +1228,7 @@ function closePanels(except) {
   if (except !== "furn" && furnMode) setFurn(false);
   if (except !== "sun" && typeof sunOn !== "undefined" && sunOn) setSun(false);
   if (except !== "live") { document.getElementById("livePanel").classList.remove("show"); setToolOn("live", !!live); }
+  if (except !== "check") { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); }
 }
 toolBtns.map.addEventListener("click", function () { mmOn = !mmOn; setToolOn("map", mmOn); try { localStorage.setItem("vr_minimap", mmOn ? "1" : "0"); } catch (e) {} drawMinimap(); });
 toolBtns.measure.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } const on = !measureMode; closePanels("measure"); setMeasure(on); });
@@ -1225,6 +1250,7 @@ function initTools(opts) {
   try { mmOn = localStorage.getItem("vr_minimap") !== "0"; } catch (e) { mmOn = true; }
   setToolOn("map", mmOn);
   loadMyFurniture();
+  chkLoad(opts); renderChk();
   initToolsMore(opts);
   drawMinimap();
   if (opts.live && isEmbedded) {
@@ -1653,6 +1679,68 @@ function loadMyFurniture() {
     myFurn.push(f); makeFurnMesh(f);
   });
 }
+
+/* ---------- 内見チェック ---------- */
+// 見ながら ◎ △ ✕ とメモを残す。埋め込み時は親画面が保存する（ログイン中はアカウント、ゲストはこのタブの間だけ）
+const CHECK_ITEMS = [
+  ["fridge", "冷蔵庫・洗濯機の置き場", "measure"], ["bed", "ベッド・机を置けるか", "furn"], ["storage", "収納の広さ", ""],
+  ["outlet", "コンセント・照明の位置", ""], ["window", "窓の大きさ・向き", "sun"], ["sun", "日当たり", "sun"],
+  ["kitchen", "キッチンの広さ", ""], ["bath", "お風呂・トイレ・洗面所", ""], ["path", "玄関・廊下（大きい家具が通るか）", "measure"],
+  ["balcony", "ベランダ", ""], ["noise", "まわりの音（現地で確認）", ""]
+];
+const CHECK_TOOL = { measure: "測る", furn: "家具", sun: "日当たり" };
+let chk = { items: {}, memo: "" }, chkStore = "local", chkTimer = null;
+function chkKey() { return "vr_check_" + (propKey || "sample"); }
+function chkLoad(opts) {
+  chkStore = isEmbedded ? "parent" : "local";
+  let d = opts && opts.checks;
+  if (!d && chkStore === "local") { try { d = JSON.parse(localStorage.getItem(chkKey()) || "null"); } catch (e) { d = null; } }
+  const items = {};
+  if (d && d.items && typeof d.items === "object") CHECK_ITEMS.forEach(function (it) { const v = d.items[it[0]]; if (v === "ok" || v === "meh" || v === "ng") items[it[0]] = v; });
+  chk = { items: items, memo: d && typeof d.memo === "string" ? d.memo.slice(0, 500) : "" };
+}
+function chkSave() {
+  clearTimeout(chkTimer);
+  chkTimer = setTimeout(function () {
+    const data = { items: chk.items, memo: chk.memo };
+    if (chkStore === "parent") postToParent({ type: "vr-check-save", propKey: propKey, data: data });
+    else { try { localStorage.setItem(chkKey(), JSON.stringify(data)); } catch (e) {} }
+  }, 400);
+}
+function renderChk() {
+  const list = document.getElementById("cList");
+  list.innerHTML = "";
+  const n = { ok: 0, meh: 0, ng: 0 };
+  CHECK_ITEMS.forEach(function (it) {
+    const v = chk.items[it[0]]; if (v) n[v]++;
+    const row = document.createElement("div"); row.className = "crow";
+    const lab = document.createElement("div"); lab.className = "cl"; lab.textContent = T(it[1]);
+    if (it[2] && CHECK_TOOL[it[2]]) {
+      const h = document.createElement("button"); h.className = "ch"; h.type = "button";
+      h.textContent = (LANG === "en" ? "Check with " : "「") + T(CHECK_TOOL[it[2]]) + (LANG === "en" ? "" : "」で確かめる");
+      h.addEventListener("click", function () { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); toolBtns[it[2]].click(); });
+      const sm = document.createElement("small"); sm.appendChild(h); lab.appendChild(sm);
+    }
+    row.appendChild(lab);
+    [["ok", "◎"], ["meh", "△"], ["ng", "✕"]].forEach(function (cv) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "cv" + (v === cv[0] ? " on" : ""); b.dataset.v = cv[0]; b.textContent = cv[1];
+      b.setAttribute("aria-label", T(it[1]) + " " + cv[1]); b.setAttribute("aria-pressed", v === cv[0] ? "true" : "false");
+      b.addEventListener("click", function () { if (chk.items[it[0]] === cv[0]) delete chk.items[it[0]]; else chk.items[it[0]] = cv[0]; renderChk(); chkSave(); });
+      row.appendChild(b);
+    });
+    list.appendChild(row);
+  });
+  document.getElementById("cSum").textContent = "◎ " + n.ok + "　△ " + n.meh + "　✕ " + n.ng + "　（" + (n.ok + n.meh + n.ng) + " / " + CHECK_ITEMS.length + "）";
+  const memo = document.getElementById("cMemo"); if (document.activeElement !== memo) memo.value = chk.memo;
+}
+document.getElementById("cMemo").addEventListener("input", function () { chk.memo = this.value.slice(0, 500); chkSave(); });
+document.getElementById("cMemo").addEventListener("keydown", function (e) { e.stopPropagation(); });   // 文字入力中に WASD で歩かないように
+document.getElementById("cClose").addEventListener("click", function () { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); });
+toolBtns.check.addEventListener("click", function () {
+  const p = document.getElementById("checkPanel"), on = !p.classList.contains("show");
+  closePanels("check"); p.classList.toggle("show", on); setToolOn("check", on);
+  if (on) renderChk();
+});
 
 /* ---------- 一緒に内見 ---------- */
 // サーバーとのやり取りは親画面(index.html)が受け持つ。ここは見た目と位置の送受信だけ。
@@ -2165,7 +2253,7 @@ window.addEventListener("message", function (e) {
   gotInit = true;
   if (msg.lang) setLang(msg.lang);
   if (msg.sample) { startWith(SAMPLE_PLAN, T("サンプルの部屋"), { liveOk: !!msg.liveOk, furnStore: msg.furnStore || "session", propKey: "sample" }).catch(fail); return; }
-  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture }).catch(fail);
+  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
 });
 
 /* ---------- トップページ用の模型表示 (?hero=1) ----------

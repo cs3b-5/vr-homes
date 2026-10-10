@@ -77,6 +77,7 @@ window.viewInVR = async function (propId, extra) {
     panoramas: prop.panoramas || [], geo: { lat: +prop.lat || 35.68, lng: +prop.lng || 139.76 },
     furnStore: isLoggedIn && currentUser ? 'parent' : 'session',
     furniture: isLoggedIn && currentUser ? (((currentUser.myFurniture || {})[prop.id]) || []) : null,
+    checks: getChecks(prop.id),
     live: extra && extra.live ? extra.live : null
   });
 };
@@ -142,6 +143,7 @@ window.addEventListener('message', e => {
         api('trackView', { body: Object.assign({ propId: +m.propKey }, m.stats) }).catch(() => {});
       break;
     case 'vr-furn-save': saveFurniture(m.propKey, m.items); break;
+    case 'vr-check-save': saveChecks(m.propKey, m.data); break;
     case 'vr-live-start': liveStart(); break;
     case 'vr-live-join': liveJoin(String(m.code || '')); break;
     case 'vr-live-pose': live.pose = m.pose; break;
@@ -228,6 +230,80 @@ window.renderPropDetail = function (prop) {
   _renderPropDetail.apply(this, arguments);
   try { decorateDetail(prop); a11yStatic(); } catch (e) { console.error(e); }
 };
+/* ── 内見チェック（VR内見の「チェック」と物件ページで同じものを使う）── */
+const CHECK_ITEMS = [
+  ['fridge', '冷蔵庫・洗濯機の置き場', 'Space for fridge & washer'], ['bed', 'ベッド・机を置けるか', 'Room for bed & desk'], ['storage', '収納の広さ', 'Storage space'],
+  ['outlet', 'コンセント・照明の位置', 'Outlets & lights'], ['window', '窓の大きさ・向き', 'Window size & direction'], ['sun', '日当たり', 'Sunlight'],
+  ['kitchen', 'キッチンの広さ', 'Kitchen size'], ['bath', 'お風呂・トイレ・洗面所', 'Bath, toilet & sink'], ['path', '玄関・廊下（大きい家具が通るか）', 'Entrance & hallway'],
+  ['balcony', 'ベランダ', 'Balcony'], ['noise', 'まわりの音（現地で確認）', 'Noise (check on site)']
+];
+const CHECK_SS = 'yk_checks';
+function checksAll() {
+  if (isLoggedIn && currentUser) return currentUser.myChecks || {};
+  try { return JSON.parse(sessionStorage.getItem(CHECK_SS) || '{}') || {}; } catch (e) { return {}; }
+}
+function cleanChecks(d) {
+  const items = {};
+  if (d && d.items && typeof d.items === 'object') CHECK_ITEMS.forEach(([k]) => { const v = d.items[k]; if (v === 'ok' || v === 'meh' || v === 'ng') items[k] = v; });
+  return { items, memo: d && typeof d.memo === 'string' ? d.memo.slice(0, 500) : '' };
+}
+function getChecks(id) { return cleanChecks(checksAll()[id]); }
+let chkTimer = null;
+function saveChecks(propKey, data) {
+  if (!propKey || propKey === 'sample') return;
+  const all = Object.assign({}, checksAll());
+  const d = cleanChecks(data);
+  if (Object.keys(d.items).length || d.memo.trim()) all[propKey] = d; else delete all[propKey];
+  const keys = Object.keys(all); if (keys.length > 40) keys.slice(0, keys.length - 40).forEach(k => delete all[k]);
+  if (isLoggedIn && currentUser) {
+    currentUser.myChecks = all;
+    const su = (typeof userStore !== 'undefined') && userStore.find(u => u.email === currentUser.email); if (su) su.myChecks = all;
+    clearTimeout(chkTimer); chkTimer = setTimeout(() => { if (isLoggedIn && currentUser) saveUserToAWS(currentUser); }, 1200);
+  } else {
+    try { sessionStorage.setItem(CHECK_SS, JSON.stringify(all)); } catch (e) {}
+  }
+  const sec = $('fx-chk-sec'); if (sec && +sec.dataset.id === +propKey && !sec.contains(document.activeElement)) renderCheckSection(findProp(+propKey));
+}
+function checkSummary(d) {
+  const n = { ok: 0, meh: 0, ng: 0 }; Object.values(d.items).forEach(v => n[v]++);
+  const total = n.ok + n.meh + n.ng;
+  return total ? `◎${n.ok} △${n.meh} ✕${n.ng}` : '';
+}
+function renderCheckSection(prop) {
+  const sec = $('fx-chk-sec'); if (!sec || !prop) return;
+  sec.dataset.id = prop.id;
+  const d = getChecks(prop.id);
+  const vr = !!(prop.floorplanData || prop.splatURL || (prop.panoramas && prop.panoramas.length));
+  sec.innerHTML = `<div class="pd-section-title">${t('内見チェック')} <span class="fx-chk-sum">${checkSummary(d)}</span></div>
+    <div class="fx-mini">${t(vr ? 'VR内見の「チェック」ボタンからも記録できます。' : '現地で内見したときのメモにも使えます。')}${isLoggedIn ? '' : ' ' + t('ログインすると保存されます（いまはこのタブを閉じると消えます）。')}</div>
+    <div class="fx-chk-list"></div>
+    <textarea class="finput fx-chk-memo" maxlength="500" rows="3" placeholder="${t('メモ（気づいたこと）')}"></textarea>
+    ${vr ? `<button class="btn btn-sm" onclick="viewInVR(${prop.id})"><i class="ti ti-vr"></i> ${t('VRで確かめる')}</button>` : ''}`;
+  const list = sec.querySelector('.fx-chk-list');
+  CHECK_ITEMS.forEach(([k, ja, en]) => {
+    const row = el('div', 'fx-chk-row');
+    row.appendChild(el('span', 'fx-chk-l', fxLang === 'en' ? en : ja));
+    [['ok', '◎'], ['meh', '△'], ['ng', '✕']].forEach(([v, mark]) => {
+      const b = el('button', 'fx-chk-v' + (d.items[k] === v ? ' on' : ''), mark); b.type = 'button'; b.dataset.v = v;
+      b.setAttribute('aria-pressed', d.items[k] === v ? 'true' : 'false'); b.setAttribute('aria-label', (fxLang === 'en' ? en : ja) + ' ' + mark);
+      b.onclick = () => { const cur = getChecks(prop.id); if (cur.items[k] === v) delete cur.items[k]; else cur.items[k] = v; saveChecks(String(prop.id), cur); renderCheckSection(prop); };
+      row.appendChild(b);
+    });
+    list.appendChild(row);
+  });
+  const memo = sec.querySelector('.fx-chk-memo'); memo.value = d.memo;
+  memo.oninput = () => { const cur = getChecks(prop.id); cur.memo = memo.value; saveChecks(String(prop.id), cur); const sm = sec.querySelector('.fx-chk-sum'); if (sm) sm.textContent = checkSummary(cur); };
+}
+function addCheckSection(prop) {
+  let sec = $('fx-chk-sec');
+  if (!sec) {
+    sec = document.createElement('div'); sec.id = 'fx-chk-sec';
+    const after = $('fx-poi-sec') || $('pd-address'); if (!after) return;
+    after.parentNode.insertBefore(sec, after.nextSibling);
+  }
+  renderCheckSection(prop);
+}
+
 function decorateDetail(prop) {
   const side = document.querySelector('#pd-overlay .pd-side');
   if (!side) return;
@@ -255,7 +331,7 @@ function decorateDetail(prop) {
       <button class="btn fx-grow" onclick="fxPrint()"><i class="ti ti-printer"></i> ${t('印刷')}</button>
     </div>
     ${canEdit(prop) && vs.views ? `<div class="fx-mini"><i class="ti ti-chart-bar"></i> ${t('VR内見')} ${vs.views}${t('回')}・${t('平均')}${Math.round(vs.seconds / vs.views)}${t('秒')}</div>` : ''}`;
-  addPoiSection(prop);
+  addPoiSection(prop); addCheckSection(prop);
   addFloorplanImage(prop);
   // 初期費用の計算
   let sim = $('fx-cost-sim');
@@ -619,6 +695,8 @@ window.fxOpenCompare = function () {
     ${row(t('物件種別'), ps.map(p => p.type))}
     ${row(t('敷金・礼金'), ps.map(p => `${p.deposit || 0} / ${p.key || 0} ${t('ヶ月')}`))}
     ${row('VR', ps.map(p => [p.floorplanData ? t('間取り') : '', p.splatURL ? t('実写') : ''].filter(Boolean).join('・') || t('なし')))}
+    ${ps.some(p => checkSummary(getChecks(p.id))) ? `<tr><th>${t('内見チェック')}</th>${ps.map(p => { const d = getChecks(p.id); return `<td class="fx-chk-cmp">${CHECK_ITEMS.filter(([k]) => d.items[k]).map(([k, ja, en]) => `<span class="${d.items[k]}">${{ ok: '◎', meh: '△', ng: '✕' }[d.items[k]]} ${esc(fxLang === 'en' ? en : ja)}</span>`).join('') || '−'}</td>`; }).join('')}</tr>` : ''}
+    ${ps.some(p => getChecks(p.id).memo.trim()) ? row(t('内見メモ'), ps.map(p => getChecks(p.id).memo)) : ''}
     <tr><th>${t('設備・条件')}</th>${ps.map(p => `<td class="fx-feat">${allFeat.map(f => (p.features || []).includes(f) ? `<span class="on">✓ ${esc(f)}</span>` : `<span>− ${esc(f)}</span>`).join('')}</td>`).join('')}</tr>
     <tr><th></th>${ps.map(p => `<td>${p.floorplanData || p.splatURL ? `<button class="btn btn-p btn-sm" onclick="fxCloseModal('fx-cmp');viewInVR(${p.id})"><i class="ti ti-vr"></i> ${t('VRで内見')}</button>` : ''}</td>`).join('')}</tr>
   </table></div><div class="fx-mini">${t('緑の数字は、比べた中でいちばん条件が良いものです。初期費用は仲介手数料1ヶ月・保証会社50%などで計算した目安です。')}</div>`;
@@ -2176,7 +2254,9 @@ Object.assign(EN, {
   'やどかりんに相談': 'Ask Yadokarin', '住まいの悩みを聞かせてね': 'Tell me your housing worries', '相談する': 'Ask',
   '最初から': 'Start over', '詳しく見る': 'Details', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
   '自分の悩みを相談してみる': 'Ask about your own situation', 'かんたん': 'Basic', '送る': 'Send',
-  'やどかりんAIが読み取った条件': 'What Yadokarin AI understood', '生成AI': 'Gen AI',
+  'やどかりんAIが読み取った条件': 'What Yadokarin AI understood', '内見チェック': 'Viewing checklist', '内見メモ': 'Viewing notes',
+  'メモ（気づいたこと）': 'Notes', 'VRで確かめる': 'Check in VR', 'VR内見の「チェック」ボタンからも記録できます。': 'You can also record this from the Checklist button in VR viewing.',
+  '現地で内見したときのメモにも使えます。': 'Also handy for notes from an in-person visit.', 'ログインすると保存されます（いまはこのタブを閉じると消えます）。': 'Log in to keep these (they disappear when you close this tab).', 'いまの条件': 'Current conditions', 'クリア': 'Clear', '生成AI': 'Gen AI',
   'やどかりんはまちがえることもあるよ。くわしくは物件ページや担当者に確認してね。名前や電話番号などは書かないでね。': 'Yadokarin can make mistakes — check the listing and the agent for details. Please do not share your name or phone number.'
 });
 const YKC_KEY = 'yk_chat_v1';
@@ -2184,9 +2264,12 @@ const YKC_HELLO = ['ぼく、やどかりん。住まいのことで困ってい
   "I'm Yadokarin! Tell me what's on your mind about finding a home, and I'll look for rooms that fit you."];
 const YKC_CHIPS = [['猫と住みたい', 'I want to live with my cat'], ['はじめての一人暮らしで不安', 'Nervous about living alone for the first time'],
   ['在宅ワークの部屋がほしい', 'I need a room to work from home'], ['家賃をおさえたい', 'I want to keep rent low'], ['遠くに住んでいて内見に行けない', "I live far away and can't visit"]];
-let ykcLog = [], ykcBusy = false;
+let ykcLog = [], ykcBusy = false, ykcCond = {}, ykcChips = [];   // ykcCond: いまの条件（サーバーが更新して返す）
 try { ykcLog = JSON.parse(sessionStorage.getItem(YKC_KEY) || '[]') || []; } catch (e) { ykcLog = []; }
-function ykcSave() { try { sessionStorage.setItem(YKC_KEY, JSON.stringify(ykcLog.slice(-30))); } catch (e) {} }
+try { const c = JSON.parse(sessionStorage.getItem(YKC_KEY + '_cond') || 'null'); if (c) { ykcCond = c.cond || {}; ykcChips = c.chips || []; } } catch (e) {}
+function ykcSave() {
+  try { sessionStorage.setItem(YKC_KEY, JSON.stringify(ykcLog.slice(-30))); sessionStorage.setItem(YKC_KEY + '_cond', JSON.stringify({ cond: ykcCond, chips: ykcChips })); } catch (e) {}
+}
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 function ykcBuild() {
   if ($('ykc') || !YK) return;
@@ -2202,6 +2285,7 @@ function ykcBuild() {
       <button type="button" class="ykc-x" id="ykc-x" aria-label="閉じる"><i class="ti ti-x"></i></button></header>
     <div class="ykc-log" id="ykc-log" aria-live="polite"></div>
     <div class="ykc-chips" id="ykc-chips"></div>
+    <div class="ykc-cond" id="ykc-cond" hidden><span class="ykc-cond-ttl">いまの条件</span><span class="ykc-cond-list" id="ykc-cond-list"></span><button type="button" class="ykc-cond-clear" id="ykc-cond-clear">クリア</button></div>
     <form class="ykc-form" id="ykc-form"><label class="ykc-sr" for="ykc-in">相談する</label>
       <textarea id="ykc-in" rows="1" maxlength="400" placeholder="例: 猫と住みたい。家賃は8万円まで"></textarea>
       <button type="submit" class="ykc-send" aria-label="送る"><i class="ti ti-send"></i></button></form>
@@ -2209,7 +2293,8 @@ function ykcBuild() {
   document.body.appendChild(fab); document.body.appendChild(box);
   EN['例: 猫と住みたい。家賃は8万円まで'] = 'e.g. I have a cat. Rent under ¥80,000';
   $('ykc-x').onclick = () => ykcOpen(false);
-  $('ykc-reset').onclick = () => { ykcLog = []; ykcSave(); ykcRender(); $('ykc-in').focus(); };
+  $('ykc-reset').onclick = () => { ykcLog = []; ykcCond = {}; ykcChips = []; ykcSave(); ykcRender(); $('ykc-in').focus(); };
+  $('ykc-cond-clear').onclick = () => ykcRefine({});
   $('ykc-form').onsubmit = e => { e.preventDefault(); ykcSend($('ykc-in').value); };
   const inp = $('ykc-in');
   inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); ykcSend(inp.value); } });
@@ -2273,17 +2358,57 @@ function ykcRender() {
       m.intents.forEach(x => { const sp = el('span', '', `${fxLang === 'en' ? x.en : x.ja} ${Math.round(x.p * 100)}%`); sp.title = fxLang === 'en' ? 'confidence' : 'AIの自信の度合い'; c.appendChild(sp); });
       log.appendChild(c);
     }
-    if (m.conditions && m.conditions.length) {
-      const c = el('div', 'ykc-conds fx-noi18n'); m.conditions.forEach(x => c.appendChild(el('span', '', x))); log.appendChild(c);
-    }
     (m.picks || []).forEach(pk => { const card = ykcPickCard(pk); if (card) log.appendChild(card); });
+    const located = (m.picks || []).filter(pk => { const p = findProp(pk.id); return p && p.lat && p.lng; });
+    if (located.length) {
+      const b = el('button', 'ykc-b ykc-mapbtn'); b.type = 'button';
+      b.innerHTML = '<i class="ti ti-map-2" aria-hidden="true"></i> '; b.appendChild(document.createTextNode(t('地図で見る')));
+      b.onclick = () => window.fxPicksOnMap((m.picks || []).map(pk => pk.id));
+      log.appendChild(b);
+    }
   });
   if (ykcBusy) { const r = ykcBubble('yk', t('考え中…'), { face: 'wow' }); r.classList.add('busy'); log.appendChild(r); }
   const chips = $('ykc-chips'); chips.innerHTML = '';
   if (!ykcLog.length && !ykcBusy) YKC_CHIPS.forEach(c => { const b = el('button', 'ykc-chip fx-noi18n', fxLang === 'en' ? c[1] : c[0]); b.type = 'button'; b.onclick = () => ykcSend(b.textContent); chips.appendChild(b); });
   const last = [...ykcLog].reverse().find(m => m.mode);
   const mode = $('ykc-mode'); if (mode) { mode.hidden = !last; if (last) mode.textContent = last.mode === 'ai' ? t('生成AI') : last.mode === 'model' ? 'やどかりんAI' : t('かんたん'); }
+  // いまの条件（×で1つずつ外せる）
+  const cb = $('ykc-cond'), cl = $('ykc-cond-list');
+  if (cb && cl) {
+    cl.innerHTML = '';
+    ykcChips.forEach(c => {
+      const b = el('button', 'ykc-cond-chip fx-noi18n'); b.type = 'button';
+      b.appendChild(el('span', '', c.label)); b.appendChild(el('i', 'ti ti-x'));
+      b.setAttribute('aria-label', (fxLang === 'en' ? 'Remove: ' : '外す: ') + c.label);
+      b.onclick = () => ykcRefine(ykcDrop(ykcCond, c.key));
+      cl.appendChild(b);
+    });
+    cb.hidden = !ykcChips.length;
+  }
   log.scrollTop = log.scrollHeight;
+}
+function ykcDrop(cond, key) {
+  const c = JSON.parse(JSON.stringify(cond || {}));
+  if (key.startsWith('i:')) c.intents = (c.intents || []).filter(k => k !== key.slice(2));
+  else if (key === 'madori') c.madori = [];
+  else c[key] = null;
+  return c;
+}
+// 文を区切る（サーバーと同じ区切り方）。「猫がいるので、駅は気にしない」→「猫がいる」「駅は気にしない」
+function ykcClauses(text) { return text.split(/[。！？!?\n、,，]+|けど|けれど|ので|が、/).map(x => x.trim()).filter(Boolean); }
+async function ykcCall(body) {
+  const r = await api('ykChat', { body });
+  if (r.cond) ykcCond = r.cond;
+  if (r.chips) ykcChips = r.chips;
+  ykcLog.push({ role: 'yk', text: r.reply || '', picks: r.picks || [], mode: r.mode, face: (r.picks || []).length ? 'happy' : 'wow' });
+}
+function ykcHist() { return ykcLog.filter(m => !m.err).slice(-12).map(m => ({ role: m.role, text: m.text })); }
+async function ykcRefine(cond) {
+  if (ykcBusy) return;
+  ykcBusy = true; ykcRender();
+  try { await ykcCall({ messages: ykcHist(), cond, refine: true, lang: fxLang }); }
+  catch (e) { ykcLog.push({ role: 'yk', err: true, face: 'sad', text: e.status === 429 ? e.message : (fxLang === 'en' ? 'Sorry, I could not connect. Please try again.' : 'ごめんね、うまくつながらなかったみたい。もう一度ためしてみて。') }); }
+  finally { ykcBusy = false; ykcSave(); ykcRender(); }
 }
 async function ykcSend(text) {
   text = String(text || '').trim().slice(0, 400);
@@ -2296,15 +2421,13 @@ async function ykcSend(text) {
     if (!PROPS.length && typeof fetchAndRenderProps === 'function') await fetchAndRenderProps();
     const it = await ykcIntents(text);
     if (it) mine.intents = it;
-    const hist = ykcLog.filter(m => !m.err).slice(-12);
-    const body = { messages: hist.map(m => ({ role: m.role, text: m.text })), lang: fxLang };
-    if (it) {   // これまでの自分の発言で読み取った条件をまとめて送る（発言ごとにAIで読んである）
-      const all = [];
-      for (const m of hist) if (m.role === 'me') (m.intents || (m === mine ? it : (await ykcIntents(m.text)) || [])).forEach(x => { if (!all.includes(x.label)) all.push(x.label); });
-      body.intents = all; body.lastIntents = it.map(x => x.label);
+    const body = { messages: ykcHist(), cond: ykcCond, lang: fxLang };
+    if (it) {   // 文全体と、区切りごとにやどかりんAIで読む（区切りごとだと「〜は気にしない」を正しく外せる）
+      body.lastIntents = it.map(x => x.label);
+      const cl = ykcClauses(text);
+      body.lastClauses = await Promise.all(cl.slice(0, 12).map(async c => ({ text: c, intents: ((await ykcIntents(c)) || []).map(x => x.label) })));
     }
-    const r = await api('ykChat', { body });
-    ykcLog.push({ role: 'yk', text: r.reply || '', picks: r.picks || [], conditions: r.conditions || [], mode: r.mode, face: (r.picks || []).length ? 'happy' : 'wow' });
+    await ykcCall(body);
   } catch (e) {
     ykcLog.push({ role: 'yk', err: true, face: 'sad', text: e.status === 429 ? e.message : (fxLang === 'en' ? 'Sorry, I could not connect. Please try again.' : 'ごめんね、うまくつながらなかったみたい。もう一度送ってみて。') });
   } finally {
@@ -2314,9 +2437,224 @@ async function ykcSend(text) {
 const _toggleLang2 = window.fxToggleLang;
 window.fxToggleLang = function () { const r = _toggleLang2.apply(this, arguments); ykcRender(); return r; };
 
+
+/* ══════════════ 28. 地図で探す（トップのリストと切り替え）══════════════
+   ・ピンに家賃を表示。VRで歩ける物件は緑のピン
+   ・ピンと一覧が連動（スマホは下のカードを横にスワイプ）
+   ・「この範囲で探す」「現在地」・通勤先の目安の円
+   ・やどかりんのおすすめを地図で見る */
+Object.assign(EN, {
+  'リスト': 'List', '地図': 'Map', 'この範囲で探す': 'Search this area', 'VRで歩ける': 'Walkable in VR', '写真のみ': 'Photos only',
+  '地図の範囲で絞り込み中': 'Filtered to map area', 'やどかりんのおすすめ': "Yadokarin's picks", '地図で見る': 'View on map',
+  '現在地を表示': 'Show my location', '通勤先': 'Commute', '地図で見る物件がありません': 'No homes to show on the map'
+});
+let heView = 'list', heMap = null, heLayer = null, heCommuteLayer = null, heMeLayer = null, heSel = null, heBounds = null, heOnlyIds = null;
+let heUserMoved = false, heFitting = false, hePins = {};
+try { if (localStorage.getItem('he_view') === 'map') heView = 'map'; } catch (e) {}
+
+// 地図の範囲・やどかりんのおすすめで絞り込む（リストにも効く）
+const _getFiltered4 = window.getFilteredProps;
+window.getFilteredProps = function () {
+  let list = _getFiltered4.apply(this, arguments);
+  if (heOnlyIds) list = list.filter(p => heOnlyIds.includes(p.id));
+  if (heBounds) list = list.filter(p => p.lat && p.lng && +p.lat >= heBounds[0][0] && +p.lat <= heBounds[1][0] && +p.lng >= heBounds[0][1] && +p.lng <= heBounds[1][1]);
+  return list;
+};
+function heActive() {
+  const box = $('he-active'); if (!box) return;
+  box.innerHTML = '';
+  const add = (label, off) => { const b = el('button', 'he-active-chip fx-noi18n'); b.type = 'button'; b.appendChild(el('span', '', label)); b.appendChild(el('i', 'ti ti-x')); b.setAttribute('aria-label', (fxLang === 'en' ? 'Remove: ' : '外す: ') + label); b.onclick = off; box.appendChild(b); };
+  if (heBounds) add(t('地図の範囲で絞り込み中'), () => { heBounds = null; heRefresh(); });
+  if (heOnlyIds) add(`${t('やどかりんのおすすめ')} ${heOnlyIds.length}${fxLang === 'en' ? '' : '件'}`, () => { heOnlyIds = null; heRefresh(); });
+  box.hidden = !box.childNodes.length;
+}
+function heRefresh() { currentPage = 1; renderCards(); updateResultsCount(); heActive(); }
+
+function heSetView(v, opts) {
+  heView = v === 'map' ? 'map' : 'list';
+  try { localStorage.setItem('he_view', heView); } catch (e) {}
+  document.querySelectorAll('.he-view-btn').forEach(b => { const on = b.dataset.view === heView; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  const isMap = heView === 'map';
+  const grid = $('card-grid'), pager = document.querySelector('#s-top .pagination'), map = $('he-map');
+  if (grid) grid.hidden = isMap;
+  if (pager) pager.hidden = isMap;
+  if (map) map.hidden = !isMap;
+  document.body.classList.toggle('he-mapview', isMap);
+  if (isMap) { heInitMap(); setTimeout(() => { if (heMap) { heMap.invalidateSize(); heDraw(!(opts && opts.keepView)); } }, 30); }
+  if (opts && opts.scroll) { const tgt = $('he-list-anchor') || document.querySelector('.he-list-title'); if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+}
+window.fxSetView = heSetView;
+
+function heInitMap() {
+  if (heMap || typeof L === 'undefined' || !$('he-map-canvas')) return;
+  heMap = L.map('he-map-canvas', { zoomControl: true, scrollWheelZoom: true, tap: true }).setView([35.6762, 139.6503], 12);
+  const osmJp = L.tileLayer('https://tile.openstreetmap.jp/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 18 });
+  const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19 });
+  let failed = false;
+  osmJp.on('tileerror', () => { if (!failed) { failed = true; heMap.removeLayer(osmJp); carto.addTo(heMap); } });
+  osmJp.addTo(heMap);
+  heLayer = L.layerGroup().addTo(heMap);
+  heCommuteLayer = L.layerGroup().addTo(heMap);
+  // 利用者が地図を動かしたら「この範囲で探す」を出す（こちらが動かしたときは出さない）
+  heMap.on('movestart', () => { if (!heFitting) heUserMoved = true; });
+  heMap.on('moveend', () => { if (heUserMoved && !heFitting) { const b = $('he-map-area'); if (b) b.hidden = false; } heFitting = false; });
+  $('he-map-area').onclick = () => {
+    const b = heMap.getBounds();
+    heBounds = [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]];
+    $('he-map-area').hidden = true; heUserMoved = false;
+    heRefresh();
+  };
+  $('he-map-loc').onclick = heLocate;
+  // スマホ: 下のカードを横にスワイプしたら、そのピンを選ぶ
+  const list = $('he-map-list');
+  let st = null;
+  list.addEventListener('scroll', () => {
+    if (!matchMedia('(max-width: 760px)').matches) return;
+    clearTimeout(st);
+    st = setTimeout(() => {
+      const r = list.getBoundingClientRect(), cx = r.left + r.width / 2;
+      let best = null, bd = 1e9;
+      list.querySelectorAll('.he-ml-item').forEach(it => { const ir = it.getBoundingClientRect(); const d = Math.abs(ir.left + ir.width / 2 - cx); if (d < bd) { bd = d; best = it; } });
+      if (best && +best.dataset.id !== heSel) heSelect(+best.dataset.id, { from: 'list' });
+    }, 140);
+  }, { passive: true });
+}
+function hePriceLabel(p) { return (Math.round((+p.price || 0) / 1000) / 10).toString() + '万'; }   // 98000 → 9.8万
+function heLatLng(list) {
+  // 同じ場所の物件は少しずらして、ピンが重ならないようにする
+  const seen = {}, out = {};
+  list.forEach(p => {
+    const k = (+p.lat).toFixed(5) + ',' + (+p.lng).toFixed(5);
+    const n = seen[k] = (seen[k] || 0) + 1;
+    const a = (n - 1) * 2.4, r = n > 1 ? 0.00022 * Math.sqrt(n - 1) : 0;
+    out[p.id] = [+p.lat + r * Math.sin(a), +p.lng + r * Math.cos(a)];
+  });
+  return out;
+}
+function heIsVR(p) { return !!(p.floorplanData || p.splatURL || (p.panoramas && p.panoramas.length)); }
+function heDraw(fit) {
+  if (!heMap) return;
+  const all = getFilteredProps();
+  const list = all.filter(p => p.lat && p.lng);
+  heLayer.clearLayers(); hePins = {};
+  const pos = heLatLng(list);
+  list.forEach(p => {
+    const vr = heIsVR(p);
+    const icon = L.divIcon({ className: 'he-pin-wrap', iconSize: null,
+      html: `<div class="he-pin${vr ? ' vr' : ''}${isPR(p) ? ' pr' : ''}${heSel === p.id ? ' sel' : ''}"><span>${esc(fxLang === 'en' ? '¥' + Math.round((+p.price || 0) / 1000) + 'k' : hePriceLabel(p))}</span></div>` });
+    const m = L.marker(pos[p.id], { icon, title: `${p.name}（${yen(p.price)}）`, alt: p.name, riseOnHover: true, keyboard: true });
+    m.on('click', () => heSelect(p.id, { from: 'pin' }));
+    m.addTo(heLayer); hePins[p.id] = m;
+  });
+  heDrawCommute();
+  heRenderList(all, list.length);
+  const note = $('he-map-note');
+  if (note) { const miss = all.length - list.length; note.hidden = !miss; note.textContent = miss ? (fxLang === 'en' ? `${miss} home(s) without a location are only in the list` : `位置が登録されていない${miss}件は、一覧にだけ出ています`) : ''; }
+  if (fit) {
+    const pts = list.map(p => pos[p.id]);
+    if (commute) pts.push([commute.lat, commute.lng]);
+    heFitting = true;
+    if (pts.length > 1) heMap.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+    else if (pts.length === 1) heMap.setView(pts[0], 15);
+    else heFitting = false;
+    heUserMoved = false; const b = $('he-map-area'); if (b) b.hidden = true;
+  }
+}
+function heDrawCommute() {
+  if (!heCommuteLayer) return;
+  heCommuteLayer.clearLayers();
+  if (!commute) return;
+  // 通勤時間の目安の円。commuteMin() と同じ考え方（道のり＝直線×1.25、電車は時速30km、待ち8分、駅まで徒歩7分くらい）
+  //   電車: 7 + 8 + 直線km×1.25÷30×60 ≦ 分  →  直線km ≦ (分 − 15) ÷ 2.5
+  //   徒歩: 直線km×1.25×1000÷80 ≦ 分      →  直線km ≦ 分 × 0.064
+  const km = Math.max(commute.max * 0.064, (commute.max - 15) / 2.5, 0.3);
+  L.circle([commute.lat, commute.lng], { radius: km * 1000, color: '#E8604A', weight: 2, dashArray: '6 6', fillColor: '#E8604A', fillOpacity: 0.06, interactive: false }).addTo(heCommuteLayer);
+  L.marker([commute.lat, commute.lng], { icon: L.divIcon({ className: 'he-pin-wrap', iconSize: null, html: `<div class="he-cm-pin"><i class="ti ti-briefcase"></i> ${esc(commute.name)}<small>${commute.max}${fxLang === 'en' ? ' min' : '分圏の目安'}</small></div>` }), interactive: false, keyboard: false }).addTo(heCommuteLayer);
+}
+function heRenderList(all, onMap) {
+  const box = $('he-map-list'); if (!box) return;
+  box.innerHTML = '';
+  if (!all.length) { box.appendChild(el('div', 'he-ml-empty', t('地図で見る物件がありません'))); return; }
+  all.forEach(p => {
+    const it = el('div', 'he-ml-item' + (heSel === p.id ? ' sel' : '') + (p.lat && p.lng ? '' : ' noloc'));
+    it.dataset.id = p.id; it.tabIndex = 0; it.setAttribute('role', 'button');
+    it.setAttribute('aria-label', `${p.name} ${yen(p.price)}`);
+    const img = el('div', 'he-ml-img');
+    const src = (p.thumbURL && p.photoURLs && p.thumbOf === p.photoURLs[0]) ? p.thumbURL : ((p.photoURLs || [])[0] || '');
+    if (src) img.style.backgroundImage = `url("${String(src).replace(/["\\]/g, '')}")`; else if (heIsVR(p)) img.classList.add('doll');
+    if (heIsVR(p)) img.appendChild(el('span', 'he-ml-vr', 'VR'));
+    const body = el('div', 'he-ml-body');
+    body.appendChild(el('b', 'he-ml-price', yen(p.price) + t('/月')));
+    body.appendChild(el('span', 'he-ml-name fx-noi18n', p.name || ''));
+    body.appendChild(el('span', 'he-ml-meta', [p.madori, p.size ? p.size + '㎡' : '', (p.station || '') + (p.walkMin ? (fxLang === 'en' ? ` ${p.walkMin} min` : ` 徒歩${p.walkMin}分`) : '')].filter(Boolean).join('・')));
+    const btns = el('div', 'he-ml-btns');
+    const d = el('button', 'ykc-b', t('詳しく見る')); d.type = 'button'; d.onclick = e => { e.stopPropagation(); showPropDetail(p.id); };
+    btns.appendChild(d);
+    if (heIsVR(p)) { const v = el('button', 'ykc-b ykc-b-vr', t('VRで入る')); v.type = 'button'; v.onclick = e => { e.stopPropagation(); window.viewInVR(p.id); }; btns.appendChild(v); }
+    body.appendChild(btns);
+    it.appendChild(img); it.appendChild(body);
+    it.onclick = () => heSelect(p.id, { from: 'list', zoom: true });
+    it.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); heSelect(p.id, { from: 'list', zoom: true }); } };
+    it.onmouseenter = () => { const m = hePins[p.id]; if (m && m._icon) m._icon.classList.add('hover'); };
+    it.onmouseleave = () => { const m = hePins[p.id]; if (m && m._icon) m._icon.classList.remove('hover'); };
+    box.appendChild(it);
+  });
+}
+function heSelect(id, o) {
+  o = o || {};
+  heSel = id;
+  Object.entries(hePins).forEach(([k, m]) => { const pin = m._icon && m._icon.querySelector('.he-pin'); if (pin) pin.classList.toggle('sel', +k === id); if (m._icon) m.setZIndexOffset(+k === id ? 1000 : 0); });
+  const items = document.querySelectorAll('#he-map-list .he-ml-item');
+  items.forEach(it => it.classList.toggle('sel', +it.dataset.id === id));
+  const it = document.querySelector(`#he-map-list .he-ml-item[data-id="${id}"]`);
+  if (it && o.from !== 'list') it.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  const m = hePins[id];
+  if (m && heMap && o.from !== 'pin') {
+    heFitting = true;
+    if (o.zoom) heMap.setView(m.getLatLng(), Math.max(heMap.getZoom(), 15), { animate: true });
+    else heMap.panTo(m.getLatLng(), { animate: true });
+  }
+}
+function heLocate() {
+  if (!navigator.geolocation) { toast(fxLang === 'en' ? 'Location is not available' : 'この端末では現在地を使えません', 'warn'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (heMeLayer) heMeLayer.remove();
+    heMeLayer = L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(heMap);
+    heMap.setView(ll, 15);
+  }, () => toast(fxLang === 'en' ? 'Could not get your location' : '現在地を取得できませんでした（位置情報の許可を確認してね）', 'warn'), { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+}
+// 物件の一覧が描き直されるたびに、地図も描き直す
+const _renderCards4 = window.renderCards;
+window.renderCards = function () {
+  const r = _renderCards4.apply(this, arguments);
+  if (heMap && heView === 'map') heDraw(false);
+  return r;
+};
+// 古い「マップ」画面へ行こうとしたら、トップの地図表示にする
+const _guarded2 = window.guardedScreen;
+window.guardedScreen = function (name) {
+  if (name === 'map') { const r = _guarded2.call(this, 'top'); setTimeout(() => heSetView('map', { scroll: true }), 50); return r; }
+  return _guarded2.apply(this, arguments);
+};
+function initMapView() {
+  document.querySelectorAll('.he-view-btn').forEach(b => { b.onclick = () => heSetView(b.dataset.view); });
+  if (heView === 'map') heSetView('map');
+}
+// やどかりんのおすすめを地図で見る
+window.fxPicksOnMap = function (ids) {
+  heOnlyIds = (ids || []).filter(id => findProp(id));
+  if (!heOnlyIds.length) { heOnlyIds = null; return; }
+  heBounds = null;
+  ykcOpen(false);
+  if (!$('s-top').classList.contains('active')) _guarded2('top');
+  heRefresh();
+  heSetView('map', { scroll: true });
+};
+
 /* ══════════════ 起動 ══════════════ */
 function boot() {
-  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
   const help = $('s-help');
   if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
   setGuestClass();
@@ -2337,6 +2675,20 @@ window._enterApp = function () {
   setGuestClass();
   const fn = afterLogin; afterLogin = null;
   setTimeout(() => { lastNotifyCount = -1; refreshNotif(); renderCompareBar(); decorateCards(); decorateCardsMore(); if (fn) { try { fn(); } catch (e) { console.error(e); } } }, 400);
+  return r;
+};
+// ログインする前（ゲスト）につけた内見チェックは、ログインしたらアカウントに引き継ぐ
+const _enterApp2 = window._enterApp;
+window._enterApp = function () {
+  const r = _enterApp2.apply(this, arguments);
+  try {
+    const guest = JSON.parse(sessionStorage.getItem(CHECK_SS) || '{}') || {};
+    if (Object.keys(guest).length && currentUser) {
+      currentUser.myChecks = Object.assign({}, currentUser.myChecks || {}, guest);
+      sessionStorage.removeItem(CHECK_SS);
+      setTimeout(() => { if (isLoggedIn && currentUser) saveUserToAWS(currentUser); }, 800);
+    }
+  } catch (e) {}
   return r;
 };
 const _doLogout = window.doLogout;

@@ -893,7 +893,6 @@ function applyRoleUI(){
   if(document.getElementById('prof-mei')) document.getElementById('prof-mei').value=parts[1]||'';
   document.getElementById('tab-admin').classList.toggle('hidden',!isAdmin());
   document.getElementById('tab-master').classList.toggle('hidden',!isMaster());
-  document.getElementById('mp-nav-code').classList.remove('hidden'); // 全ユーザーに表示
   document.getElementById('nav-admin-btn').classList.toggle('hidden',!isAdmin());
   document.getElementById('admin-email-display').textContent=u.email;
   const mb=document.getElementById('master-name-badge'); if(mb) mb.textContent=u.name||u.email;
@@ -1230,50 +1229,6 @@ function doLogout(){
   gate.classList.remove('hidden');
   gate.style.display='';
   window.scrollTo(0,0);
-}
-
-/* ══════════════════════════════════════
-   CODE INPUT
-══════════════════════════════════════ */
-async function submitCode(){
-  const inputEl=document.getElementById('code-input');
-  const code=(inputEl||{}).value?.trim()||'';
-  const msgEl=document.getElementById('code-msg');
-  const showMsg=(text,isOk)=>{
-    msgEl.style.cssText=`display:block;background:${isOk?'rgba(22,163,74,.15)':'rgba(220,38,38,.15)'};border:1px solid ${isOk?'rgba(22,163,74,.3)':'rgba(220,38,38,.3)'};color:${isOk?'var(--green)':'var(--red)'};border-radius:var(--r-md);padding:9px 13px;font-size:13px;margin-bottom:14px`;
-    msgEl.textContent=text;
-    setTimeout(()=>{msgEl.style.display='none';},3000);
-  };
-  if(!code){showMsg('コードを入力してください',false);return;}
-  if(!getToken()){showMsg('この操作にはログインが必要です（デモアカウントでは使えません）',false);return;}
-
-  // コードの照合はサーバーで行う
-  let data=null;
-  try{
-    const res=await fetch(AWS_API_URL+'?action=redeemCode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
-    data=await res.json().catch(()=>({}));
-    if(!res.ok){
-      showMsg(data.error||'コードが正しくありません。',false);
-      if(inputEl) inputEl.value='';
-      return;
-    }
-  }catch(e){
-    showMsg('サーバーに接続できません',false);
-    return;
-  }
-  if(inputEl) inputEl.value='';
-  const serverUser=data.user||{};
-  const s=userStore.find(u=>u.email===currentUser.email);
-
-  const newRole=serverUser.role||(data.kind==='master'?'master':'admin');
-  const isNewMaster=newRole==='master';
-  currentUser.role=newRole; if(s) s.role=newRole;
-  cacheUserLocal(currentUser);
-  showMsg(`✓ ${isNewMaster?'マスター':'管理者'}として認証されました！`,true);
-  applyRoleUI();
-  refreshPermissionViews();
-  if(isNewMaster){renderFieldManagement();}
-  setTimeout(()=>{guardedScreen(isNewMaster?'master':'admin');},1500);
 }
 
 /* ══════════════════════════════════════
@@ -3220,7 +3175,7 @@ _style.textContent='@keyframes spin{to{transform:rotate(360deg)}}@keyframes toas
 document.head.appendChild(_style);
 
 function switchMp(id,el){
-  ['fav','inbox','hist','prof','wish','code'].forEach(k=>{const e=document.getElementById('mp-'+k);if(e) e.style.display=k===id?'block':'none';});
+  ['fav','inbox','hist','prof','wish'].forEach(k=>{const e=document.getElementById('mp-'+k);if(e) e.style.display=k===id?'block':'none';});
   document.querySelectorAll('.mp-nav-item').forEach(i=>i.classList.remove('on'));if(!el) el=document.querySelector(`.mp-nav-item[onclick*="'${id}'"]`);if(el) el.classList.add('on');
   if(id==='fav') renderFavorites();
   if(id==='inbox') renderInbox();
