@@ -337,3 +337,14 @@ body:has(#fx-cmp-bar) .ykc-fab{bottom:calc(72px + env(safe-area-inset-bottom))}
 
 /* ヘッダーを上のタブの真下にぴったり固定（--tabh はタブの実際の高さ。features.js が入れる）*/
 .screen > nav.nav{top:var(--tabh,47px)!important}
+
+/* ─── 掲載の管理（マスター）─── */
+.fx-mod-h{font-size:18px;font-weight:800;margin-bottom:4px}
+.fx-mod-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.fx-mod-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:12px;padding:10px 12px}
+.fx-mod-row.stopped{border-color:var(--coral-d);background:var(--coral-l)}
+.fx-mod-info{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fx-mod-note{font-size:12px;font-weight:700;color:var(--coral-d)}
+.fx-mod-pr{display:flex;align-items:center;gap:6px}
+.fx-mod-pr .finput{width:auto;padding:5px 8px;font-size:12px}
+.fx-mod-notice{background:var(--coral-l);border:1.5px solid var(--coral-d);color:var(--ink);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:4px}

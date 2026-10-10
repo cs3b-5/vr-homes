@@ -615,7 +615,9 @@ async function renderAnalytics() {
   const box = $('fx-vr-analytics'); if (!box || !currentUser) return;
   const mine = PROPS.filter(p => canEdit(p));
   const resv = await loadAdminResv();
-  const favCount = id => (typeof userStore !== 'undefined' ? userStore : []).filter(u => Array.isArray(u.favs) && u.favs.includes(id)).length;
+  let favMap = {};   // お気に入りの数はサーバーが数える（ほかの人のお気に入りの中身は見ない）
+  try { favMap = await api('favCounts'); } catch (e) { favMap = {}; }
+  const favCount = id => +favMap[String(id)] || 0;
   const rows = mine.map(p => {
     const v = p.viewStats || {}, views = v.views || 0;
     const rooms = Object.entries(v.rooms || {}).sort((a, b) => b[1] - a[1]);
@@ -1736,6 +1738,11 @@ function renderFormExtras2() {
   });
   const pb = $('af-pr-box');
   const active = fxForm.featuredUntil && fxForm.featuredUntil >= ymd(new Date());
+  if (!(typeof isMaster === 'function' && isMaster())) {   // おすすめ掲載（PR）は運営（マスター）が設定する
+    pb.innerHTML = active ? `<span class="fx-pr-tag">PR中</span><span class="fx-mini" style="margin:0 0 0 6px">${esc(fxForm.featuredUntil)} まで</span>` : '';
+    $('af-pr-note').textContent = '「おすすめの物件」への掲載は運営が設定します。希望するときは、お問い合わせから運営に連絡してください。';
+    return;
+  }
   pb.innerHTML = PR_PLANS.map(([d, n]) => `<button type="button" class="btn btn-sm ${(d === 0 && !fxForm.prPlan && !active) || fxForm.prPlan === d ? 'fx-on' : ''}" data-d="${d}">${n}</button>`).join('')
     + (active ? `<span class="fx-pr-tag" style="margin-left:6px">PR中</span><span class="fx-mini" style="margin:0">${fxForm.featuredUntil} まで</span>` : '');
   pb.querySelectorAll('button').forEach(b => b.onclick = () => {
@@ -1761,7 +1768,7 @@ const _uploadPR = window.uploadToAWS, _updatePR = window.updatePropertyOnAWS;
 function prExtras(prop) {
   if (!$('add-form') || !$('add-form').classList.contains('show')) return;
   prop.features = (fxForm.features || []).slice();
-  prop.featuredUntil = fxForm.featuredUntil || '';
+  if (typeof isMaster === 'function' && isMaster()) prop.featuredUntil = fxForm.featuredUntil || '';
 }
 window.uploadToAWS = function (prop) { if (pendingExtras) prExtras(prop); return _uploadPR.apply(this, arguments); };
 window.updatePropertyOnAWS = function (prop) { if (pendingExtras) prExtras(prop); return _updatePR.apply(this, arguments); };
@@ -2673,6 +2680,66 @@ window.fxPicksOnMap = function (ids) {
   heSetView('map', { scroll: true });
 };
 
+
+/* ══════════════ 30. 掲載の管理（マスター＝サイト運営）══════════════
+   運営ができるのは「掲載を止める／再開する」と「おすすめ掲載（PR）の設定」だけ。物件の中身は不動産会社（管理者）が編集する */
+async function renderModeration() {
+  const box = $('master-listings'); if (!box) return;
+  box.innerHTML = `<h2 class="fx-mod-h">掲載の管理</h2><p class="fx-mini">不適切な掲載を止めたり、おすすめ掲載（PR）の期間を設定したりできます。物件の内容（家賃・写真など）は、掲載した不動産会社が編集します。</p><div class="fx-mod-list" id="fx-mod-list">読み込み中…</div>`;
+  const list = $('fx-mod-list'); list.innerHTML = '';
+  const props = PROPS.slice().sort((a, b) => (+!!b.modHidden) - (+!!a.modHidden) || (+b.id || 0) - (+a.id || 0));
+  if (!props.length) { list.textContent = '物件がありません'; return; }
+  const today = ymd(new Date());
+  props.forEach(p => {
+    const row = el('div', 'fx-mod-row' + (p.modHidden ? ' stopped' : ''));
+    const info = el('div', 'fx-mod-info');
+    info.appendChild(el('b', 'fx-noi18n', p.name || ''));
+    info.appendChild(el('span', 'fx-mini', `${p.ownerName || p.ownerEmail || '（登録者なし）'}・${yen(p.price)}・${(PSTATUS[p.status || 'open'] || ['?'])[0]}`));
+    if (p.modHidden) info.appendChild(el('span', 'fx-mod-note', `運営が掲載停止中${p.modNote ? '：' + p.modNote : ''}`));
+    const pr = el('div', 'fx-mod-pr');
+    const lab = el('label', 'fx-mini', 'PR終了日 '); const inp = el('input', 'finput'); inp.type = 'date'; inp.value = p.featuredUntil || ''; inp.min = today;
+    lab.appendChild(inp); pr.appendChild(lab);
+    const save = el('button', 'btn btn-sm', '保存'); save.type = 'button';
+    save.onclick = () => moderate(p, { featuredUntil: inp.value || null }, inp.value ? `PRを${inp.value}までにしました` : 'PRを外しました');
+    pr.appendChild(save);
+    const act = el('button', 'btn btn-sm ' + (p.modHidden ? 'btn-p' : ''), p.modHidden ? '掲載を再開する' : '掲載を止める'); act.type = 'button';
+    act.onclick = () => {
+      if (p.modHidden) { moderate(p, { modHidden: false }, '掲載を再開しました'); return; }
+      const ov = openModal('fx-mod', '掲載を止める', `<p class="fx-mini">「${esc(p.name)}」を一覧・検索・予約から外します。掲載した不動産会社にはお知らせが届きます。</p>
+        <textarea class="finput" id="fx-mod-reason" rows="3" maxlength="200" placeholder="理由（例：写真が物件と違う）"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn btn-sm" onclick="fxCloseModal('fx-mod')">やめる</button><button class="btn btn-sm btn-red" id="fx-mod-go">掲載を止める</button></div>`, { width: 460 });
+      setTimeout(() => { const go = $('fx-mod-go'); if (go) go.onclick = () => { const r = ($('fx-mod-reason') || {}).value || ''; fxCloseModal('fx-mod'); moderate(p, { modHidden: true, modNote: r }, '掲載を止めました'); }; }, 0);
+      void ov;
+    };
+    row.appendChild(info); row.appendChild(pr); row.appendChild(act);
+    list.appendChild(row);
+  });
+}
+async function moderate(p, change, msg) {
+  try {
+    const r = await api('moderateProp', { body: Object.assign({ id: p.id }, change) });
+    Object.assign(p, { modHidden: !!r.prop.modHidden, modNote: r.prop.modNote || '', featuredUntil: r.prop.featuredUntil || '' });
+    if (!r.prop.featuredUntil) delete p.featuredUntil;
+    toast(msg, 'success');
+    renderModeration(); renderCards(); updateResultsCount();
+  } catch (e) { toast('できませんでした: ' + e.message, 'error'); }
+}
+const _switchMaster = window.switchMaster;
+window.switchMaster = function (id) { const r = _switchMaster.apply(this, arguments); if (id === 'listings') renderModeration(); return r; };
+// 管理者（不動産会社）向け: 運営に掲載を止められている物件のお知らせ
+function modNotice() {
+  const host = $('admin-props'); if (!host || !currentUser) return;
+  let box = $('fx-mod-notice');
+  const mine = PROPS.filter(p => p.modHidden && canEdit(p));
+  if (!mine.length) { if (box) box.remove(); return; }
+  if (!box) { box = el('div', 'fx-mod-notice'); box.id = 'fx-mod-notice'; host.insertBefore(box, host.firstChild); }
+  box.innerHTML = '';
+  box.appendChild(el('b', '', '運営が掲載を止めている物件があります'));
+  mine.forEach(p => box.appendChild(el('div', 'fx-mini fx-noi18n', `・${p.name}${p.modNote ? '（理由：' + p.modNote + '）' : ''}　内容を直したら、お問い合わせから運営に連絡してください。`)));
+}
+const _renderAdminPropTable = window.renderAdminPropTable;
+if (typeof _renderAdminPropTable === 'function') window.renderAdminPropTable = function () { const r = _renderAdminPropTable.apply(this, arguments); try { modNotice(); } catch (e) {} return r; };
+
 /* ══════════════ 起動 ══════════════ */
 function boot() {
   addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); fitStickyNav(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
@@ -2702,6 +2769,8 @@ window._enterApp = function () {
 const _enterApp2 = window._enterApp;
 window._enterApp = function () {
   const r = _enterApp2.apply(this, arguments);
+  // 不動産会社・運営は、非公開や運営が止めた自分の物件も一覧に出したいので読み直す
+  try { if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'master') && typeof fetchAndRenderProps === 'function') fetchAndRenderProps(); } catch (e) {}
   try {
     const guest = JSON.parse(sessionStorage.getItem(CHECK_SS) || '{}') || {};
     if (Object.keys(guest).length && currentUser) {
@@ -2721,6 +2790,7 @@ window.doLogout = function () {
   ['nav-admin-btn', 'tab-admin', 'tab-master'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   try { sessionStorage.clear(); } catch (e) {}
   setGuestClass(); renderCards(); renderCompareBar();
+  try { if (PROPS.some(p => p.modHidden || p.status === 'hidden') && typeof fetchAndRenderProps === 'function') fetchAndRenderProps(); } catch (e) {}
   return r;
 };
 })();

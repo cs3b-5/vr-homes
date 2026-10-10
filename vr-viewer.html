@@ -176,7 +176,7 @@
 </div>
 <div id="measureBar" class="bar"><span id="measureMsg" data-t="測りたい場所を2か所タップ">測りたい場所を2か所タップ</span><label><input type="checkbox" id="mFlat" checked> <span data-t="水平に測る">水平に測る</span></label><button id="mClear" data-t="消す">消す</button><button id="mDone" class="pri" data-t="終わる">終わる</button></div>
 <div id="tourBar" class="bar"><span id="tourCap"></span><button id="tPause" data-t="一時停止">一時停止</button><button id="tNext" data-t="次へ">次へ</button><button id="tEnd" class="pri" data-t="終わる">終わる</button></div>
-<div id="dollBar" class="bar"><span data-t="ドラッグで回す / 床をタップでその場所へ">ドラッグで回す / 床をタップでその場所へ</span><button id="dWalk" class="pri" data-t="歩いて見る">歩いて見る</button></div>
+<div id="dollBar" class="bar"><span data-t="ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ">ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ</span><button id="dFurn" class="gray" data-t="家具">家具</button><button id="dWalk" class="pri" data-t="歩いて見る">歩いて見る</button></div>
 <div id="tagCard"><h4 id="tagTitle"></h4><p id="tagText"></p><button class="pill" id="tagClose" style="border:0;cursor:pointer;background:#2563eb" data-t="閉じる">閉じる</button></div>
 <div id="furnPanel" class="panel">
   <h4><span data-t="家具を置いてみる">家具を置いてみる</span><button id="fClose" data-t="閉じる">閉じる</button></h4>
@@ -725,6 +725,15 @@ canvas.addEventListener("pointerdown", function (e) {
   canvas.setPointerCapture(e.pointerId);
   canvas.classList.add("dragging");
 });
+// 全体表示: 家具をつかんだらカメラの回転を止めて、家具を動かす
+canvas.addEventListener("pointerdown", function (e) {
+  if (!dollMode || !dollCam || furnDrag || !myFurn.length) return;
+  if (tryStartFurnDrag(e)) {
+    dollCam.detachControl(); furnDrag.doll = true;
+    tap.id = e.pointerId; tap.x = e.clientX; tap.y = e.clientY; tap.t = performance.now();
+    e.stopImmediatePropagation();
+  }
+}, true);
 canvas.addEventListener("pointermove", function (e) {
   if (furnDrag && e.pointerId === furnDrag.id) { moveFurnDrag(e); return; }
   if (e.pointerId !== look.id) return;
@@ -1036,7 +1045,7 @@ const EN = {
   "地図": "Map", "測る": "Measure", "全体": "Overview", "ツアー": "Tour", "家具": "Furniture", "一緒に": "Together",
   "測りたい場所を2か所タップ": "Tap two points to measure", "もう1か所をタップ": "Tap the second point",
   "水平に測る": "Level", "消す": "Clear", "終わる": "Done", "次へ": "Next",
-  "ドラッグで回す / 床をタップでその場所へ": "Drag to rotate / tap the floor to go there", "歩いて見る": "Walk",
+  "ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ": "Drag to rotate / drag furniture to move it / tap the floor to go there", "家具": "Furniture", "歩いて見る": "Walk",
   "閉じる": "Close", "家具を置いてみる": "Try furniture",
   "置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。": "Pick an item to place it in front of you. Drag to move. It turns red if it doesn't fit.",
   "一緒に内見": "View together",
@@ -1276,6 +1285,8 @@ function onTap(e) {
     return;
   }
   if (dollMode) {
+    const fh = myFurn.length ? pickAt(e, function (m) { return m.name === "myFurn"; }) : null;
+    if (fh && fh.hit) { if (!furnMode) setFurn(true); selectFurn(fh.pickedMesh.metadata.f); return; }
     const p = floorPointAt(e);
     if (p && roomAt(p.x, p.z)) exitDoll({ x: p.x, z: p.z });
     return;
@@ -1437,6 +1448,7 @@ function exitDoll(to) {
   if (to) goTo(to.x, to.z, bestYawFrom(to.x, to.z), true);
 }
 document.getElementById("dWalk").addEventListener("click", function () { exitDoll(); });
+document.getElementById("dFurn").addEventListener("click", function () { const on = !furnMode; closePanels("furn"); setFurn(on); });
 
 /* ---------- 案内タグ ---------- */
 const tagCard = document.getElementById("tagCard");
@@ -1588,8 +1600,15 @@ function updateFurnMesh(f) {
 function sizeText(f) { return Math.round(f.w * 100) + "×" + Math.round(f.d * 100) + "×" + Math.round(f.h * 100) + "cm"; }
 function addFurn(c) {
   const dist = 1.2 + Math.max(c.w, c.d) / 2;
+  // 全体表示のときは見ている部屋の真ん中あたりに出す
+  let at = { x: camera.position.x + Math.sin(yaw) * dist, z: camera.position.z + Math.cos(yaw) * dist };
+  if (dollMode && dollCam) {
+    const r = canvas.getBoundingClientRect();
+    const p = floorPointAt({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+    at = (p && roomAt(p.x, p.z)) ? p : { x: dollCam.target.x, z: dollCam.target.z };
+  }
   const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c,
-    x: camera.position.x + Math.sin(yaw) * dist, z: camera.position.z + Math.cos(yaw) * dist,
+    x: at.x, z: at.z,
     rot: Math.round((yaw * 180 / Math.PI) / 90) * 90 % 360 };
   myFurn.push(f); makeFurnMesh(f); selectFurn(f);
   stats.furniture++;
@@ -1655,8 +1674,10 @@ function moveFurnDrag(e) {
 }
 function endFurnDrag(e) {
   if (!furnDrag || e.pointerId !== furnDrag.id) return;
-  const moved = furnDrag.moved;
+  const moved = furnDrag.moved, wasDoll = furnDrag.doll;
   furnDrag = null;
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  if (wasDoll && dollMode && dollCam) dollCam.attachControl(canvas, true);
   if (moved) { saveMyFurniture(); renderFurnPanel(); }
 }
 // 家具の保存先: ログイン中 → アカウント(親画面がサーバーに保存) / ゲスト → このタブの間だけ / 単体で開いたとき → この端末

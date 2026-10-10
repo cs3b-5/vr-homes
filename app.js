@@ -841,13 +841,13 @@ function isAdmin(u){const r=(u||currentUser)?.role;return r==='admin'||r==='mast
 ══════════════════════════════════════ */
 function canEditProp(prop){
   if(!currentUser) return false;
-  if(isMaster()) return true;              // マスターは自由
-  if(!isAdmin()) return false;             // 管理者未満は不可
+  if(!isAdmin()) return false;             // 管理者未満は不可（isAdmin はマスターも含む）
   if(!prop) return false;
   // 自分が追加した物件
   if(prop.ownerEmail && prop.ownerEmail===currentUser.email) return true;
-  // オーナー情報がない古い物件は、管理者なら編集可（後方互換）
-  if(!prop.ownerEmail) return true;
+  // 登録者のいない古い物件は、マスター（運営）が引き取る
+  if(!prop.ownerEmail) return isMaster();
+  // マスター（運営）でも、他の人の物件の中身は編集しない（掲載の停止・PRは「掲載の管理」から）
   // 同じグループのメンバーが追加した物件
   const myGroup=currentUser.groupId;
   if(myGroup){
@@ -862,9 +862,9 @@ function isDemoUser(u){return !!u && (u.email===DEMO_USER.email||u.email===DEMO_
 function realUsers(){return userStore.filter(u=>!isDemoUser(u) && u!==MASTER_USER);}
 /* 他のユーザーを停止・削除できるか(サーバー側のルールと同じ) */
 function canManageUser(u){
+  // 利用停止・再開と権限の変更はマスター（運営）だけ。管理者（不動産会社）はユーザーを管理しない
   if(!u||!currentUser||u.email===currentUser.email||u.role==='master') return false;
-  if(isMaster()) return true;
-  return isAdmin() && u.role==='user';
+  return isMaster();
 }
 /* ログイン・ログアウト・権限変更のたびに、編集できるかどうかで変わる表示を描き直す */
 function refreshPermissionViews(){
@@ -1380,8 +1380,7 @@ function renderUserTable(){
     <span><span class="tag ${u.active?'tg':'tr'}" style="font-size:9px">${u.active?'有効':'停止中'}</span></span>
     <span style="display:flex;gap:4px">
       <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="詳細" onclick="showUserDetail('${u.email}')"><i class="ti ti-info-circle"></i></button>
-      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'停止する':'有効にする'}" onclick="confirmToggleActive('${u.email}')"><i class="ti ti-${u.active?'ban':'check'}" style="color:var(--${u.active?'amber':'green'})"></i></button>
-      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="削除" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>`:''}
+      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'利用停止する':'利用を再開する'}" onclick="confirmToggleActive('${u.email}')"><i class="ti ti-${u.active?'ban':'check'}" style="color:var(--${u.active?'amber':'green'})"></i></button>`:''}
     </span>
   </div>`).join('')||'<div style="padding:14px;font-size:13px;color:#94a3b8;text-align:center">該当するユーザーはいません</div>';
 }
@@ -1398,26 +1397,17 @@ function renderMasterUserTable(){
     <span><span class="tag ${u.active?'tg':'tr'}" style="font-size:9px">${u.active?'有効':'停止中'}</span></span>
     <span style="display:flex;gap:4px">
       <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" onclick="showUserDetail('${u.email}')"><i class="ti ti-info-circle"></i></button>
-      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'停止する':'有効にする'}" onclick="confirmToggleActive('${u.email}')">${u.active?'<i class="ti ti-ban" style="color:var(--amber)"></i>':'<i class="ti ti-check" style="color:var(--green)"></i>'}</button>
-      <button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="削除" onclick="confirmDeleteUser('${u.email}')"><i class="ti ti-trash" style="color:var(--red)"></i></button>`:''}
+      ${canManageUser(u)?`<button class="btn btn-sm" style="font-size:10px;padding:3px 8px" title="${u.active?'利用停止する':'利用を再開する'}" onclick="confirmToggleActive('${u.email}')">${u.active?'<i class="ti ti-ban" style="color:var(--amber)"></i>':'<i class="ti ti-check" style="color:var(--green)"></i>'}</button>`:''}
     </span>
   </div>`).join('')||'<div style="padding:14px;font-size:13px;color:#94a3b8;text-align:center">該当するユーザーはいません</div>';
 }
 
-function confirmDeleteUser(email){
-  const u=userStore.find(u=>u.email===email);if(!u) return;
-  if(!canManageUser(u)){alert('このユーザーを削除する権限がありません');return;}
-  if(email===MASTER_EMAIL){alert('マスターアカウントは削除できません');return;}
-  if(email===currentUser?.email){alert('自分自身は削除できません');return;}
-  if(!confirm(`ユーザー「${u.name}」（${email}）を完全に削除しますか？`)) return;
-  deleteUser(email);closeUserDetail();
-}
 function confirmToggleActive(email){
   const u=userStore.find(u=>u.email===email);if(!u) return;
   if(!canManageUser(u)){alert('このユーザーを変更する権限がありません');return;}
   if(email===MASTER_EMAIL){alert('マスターアカウントは変更できません');return;}
   if(email===currentUser?.email){alert('自分自身のアカウントは変更できません');return;}
-  if(!confirm(`ユーザー「${u.name}」を${u.active?'停止':'有効化'}しますか？`)) return;
+  if(!confirm(`ユーザー「${u.name}」を${u.active?'利用停止にします。ログインできなくなります。よろしいですか？':'利用再開しますか？'}`)) return;
   toggleUserActive(email);
 }
 async function deleteUser(email){
@@ -1464,8 +1454,7 @@ function showUserDetail(email){
       <div style="font-size:11px;font-weight:700;color:var(--gold);margin-bottom:10px"><i class="ti ti-crown"></i> マスター専用</div>
       <div style="display:grid;gap:7px;font-size:12px">
         ${[['メール',u.email],['ロール',u.role],['状態',u.active?'有効':'停止中'],
-           ['グループ',u.groupName?u.groupName+'（'+u.groupId+'）':'未所属'],
-           ['お気に入り',(u.favs||[]).length+'件'],['履歴',(u.history||[]).length+'件']].map(([l,v])=>`
+           ['グループ',u.groupName?u.groupName+'（'+u.groupId+'）':'未所属']].map(([l,v])=>`
         <div style="display:flex;justify-content:space-between"><span style="color:#64748b">${l}</span><span style="font-weight:600">${v}</span></div>`).join('')}
         <div style="display:flex;justify-content:space-between;align-items:center;padding-top:4px;border-top:1px dashed rgba(0,0,0,.08)">
           <span style="color:#64748b">パスワード</span>
@@ -1483,21 +1472,7 @@ function showUserDetail(email){
         <i class="ti ti-send"></i> 送信する
       </button>
     </div>
-    ${isMaster()&&u.role!=='master'?`
-    <!-- パスワード代理リセット（マスター専用） -->
-    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:var(--r-md);padding:14px;margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px"><i class="ti ti-key"></i> パスワードを代理リセット</div>
-      <p style="font-size:11px;color:#991b1b;margin-bottom:10px;line-height:1.6">
-        ユーザーがパスワードを忘れた場合に、マスターが新しいパスワードを設定できます。設定後、本人に直接お伝えください。
-      </p>
-      <input class="finput" id="ud-new-pass" type="text" placeholder="新しいパスワード（6文字以上）" style="font-size:12px;margin-bottom:6px">
-      <input class="finput" id="ud-master-pass" type="password" placeholder="あなた（マスター）のパスワード" style="font-size:12px;margin-bottom:8px">
-      <div id="ud-reset-status" style="display:none;font-size:11px;margin-bottom:6px"></div>
-      <button class="btn btn-sm" style="width:100%;justify-content:center;color:var(--red);border-color:var(--red-b)" onclick="adminResetPassword('${email}')">
-        <i class="ti ti-key"></i> パスワードをリセット
-      </button>
-    </div>`:''}
-    ${u.role!=='master'?`<div style="background:var(--surface2);border-radius:var(--r-md);padding:14px;margin-bottom:12px">
+    ${canManageUser(u)?`<div style="background:var(--surface2);border-radius:var(--r-md);padding:14px;margin-bottom:12px">
       <div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:8px">ロール変更</div>
       <div style="display:flex;gap:8px">
         <select class="finput" id="user-detail-role" style="font-size:12px;padding:5px 8px">
@@ -1507,9 +1482,10 @@ function showUserDetail(email){
         <button class="btn btn-sm" onclick="changeRoleFromDetail('${email}')">変更</button>
       </div>
     </div>`:''}
-    ${email!==MASTER_EMAIL&&email!==currentUser?.email?`<button class="btn" style="width:100%;justify-content:center;padding:10px;color:var(--red);border-color:var(--red-b)" onclick="confirmDeleteUser('${email}')">
-      <i class="ti ti-trash"></i> このユーザーを削除する
-    </button>`:''}`;
+    ${canManageUser(u)?`<button class="btn" style="width:100%;justify-content:center;padding:10px;color:${u.active?'var(--amber)':'var(--green)'}" onclick="confirmToggleActive('${email}')">
+      <i class="ti ${u.active?'ti-ban':'ti-check'}"></i> ${u.active?'利用停止にする':'利用を再開する'}
+    </button>
+    <p style="font-size:11px;color:#94a3b8;margin-top:8px;line-height:1.6">アカウントの削除（退会）は本人がマイページから行います。パスワードを忘れたときは、本人がログイン画面から再設定します。</p>`:''}`;
   modal.style.display='block';
 }
 
@@ -3241,27 +3217,7 @@ function renderGroupManagement(){
             </div>`).join('')}
         </div>
 
-        <!-- メールアドレスで直接招待 -->
-        <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
-          <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:4px"><i class="ti ti-user-plus" style="color:var(--blue)"></i> メンバーを直接追加</div>
-          <p style="font-size:11px;color:#94a3b8;margin-bottom:8px">登録済みの管理者を、招待コードなしで直接グループに追加できます。</p>
-          <div style="display:flex;gap:8px">
-            <input class="finput" id="invite-email" placeholder="追加する管理者のメールアドレス" style="flex:1;font-size:12px">
-            <button class="btn btn-p btn-sm" style="white-space:nowrap" onclick="inviteMemberByEmail()"><i class="ti ti-plus"></i> 追加</button>
-          </div>
-          <div id="invite-status" style="display:none;font-size:11px;margin-top:6px"></div>
-          <!-- 追加できる管理者の候補 -->
-          <div style="margin-top:10px">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">未所属の管理者から選ぶ</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px" id="invite-candidates">
-              ${(()=>{
-                const cands=userStore.filter(u=>u.role==='admin'&&!u.groupId&&u.email!==currentUser.email);
-                if(!cands.length) return '<span style="font-size:11px;color:#cbd5e1">候補がいません</span>';
-                return cands.map(c=>`<button class="btn btn-sm" style="font-size:11px;padding:4px 10px" onclick="inviteMemberDirect('${c.email}')"><i class="ti ti-plus"></i> ${c.name}</button>`).join('');
-              })()}
-            </div>
-          </div>
-        </div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:14px;line-height:1.7">メンバーを増やすときは、上の招待コードを相手に伝えて、相手が自分で「グループに参加する」から入ります（勝手に追加はできません）。</p>
 
         <button class="btn btn-sm" style="margin-top:16px;color:var(--red);border-color:var(--red-b)" onclick="leaveGroup()">
           <i class="ti ti-logout"></i> グループを脱退
@@ -3291,100 +3247,42 @@ function renderGroupManagement(){
   }
 }
 
-function createGroup(){
+/* グループの作成・参加・脱退はサーバーが確かめる（参加は招待コードを知っている本人だけ） */
+async function saveMyGroup(groupId, groupName, action){
+  try{
+    const res=await fetch(AWS_API_URL+'?action=saveUser',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({...currentUser, groupId:groupId, groupName:groupName, groupAction:action})});
+    const d=await res.json().catch(()=>({}));
+    if(!res.ok){ showToast(d.error||'うまくいきませんでした','warn'); return false; }
+    const u=d.user||{};
+    ['groupId','groupName','groupOwner'].forEach(k=>{ currentUser[k]=u[k]??null; });
+    const s=userStore.find(x=>x.email===currentUser.email); if(s) ['groupId','groupName','groupOwner'].forEach(k=>{ s[k]=currentUser[k]; });
+    cacheUserLocal(currentUser);
+    await fetchUsers();          // 同じグループのメンバーを読み直す
+    return true;
+  }catch(e){ showToast('サーバーにつながりませんでした','error'); return false; }
+}
+async function createGroup(){
   const nameEl=document.getElementById('new-group-name');
   const name=(nameEl?.value||'').trim();
   if(!name){showToast('グループ名を入力してください','warn');return;}
-  const code=genGroupCode();
-  currentUser.groupId=code;
-  currentUser.groupName=name;
-  currentUser.groupOwner=true;
-  const s=userStore.find(u=>u.email===currentUser.email);
-  if(s){s.groupId=code;s.groupName=name;s.groupOwner=true;}
-  saveUserToAWS(currentUser);
-  showToast('グループを作成しました','success');
-  renderGroupManagement();
+  if(await saveMyGroup(genGroupCode(), name, 'create')) showToast('グループを作成しました','success');
+  renderGroupManagement(); renderAdminPropTable();
 }
-
-function joinGroup(){
+async function joinGroup(){
   const codeEl=document.getElementById('join-group-code');
   const code=(codeEl?.value||'').trim().toUpperCase();
   if(!code){showToast('招待コードを入力してください','warn');return;}
-  // そのコードのグループが存在するか（既存メンバーを探す）
-  const owner=userStore.find(u=>u.groupId===code);
-  if(!owner){showToast('そのコードのグループが見つかりません','warn');return;}
-  currentUser.groupId=code;
-  currentUser.groupName=owner.groupName||'グループ';
-  currentUser.groupOwner=false;
-  const s=userStore.find(u=>u.email===currentUser.email);
-  if(s){s.groupId=code;s.groupName=owner.groupName;s.groupOwner=false;}
-  saveUserToAWS(currentUser);
-  showToast('グループに参加しました','success');
-  renderGroupManagement();
-  renderAdminPropTable(); // 編集可能な物件が増えるので再描画
+  if(await saveMyGroup(code, null, 'join')) showToast('グループに参加しました','success');
+  renderGroupManagement(); renderAdminPropTable();
 }
-
-function leaveGroup(){
+async function leaveGroup(){
   if(!confirm('グループを脱退しますか？\n脱退すると、グループメンバーの物件を編集できなくなります。')) return;
-  currentUser.groupId=null;
-  currentUser.groupName=null;
-  currentUser.groupOwner=false;
-  const s=userStore.find(u=>u.email===currentUser.email);
-  if(s){s.groupId=null;s.groupName=null;s.groupOwner=false;}
-  saveUserToAWS(currentUser);
-  showToast('グループを脱退しました','info');
-  renderGroupManagement();
-  renderAdminPropTable();
+  if(await saveMyGroup(null, null, 'leave')) showToast('グループを脱退しました','info');
+  renderGroupManagement(); renderAdminPropTable();
 }
 window.createGroup=createGroup;window.joinGroup=joinGroup;window.leaveGroup=leaveGroup;
 window.renderGroupManagement=renderGroupManagement;
-
-/* メールアドレスを指定してメンバーを直接追加 */
-async function inviteMemberByEmail(){
-  const el=document.getElementById('invite-email');
-  const email=(el?.value||'').trim();
-  const status=document.getElementById('invite-status');
-  const show=(t,ok)=>{if(status){status.style.cssText=`display:block;font-size:11px;margin-top:6px;color:${ok?'var(--green)':'var(--red)'}`;status.textContent=t;}};
-  if(!email){show('メールアドレスを入力してください',false);return;}
-  await _addMemberToGroup(email, show);
-  if(el) el.value='';
-}
-
-/* 候補ボタンから直接追加 */
-async function inviteMemberDirect(email){
-  const status=document.getElementById('invite-status');
-  const show=(t,ok)=>{if(status){status.style.cssText=`display:block;font-size:11px;margin-top:6px;color:${ok?'var(--green)':'var(--red)'}`;status.textContent=t;}};
-  await _addMemberToGroup(email, show);
-}
-
-/* グループにメンバーを追加する共通処理 */
-async function _addMemberToGroup(email, show){
-  if(!currentUser||!currentUser.groupId){show('先にグループを作成してください',false);return;}
-  const target=userStore.find(u=>u.email===email);
-  if(!target){show('そのメールアドレスのユーザーが見つかりません',false);return;}
-  if(target.email===currentUser.email){show('自分自身は追加できません',false);return;}
-  if(target.role!=='admin'&&target.role!=='master'){show('管理者のみグループに追加できます',false);return;}
-  if(target.groupId===currentUser.groupId){show('すでにこのグループのメンバーです',false);return;}
-  if(target.groupId){
-    if(!confirm(`「${target.name}」は既に別のグループに所属しています。\nこのグループに移動しますか？`)) return;
-  }
-  target.groupId=currentUser.groupId;
-  target.groupName=currentUser.groupName;
-  target.groupOwner=false;
-  await saveUserToAWS(target);
-  // 本人に通知
-  await saveMessage({
-    id:'m'+Date.now(), to:target.email, from:currentUser.email, fromName:currentUser.name||'運営',
-    subject:`【VR Homes】グループ「${currentUser.groupName}」に追加されました`,
-    body:`${currentUser.name} さんにより、グループ「${currentUser.groupName}」に追加されました。\n\nこれにより、グループメンバーの物件を編集・削除できるようになります。\n管理者画面の「グループ」タブから確認できます。`,
-    time:new Date().toISOString(), read:false
-  });
-  sendRealMail(target.email, `【VR Homes】グループに追加されました`,
-    `${currentUser.name} さんにより、グループ「${currentUser.groupName}」に追加されました。`).catch(()=>{});
-  show(`✓ 「${target.name}」をグループに追加しました`,true);
-  renderGroupManagement();
-  renderAdminPropTable();
-}
 
 /* グループからメンバーを外す（オーナーのみ） */
 async function removeGroupMember(email){
@@ -3404,8 +3302,6 @@ async function removeGroupMember(email){
   renderGroupManagement();
   renderAdminPropTable();
 }
-window.inviteMemberByEmail=inviteMemberByEmail;
-window.inviteMemberDirect=inviteMemberDirect;
 window.removeGroupMember=removeGroupMember;
 /* 広告機能は「おすすめ掲載（PR）」に置きかえたので、古い呼び出しが残っていても何もしない */
 function isAdUnlocked(){ return false; }
@@ -3416,7 +3312,7 @@ function _showAdTab(){}
 function injectSideAds(){}
 function injectInlineAds(){}
 function switchMaster(id,el){
-  ['users','roles','fields','ads'].forEach(k=>{const e=document.getElementById('master-'+k);if(e) e.style.display=k===id?'block':'none';});
+  ['users','roles','fields','listings'].forEach(k=>{const e=document.getElementById('master-'+k);if(e) e.style.display=k===id?'block':'none';});
   document.querySelectorAll('#s-master .admin-nav-item').forEach(i=>i.classList.remove('on'));
   if(el && el.classList) el.classList.add('on');
   if(id==='users') renderMasterUserTable();

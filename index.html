@@ -584,7 +584,6 @@
       <div class="admin-sidebar-title">MENU</div>
       <div class="admin-nav-item on" onclick="switchAdmin('props',this)"><i class="ti ti-building"></i>物件管理</div>
       <div class="admin-nav-item" onclick="switchAdmin('group',this)"><i class="ti ti-users-group"></i>グループ</div>
-      <div class="admin-nav-item" onclick="switchAdmin('users',this)"><i class="ti ti-users"></i>ユーザー管理</div>
       <div class="admin-nav-item" onclick="switchAdmin('stats',this)"><i class="ti ti-chart-bar"></i>分析</div>
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06)">
         <div class="stat-mini"><div class="stat-mini-label">ユーザー数</div><div class="stat-mini-val" id="admin-user-count">-</div></div>
@@ -790,6 +789,7 @@
       <div class="admin-nav-item on" onclick="switchMaster('users',this)"><i class="ti ti-users"></i>全ユーザー管理</div>
       <div class="admin-nav-item" onclick="switchMaster('roles',this)"><i class="ti ti-shield"></i>ロール変更</div>
       <div class="admin-nav-item" onclick="switchMaster('fields',this)"><i class="ti ti-list-details"></i>物件条件管理</div>
+      <div class="admin-nav-item" onclick="switchMaster('listings',this)"><i class="ti ti-building-community"></i>掲載の管理</div>
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06)">
         <div class="stat-mini"><div class="stat-mini-label">全ユーザー数</div><div class="stat-mini-val" id="master-user-count">-</div></div>
         <div class="stat-mini"><div class="stat-mini-label">管理者数</div><div class="stat-mini-val" id="master-admin-count">-</div></div>
@@ -838,6 +838,7 @@
         </div>
       </div>
       <!-- 物件条件管理 -->
+      <div id="master-listings" style="display:none"></div>
       <div id="master-fields" style="display:none">
         <h2 style="font-size:18px;font-weight:800;margin-bottom:6px;color:var(--navy)">物件条件管理</h2>
         <p style="font-size:13px;color:#64748b;margin-bottom:22px;line-height:1.7">フィルターに表示される条件項目を追加・編集・削除できます。変更は即時反映されます。</p>
