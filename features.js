@@ -586,7 +586,7 @@ async function renderAdminResv(reload) {
     return `<div class="fx-card ${future ? '' : 'past'}">
       <div class="fx-card-h"><b>${slotLabel(r.slot)}</b>${statusBadge(r.status)}<span class="fx-kind">${r.kind === 'online' ? '<i class="ti ti-users"></i> オンライン' : '<i class="ti ti-walk"></i> 現地'}</span></div>
       <div class="fx-link" onclick="showPropDetail(${r.propId})">${esc(r.propName)}</div>
-      <div class="fx-mini"><i class="ti ti-user"></i> ${esc(r.name || '')} &lt;${esc(r.email)}&gt;${r.phone ? ' ・ <i class="ti ti-phone"></i> ' + esc(r.phone) : ''}</div>
+      <div class="fx-mini"><i class="ti ti-user"></i> ${esc(r.name || '')}${r.email ? ' &lt;' + esc(r.email) + '&gt;' : ''}${r.phone ? ' ・ <i class="ti ti-phone"></i> ' + esc(r.phone) : ''}</div>
       ${r.note ? `<div class="fx-reply"><i class="ti ti-note"></i> ${esc(r.note)}</div>` : ''}
       ${r.reply ? `<div class="fx-mini">返信: ${esc(r.reply)}</div>` : ''}
       <div class="fx-row">
@@ -1177,7 +1177,9 @@ window.addProperty = async function () {
     p.url = url; delete p.dataURL;
     panos.push({ url, name: p.name });
   }
-  pendingExtras = { status: fxForm.status, viewingRule: { days: fxForm.days.slice(), start: fxForm.start, end: fxForm.end, closed: fxForm.closed.slice() }, panoramas: panos };
+  pendingExtras = { status: fxForm.status, viewingRule: { days: fxForm.days.slice(), start: fxForm.start, end: fxForm.end, closed: fxForm.closed.slice() }, panoramas: panos,
+    features: (fxForm.features || []).slice() };   // 新しく登録するときは保存の前にフォームが閉じて空になるので、ここで覚えておく
+  if (typeof isMaster === 'function' && isMaster() && fxForm.featuredUntil) pendingExtras.featuredUntil = fxForm.featuredUntil;
   try { return await _addProperty.apply(this, arguments); } finally { pendingExtras = null; try { renderCards(); renderAdminPropTable(); } catch (e) {} }
 };
 const _uploadToAWS = window.uploadToAWS;
@@ -1851,8 +1853,8 @@ window.fxExportProps = function () {
 window.fxExportResv = async function () {
   await loadAdminResv();
   const st = { pending: '確認待ち', confirmed: '確定', declined: 'お断り', cancelled: 'キャンセル', done: '完了' };
-  downloadCSV(`vrhomes_内見予約_${ymd(new Date())}.csv`, [['日時', '物件', '方法', '状態', 'お名前', 'メール', '電話', 'ご要望', '申込日時']]
-    .concat(adminResvCache.map(r => [r.slot.replace('T', ' '), r.propName, r.kind === 'online' ? 'オンライン' : '現地', st[r.status] || r.status, r.name, r.email, r.phone, r.note, (r.created || '').replace('T', ' ')])));
+  downloadCSV(`vrhomes_内見予約_${ymd(new Date())}.csv`, [['日時', '物件', '方法', '状態', 'お名前', '電話', 'ご要望', '申込日時']]
+    .concat(adminResvCache.map(r => [r.slot.replace('T', ' '), r.propName, r.kind === 'online' ? 'オンライン' : '現地', st[r.status] || r.status, r.name, r.phone, r.note, (r.created || '').replace('T', ' ')])));
 };
 function addExportButtons() {
   const csvBtn = $('fx-csv-btn');
@@ -2260,7 +2262,7 @@ function initHero() {
    サーバーの ykChat が答える（AIモード / かんたんモード）。会話はこのタブの中だけに残る */
 Object.assign(EN, {
   'やどかりんに相談': 'Ask Yadokarin', '住まいの悩みを聞かせてね': 'Tell me your housing worries', '相談する': 'Ask',
-  '最初から': 'Start over', '詳しく見る': 'Details', 'お気に入りに追加': 'Add to favorites', 'お気に入り済み': 'Saved', 'もう一度押すとお気に入りから外します': 'Tap again to remove from favorites', 'お気に入りから外しました': 'Removed from favorites', 'お気に入りに追加しました': 'Added to favorites', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
+  '最初から': 'Start over', '詳しく見る': 'Details', '間取り図': 'Floor plan', '間取り図（イメージ）': 'Floor plan (illustration)', 'VRで中を歩く': 'Walk inside in VR', 'お気に入りに追加': 'Add to favorites', 'お気に入り済み': 'Saved', 'もう一度押すとお気に入りから外します': 'Tap again to remove from favorites', 'お気に入りから外しました': 'Removed from favorites', 'お気に入りに追加しました': 'Added to favorites', 'VRで入る': 'Enter in VR', '考え中…': 'Thinking…',
   '自分の悩みを相談してみる': 'Ask about your own situation', 'かんたん': 'Basic', '送る': 'Send',
   'やどかりんAIが読み取った条件': 'What Yadokarin AI understood', '内見チェック': 'Viewing checklist', '内見メモ': 'Viewing notes',
   'メモ（気づいたこと）': 'Notes', 'VRで確かめる': 'Check in VR', 'VR内見の「チェック」ボタンからも記録できます。': 'You can also record this from the Checklist button in VR viewing.',
@@ -2333,6 +2335,7 @@ function ykcPickCard(pk) {
   const src = (p.thumbURL && p.photoURLs && p.thumbOf === p.photoURLs[0]) ? p.thumbURL : ((p.photoURLs || [])[0] || '');
   const vr = !!(p.floorplanData || p.splatURL || (p.panoramas && p.panoramas.length));
   if (src) img.style.backgroundImage = `url("${String(src).replace(/["\\]/g, '')}")`;
+  else if (p.fpMini && fpSvg(p.fpMini)) { img.classList.add('fp'); img.innerHTML = fpSvg(p.fpMini); }
   else if (vr) img.classList.add('doll');
   const body = el('div', 'ykc-pick-body');
   body.appendChild(el('b', 'fx-noi18n', p.name || ''));
@@ -2541,6 +2544,7 @@ function heInitMap() {
   // 利用者が地図を動かしたら「この範囲で探す」を出す（こちらが動かしたときは出さない）
   heMap.on('movestart', () => { if (!heFitting) heUserMoved = true; });
   heMap.on('moveend', () => { if (heUserMoved && !heFitting) { const b = $('he-map-area'); if (b) b.hidden = false; } heFitting = false; });
+  heMap.on('zoomend moveend', heCompact);
   $('he-map-area').onclick = () => {
     const b = heMap.getBounds();
     heBounds = [[b.getSouth(), b.getWest()], [b.getNorth(), b.getEast()]];
@@ -2562,27 +2566,27 @@ function heInitMap() {
     }, 140);
   }, { passive: true });
 }
-// 地図の絵（タイル）。国土地理院の地図（国が更新している最新の地図）を使い、右上で切り替えられる
+// 地図の絵（タイル）。ふだんは見やすい OpenStreetMap（CARTO Voyager）。右上で国土地理院の地図・航空写真にも切り替えられる
 function fxBaseLayers(map, withControl) {
-  const gsi = (id, ext, name, z) => L.tileLayer(`https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`, {
-    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>', maxNativeZoom: z || 18, maxZoom: 19 });
-  const layers = {
-    [fxLang === 'en' ? 'Map (light)' : '地図（淡色）']: gsi('pale', 'png'),
-    [fxLang === 'en' ? 'Map (standard)' : '地図（標準）']: gsi('std', 'png'),
-    [fxLang === 'en' ? 'Aerial photo' : '航空写真']: gsi('seamlessphoto', 'jpg'),
-    'OpenStreetMap': L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19 })
-  };
-  const names = Object.keys(layers);
+  const en = fxLang === 'en';
+  const gsi = (id, ext) => L.tileLayer(`https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`, {
+    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>', maxNativeZoom: 18, maxZoom: 19 });
+  const voyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>', subdomains: 'abcd', maxZoom: 19 });
+  const layers = {};
+  layers[en ? 'Map' : '地図'] = voyager;
+  layers[en ? 'Map (GSI)' : '地図（国土地理院）'] = gsi('std', 'png');
+  layers[en ? 'Aerial photo' : '航空写真'] = gsi('seamlessphoto', 'jpg');
+  const keys = ['map', 'gsi', 'photo'], names = Object.keys(layers);
   let pick = 0;
-  try { const i = +localStorage.getItem('fx_map_layer'); if (i >= 0 && i < names.length) pick = i; } catch (e) {}
+  try { const k = keys.indexOf(localStorage.getItem('fx_map_base')); if (k >= 0) pick = k; } catch (e) {}
   const first = layers[names[pick]];
-  // 国土地理院の地図が読めないときは OpenStreetMap にする
-  let errs = 0;
-  first.on('tileerror', () => { if (++errs === 6 && pick !== 3 && map.hasLayer(first)) { map.removeLayer(first); layers.OpenStreetMap.addTo(map); } });
+  let errs = 0;   // 読めないときは別の地図にする
+  first.on('tileerror', () => { if (++errs === 6 && map.hasLayer(first)) { map.removeLayer(first); layers[names[pick === 0 ? 1 : 0]].addTo(map); } });
   first.addTo(map);
   if (withControl) {
-    L.control.layers(layers, null, { position: 'topright', collapsed: true }).addTo(map);
-    map.on('baselayerchange', e => { try { localStorage.setItem('fx_map_layer', String(names.indexOf(e.name))); } catch (er) {} });
+    L.control.layers(layers, null, { position: 'topleft', collapsed: true }).addTo(map);
+    map.on('baselayerchange', e => { try { localStorage.setItem('fx_map_base', keys[names.indexOf(e.name)] || 'map'); } catch (er) {} });
   }
   return layers;
 }
@@ -2617,6 +2621,7 @@ function heDraw(fit) {
   });
   heDrawCommute();
   heRenderList(all, list.length);
+  setTimeout(heCompact, 0);
   const note = $('he-map-note');
   if (note) { const miss = all.length - list.length; note.hidden = !miss; note.textContent = miss ? (fxLang === 'en' ? `${miss} home(s) without a location are only in the list` : `位置が登録されていない${miss}件は、一覧にだけ出ています`) : ''; }
   if (fit) {
@@ -2628,6 +2633,14 @@ function heDraw(fit) {
     else heFitting = false;
     heUserMoved = false; const b = $('he-map-area'); if (b) b.hidden = true;
   }
+}
+// ピンが多くて重なるときは、小さな点にして見やすくする（近づくと家賃が出る）
+function heCompact() {
+  if (!heMap) return;
+  const b = heMap.getBounds();
+  let n = 0; Object.values(hePins).forEach(m => { if (b.contains(m.getLatLng())) n++; });
+  const box = heMap.getContainer();
+  box.classList.toggle('he-compact', n > 35 && heMap.getZoom() < 15);
 }
 function heDrawCommute() {
   if (!heCommuteLayer) return;
@@ -2650,7 +2663,9 @@ function heRenderList(all, onMap) {
     it.setAttribute('aria-label', `${p.name} ${yen(p.price)}`);
     const img = el('div', 'he-ml-img');
     const src = (p.thumbURL && p.photoURLs && p.thumbOf === p.photoURLs[0]) ? p.thumbURL : ((p.photoURLs || [])[0] || '');
-    if (src) img.style.backgroundImage = `url("${String(src).replace(/["\\]/g, '')}")`; else if (heIsVR(p)) img.classList.add('doll');
+    if (src) img.style.backgroundImage = `url("${String(src).replace(/["\\]/g, '')}")`;
+    else if (p.fpMini && fpSvg(p.fpMini)) { img.classList.add('fp'); img.innerHTML = fpSvg(p.fpMini); }
+    else if (heIsVR(p)) img.classList.add('doll');
     if (heIsVR(p)) img.appendChild(el('span', 'he-ml-vr', 'VR'));
     const body = el('div', 'he-ml-body');
     body.appendChild(el('b', 'he-ml-price', yen(p.price) + t('/月')));
@@ -2858,9 +2873,323 @@ window.toggleFav = function (id, el) {
 const _renderPropDetailFav = window.renderPropDetail;
 window.renderPropDetail = function () { const r = _renderPropDetailFav.apply(this, arguments); try { pdFavSync(); } catch (e) {} return r; };
 
+/* ══════════════ 32. 間取り図のサムネイル（写真がない物件のカード・詳細に出す）══════════════ */
+function fpColor(n) {
+  n = String(n || '');
+  if (/LDK|DK|^K$|リビング|ダイニング|キッチン/.test(n)) return '#D9F2E6';
+  if (/和室/.test(n)) return '#FBEBC8';
+  if (/浴室|洗面|トイレ|ユニット|バス/.test(n)) return '#E2E8F0';
+  if (/玄関|廊下|収納|納戸|WIC|クローゼット/.test(n)) return '#F4F1EA';
+  return '#DCE9F8';
+}
+function fpSvg(mini, opts) {
+  if (!Array.isArray(mini) || !mini.length) return '';
+  opts = opts || {};
+  const shapes = mini.map(r => {
+    if (r.p) { const pts = []; for (let i = 0; i + 1 < r.p.length; i += 2) pts.push([+r.p[i], +r.p[i + 1]]); return { n: r.n, pts }; }
+    const [x, y, w, h] = (r.r || []).map(Number); return { n: r.n, pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] };
+  }).filter(s => s.pts.length >= 3 && s.pts.every(p => isFinite(p[0]) && isFinite(p[1])));
+  if (!shapes.length) return '';
+  let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+  shapes.forEach(s => s.pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }));
+  const W = Math.max(1, x2 - x1), H = Math.max(1, y2 - y1), pad = Math.max(W, H) * 0.06;
+  const sw = Math.max(W, H) / 160, fs = Math.max(W, H) / (opts.big ? 26 : 16);
+  const body = shapes.map(s => {
+    const d = s.pts.map(([x, y]) => `${x},${y}`).join(' ');
+    let cx = 0, cy = 0; s.pts.forEach(([x, y]) => { cx += x; cy += y; }); cx /= s.pts.length; cy /= s.pts.length;
+    const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]);
+    const rw = Math.max(...xs) - Math.min(...xs), rh = Math.max(...ys) - Math.min(...ys);
+    const label = s.n && rw > fs * Math.min(5, s.n.length) * 0.9 && rh > fs * 1.4
+      ? `<text x="${cx}" y="${cy}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" fill="#334155" font-weight="700">${esc(s.n)}</text>` : '';
+    return `<polygon points="${d}" fill="${fpColor(s.n)}" stroke="#334155" stroke-width="${sw}" stroke-linejoin="round"/>${label}`;
+  }).join('');
+  return `<svg class="fx-fp-svg" viewBox="${x1 - pad} ${y1 - pad} ${W + pad * 2} ${H + pad * 2}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(t('間取り図'))}">${body}</svg>`;
+}
+window.fxFpSvg = fpSvg;
+function fpThumbs() {
+  document.querySelectorAll('#card-grid .prop-card').forEach(card => {
+    const fb = card.querySelector('.fav-btn'); const img = card.querySelector('.prop-img');
+    if (!fb || !img || img.classList.contains('has-fp') || !img.querySelector('.prop-img-placeholder')) return;
+    const p = findProp(+fb.dataset.propId); if (!p || !p.fpMini) return;
+    const svg = fpSvg(p.fpMini); if (!svg) return;
+    img.classList.add('has-fp');
+    img.insertAdjacentHTML('afterbegin', `<div class="fx-fp-thumb">${svg}</div>`);
+  });
+}
+const _renderCardsFp = window.renderCards;
+window.renderCards = function () { const r = _renderCardsFp.apply(this, arguments); try { fpThumbs(); } catch (e) {} return r; };
+const _renderPropDetailFp = window.renderPropDetail;
+window.renderPropDetail = function (prop) {
+  const r = _renderPropDetailFp.apply(this, arguments);
+  try {
+    if (prop && !(prop.photoURLs || []).length && prop.fpMini) {
+      const svg = fpSvg(prop.fpMini, { big: true });
+      if (svg) $('pd-slider').innerHTML = `<div class="fx-fp-hero">${svg}<span class="fx-fp-cap"><i class="ti ti-layout-2"></i> ${t('間取り図（イメージ）')}</span>${prop.floorplanData || prop.splatURL ? `<button type="button" class="fx-fp-vr" onclick="viewInVR(${+prop.id})"><i class="ti ti-vr"></i> ${t('VRで中を歩く')}</button>` : ''}</div>`;
+    }
+  } catch (e) {}
+  return r;
+};
+
+/* ══════════════ 33. 物件フォームを使いやすく ══════════════
+   ・項目を「基本 → 場所 → お金 → 設備と説明 → 写真とVR → 公開と内見 → 詳細」に分けて、上のボタンで移動できる
+   ・必須項目のチェック、入力の充実度、費用の目安、説明文と間取りの自動作成、下書きの自動保存、二重登録の注意 */
+function fpMiniFrom(fp) {
+  return ((fp && fp.rooms) || []).map(r => Array.isArray(r.vertices) && r.vertices.length >= 3
+    ? { n: r.name, p: r.vertices.flatMap(v => [+v.x || 0, +v.y || 0]) }
+    : { n: r.name, r: [+r.wx || 0, +r.wy || 0, +r.ww || 0, +r.wh || 0] });
+}
+function svgDataURL(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')); }
+const _applyFpThumb = window._applyFloorplanThumbnail;
+window._applyFloorplanThumbnail = function () {
+  const r = typeof _applyFpThumb === 'function' ? _applyFpThumb.apply(this, arguments) : undefined;
+  const img = $('fp-thumb-img');
+  if (img && window.editedFloorplanData && !window.editedFloorplanThumb) {
+    const svg = fpSvg(fpMiniFrom(window.editedFloorplanData), { big: true });
+    if (svg) img.src = svgDataURL(svg);
+  }
+  afScore();
+  return r;
+};
+const AF_SECTIONS = [
+  ['basic', '基本の情報', ['af-name', 'af-madori', 'af-size', 'af-type', 'af-structure', 'af-age', 'af-floor-no']],
+  ['place', '場所', ['af-address', 'af-area', 'af-station', 'af-walk-min', 'af-access']],
+  ['money', 'お金', ['af-rent', 'af-mgmt', 'af-deposit', 'af-key', 'af-cost']],
+  ['feat', '設備と説明', ['af-feat-field', 'af-desc']],
+  ['media', '写真とVR', ['af-photo', 'af-fp-field', 'af-splat', 'af-pano-field']],
+  ['pub', '公開と内見', ['af-pr-field', 'fx-af-extra']],
+  ['more', 'くわしい情報（任意）', ['af-available']]
+];
+let afDirty = false, afSaving = false, afDraftT = 0;
+function afField(id) {   // その入力欄が入っている、いちばん外側の項目
+  let e = $(id);
+  while (e && e.parentNode && !(e.parentNode.matches && e.parentNode.matches('#add-form .add-form-inner > .add-form-grid'))) e = e.parentNode;
+  return e && e.parentNode ? e : null;
+}
+function initFormUX() {
+  const grid = document.querySelector('#add-form .add-form-inner > .add-form-grid'); if (!grid || $('af-secnav')) return;
+  // 費用の目安
+  const money = afField('af-key');
+  const cost = el('div', 'field'); cost.id = 'af-cost'; cost.style.gridColumn = '1/-1';
+  cost.innerHTML = '<div class="fx-af-cost" id="af-cost-box"></div>';
+  money.parentNode.insertBefore(cost, money.nextSibling);
+  // 設備（「公開と内見」の箱から出して、独立した項目にする）
+  const fb = $('af-features-box');
+  if (fb) {
+    const f = el('div', 'field'); f.id = 'af-feat-field'; f.style.gridColumn = '1/-1';
+    const lab = fb.previousElementSibling; if (lab) { lab.style.marginTop = '0'; f.appendChild(lab); }
+    f.appendChild(fb);
+    const pr = $('af-pr-box'), prf = el('div', 'field'); prf.id = 'af-pr-field'; prf.style.gridColumn = '1/-1';
+    if (pr) { const pl = pr.previousElementSibling; if (pl) { pl.style.marginTop = '0'; prf.appendChild(pl); } prf.appendChild(pr); const pn = $('af-pr-note'); if (pn) prf.appendChild(pn); }
+    grid.appendChild(f); grid.appendChild(prf);
+  }
+  // 360°写真は「写真とVR」へ
+  const pano = $('af-pano');
+  if (pano) {
+    const f = el('div', 'field'); f.id = 'af-pano-field'; f.style.gridColumn = '1/-1';
+    const lab = pano.previousElementSibling; if (lab) { lab.style.marginTop = '0'; f.appendChild(lab); }
+    f.appendChild(pano); const pl = $('af-pano-list'); if (pl) f.appendChild(pl);
+    grid.appendChild(f);
+  }
+  const fpb = document.querySelector('#add-form [onclick="openFloorEditor()"]');
+  if (fpb) { const f = fpb.closest('.field'); f.id = 'af-fp-field'; }
+  // 説明文の自動作成・間取りの自動作成ボタン
+  const desc = $('af-desc');
+  if (desc) desc.closest('.field').querySelector('.flabel').insertAdjacentHTML('beforeend', ' <button type="button" class="btn btn-sm fx-af-mini" id="af-desc-gen"><i class="ti ti-sparkles"></i> 入力した内容から説明文を作る</button>');
+  if (fpb) fpb.insertAdjacentHTML('afterend', ' <button type="button" class="btn btn-sm btn-p" id="af-fp-gen"><i class="ti ti-wand"></i> 間取りを自動で作る</button><div class="fx-mini" style="margin-top:6px">「間取り」と「面積」から、VR内見できる間取りを自動で作ります。作ったあと「間取りを編集する」で直せます。押すたびに別の形になります。</div>');
+  // 項目を区切りごとに並べ直す
+  AF_SECTIONS.forEach(([key, title, ids], i) => {
+    const h = el('div', 'fx-af-sec'); h.id = 'af-sec-' + key;
+    h.innerHTML = `<span class="fx-af-num">${i + 1}</span>${title}`;
+    grid.appendChild(h);
+    ids.forEach(id => { const f = afField(id); if (f && f.parentNode === grid) grid.appendChild(f); });
+  });
+  // 上の案内（区切りへ移動・充実度）
+  const head = document.querySelector('#add-form .add-form-head');
+  const nav = el('div', 'fx-af-nav'); nav.id = 'af-secnav';
+  nav.innerHTML = `<div class="fx-af-chips">${AF_SECTIONS.map(([k, tt], i) => `<button type="button" data-sec="${k}">${i + 1}. ${tt.replace('（任意）', '')}</button>`).join('')}</div>
+    <div class="fx-af-score"><div class="fx-af-bar"><i id="af-score-bar"></i></div><span id="af-score-text"></span></div>
+    <div class="fx-af-todo" id="af-todo"></div>
+    <div class="fx-af-draft" id="af-draft" hidden></div>`;
+  head.parentNode.insertBefore(nav, head.nextSibling);
+  nav.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => { const t = $('af-sec-' + b.dataset.sec); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  // 入力に合わせて更新
+  const form = $('add-form');
+  form.addEventListener('input', e => { afDirty = true; if (e.target.closest('.fx-invalid')) e.target.closest('.fx-invalid').classList.remove('fx-invalid'); afCost(); afScore(); afDraftSave(); });
+  form.addEventListener('change', e => { if (e.target.type === 'file') setTimeout(afScore, 900); });
+  form.addEventListener('click', e => { if (e.target.closest('[data-f], #af-features-box, #af-wdays, [data-d]')) setTimeout(() => { afDirty = true; afScore(); afDraftSave(); }, 0); });
+  $('af-madori').addEventListener('blur', () => { const v = afNormMadori($('af-madori').value); if (v !== $('af-madori').value) { $('af-madori').value = v; afScore(); } });
+  $('af-address').addEventListener('blur', afAreaFromAddress);
+  $('af-desc-gen').onclick = afGenDesc;
+  if ($('af-fp-gen')) $('af-fp-gen').onclick = afGenFloorplan;
+  afCost(); afScore();
+}
+function afNormMadori(v) {
+  v = String(v || '').normalize('NFKC').toUpperCase().replace(/\s+/g, '').replace(/ＬＤＫ/g, 'LDK');
+  const m = v.match(/^([1-9])(S?LDK|S?DK|S?K|R)(\+S)?$/);
+  return m ? m[1] + m[2] + (m[3] || '') : v;
+}
+function afAreaFromAddress() {
+  const ar = $('af-area'), ad = $('af-address'); if (!ar || !ad || ar.value.trim()) return;
+  const m = ad.value.normalize('NFKC').trim().match(/^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)?((?:[^\s\d]{1,5}?市)?[^\s\d]{1,5}?[区市町村])/);
+  if (m) { ar.value = m[1]; afScore(); }
+}
+function afNum(id) { return +(($(id) || {}).value || 0) || 0; }
+function afCost() {
+  const box = $('af-cost-box'); if (!box) return;
+  const rent = afNum('af-rent'), mg = afNum('af-mgmt');
+  if (!rent) { box.innerHTML = '<span class="fx-mini">家賃を入れると、毎月の支払いと初期費用の目安が出ます</span>'; return; }
+  const dep = afNum('af-deposit') * rent, key = afNum('af-key') * rent;
+  const first = dep + key + rent + mg + Math.round(rent * 1.1);    // 敷金＋礼金＋前家賃（1か月）＋仲介手数料（1か月＋税）
+  box.innerHTML = `<b>${(rent / 10000).toFixed(rent % 1000 ? 2 : 1).replace(/\.?0+$/, '')}万円</b>・毎月 <b>${yen(rent + mg)}</b>（家賃＋管理費）・初期費用の目安 <b>${yen(first)}</b><span class="fx-mini">（敷金・礼金・前家賃1か月・仲介手数料1か月分で計算。お客さんの画面の「費用シミュレーション」と同じ考え方です）</span>`;
+}
+function afChecks() {
+  const v = id => (($(id) || {}).value || '').trim();
+  const photos = ((typeof editingExistingPhotos !== 'undefined' ? editingExistingPhotos : []) || []).length + ((typeof _newPhotoQueue !== 'undefined' ? _newPhotoQueue : []) || []).length;
+  const feats = document.querySelectorAll('#af-features-box .on, #af-features-box button.fx-on').length;
+  return [
+    ['必須', v('af-name') && v('af-address') && v('af-area') && afNum('af-rent') > 0 && /^[1-9](S?LDK|S?DK|S?K|R)/.test(afNormMadori(v('af-madori'))), '必須の項目（物件名・住所・エリア・家賃・間取り）', 'basic', 30],
+    ['写真', photos > 0, '写真（1枚目が一覧に出ます）', 'media', 15],
+    ['VR', !!(window.editedFloorplanData || window.editedSplat), '間取り（VR内見できるようになります）', 'media', 20],
+    ['説明', v('af-desc').length >= 40, '物件説明（40文字以上）', 'feat', 10],
+    ['設備', feats >= 3, '設備・条件（3つ以上）', 'feat', 10],
+    ['駅', v('af-station') && afNum('af-walk-min') > 0, '最寄り駅と徒歩分', 'place', 10],
+    ['面積', afNum('af-size') > 0 && afNum('af-age') >= 0 && v('af-size'), '面積', 'basic', 5]
+  ];
+}
+function afScore() {
+  const bar = $('af-score-bar'); if (!bar) return;
+  const cs = afChecks();
+  const sc = cs.reduce((a, c) => a + (c[1] ? c[4] : 0), 0);
+  bar.style.width = sc + '%';
+  bar.style.background = sc >= 80 ? 'var(--teal,#1A7F72)' : sc >= 50 ? '#F59E0B' : 'var(--coral,#E8604A)';
+  $('af-score-text').textContent = `掲載の充実度 ${sc}%`;
+  const todo = cs.filter(c => !c[1]);
+  $('af-todo').innerHTML = todo.length ? 'あと少し：' + todo.map(c => `<button type="button" data-sec="${c[3]}">${c[2]}</button>`).join('') : '<span class="fx-af-ok"><i class="ti ti-circle-check"></i> 必要な情報がそろっています</span>';
+  $('af-todo').querySelectorAll('[data-sec]').forEach(b => b.onclick = () => { const t = $('af-sec-' + b.dataset.sec); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+}
+function afGenDesc() {
+  const v = id => (($(id) || {}).value || '').trim();
+  const feats = [...document.querySelectorAll('#af-features-box .on, #af-features-box button.fx-on')].map(b => b.textContent.trim()).filter(Boolean);
+  const st = v('af-station'), wk = afNum('af-walk-min'), md = afNormMadori(v('af-madori')), sz = afNum('af-size'), age = v('af-age'), type = v('af-type'), str = ($('af-structure') || {}).value || '';
+  const fl = afNum('af-floor-no'), fls = afNum('af-floors');
+  const parts = [];
+  if (st) parts.push(`${st}駅から徒歩${wk || '−'}分。`);
+  parts.push(`${age === '' ? '' : (+age === 0 ? '新築の' : `築${age}年の`)}${str && str !== 'その他' ? str + (/造$/.test(str) ? '' : '造') + 'の' : ''}${type || '物件'}${fl ? `（${fls ? fls + '階建ての' : ''}${fl}階）` : ''}です。`);
+  if (md) parts.push(`間取りは${md}${sz ? `（${sz}㎡）` : ''}。${/^1(R|K)/.test(md) ? 'ひとり暮らしにちょうどいい広さです。' : /^1(DK|LDK)/.test(md) ? 'ひとり暮らしでゆったり、ふたり暮らしにも。' : /^2/.test(md) ? 'ふたり暮らしや小さなお子さまのいるご家族に。' : 'ご家族でゆったり暮らせます。'}`);
+  if (feats.length) parts.push(`${feats.slice(0, 5).join('・')}${feats.length > 5 ? 'など' : ''}がそろっています。`);
+  if (window.editedFloorplanData || window.editedSplat) parts.push('VR内見で、お部屋の中を歩いて広さや日当たりを確かめられます。');
+  const d = $('af-desc');
+  if (d.value.trim() && !confirm('いまの物件説明を、自動で作った文に置きかえますか？')) return;
+  d.value = parts.join('');
+  afDirty = true; afScore(); afDraftSave();
+  toast('説明文を作りました。自由に書き足してください', 'success');
+}
+async function afGenFloorplan() {
+  const md = afNormMadori(($('af-madori') || {}).value);
+  if (!/^[1-9](S?LDK|S?DK|S?K|R)/.test(md)) { afMark(['af-madori'], '先に「間取り」を入れてください（例：1K、2LDK）'); return; }
+  if (window.editedFloorplanData && !confirm('いまの間取りを、自動で作った間取りに置きかえますか？')) return;
+  const b = $('af-fp-gen'); b.disabled = true; b.innerHTML = '<i class="ti ti-loader-2"></i> 作っています…';
+  try {
+    const r = await api('genFloorplan', { body: { madori: md, size: afNum('af-size') } });
+    window.editedFloorplanData = r.floorplanData; window.editedFloorplanThumb = null;
+    if (!afNum('af-size')) $('af-size').value = r.size;
+    window._applyFloorplanThumbnail();
+    const info = $('fp-thumb-info'); if (info) info.textContent = `${r.madori}・約${r.size}㎡（${r.rooms}）`;
+    afDirty = true; afScore(); afDraftSave();
+    toast('間取りを作りました。保存するとVR内見できます', 'success');
+  } catch (e) { toast('作れませんでした: ' + e.message, 'error'); }
+  b.disabled = false; b.innerHTML = '<i class="ti ti-wand"></i> 間取りを自動で作る';
+}
+function afMark(ids, msg) {
+  ids.forEach(id => { const f = afField(id) || ($(id) && $(id).closest('.field')); if (f) f.classList.add('fx-invalid'); });
+  const first = $(ids[0]);
+  if (first) { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) {} }, 300); }
+  toast(msg, 'warn');
+}
+function afValidate() {
+  document.querySelectorAll('#add-form .fx-invalid').forEach(f => f.classList.remove('fx-invalid'));
+  afAreaFromAddress();
+  const md = $('af-madori'); md.value = afNormMadori(md.value);
+  const v = id => (($(id) || {}).value || '').trim();
+  const bad = [];
+  if (!v('af-name')) bad.push(['af-name', '物件名']);
+  if (!v('af-address')) bad.push(['af-address', '住所']);
+  if (!v('af-area')) bad.push(['af-area', 'エリア']);
+  if (!(afNum('af-rent') > 0)) bad.push(['af-rent', '家賃']);
+  if (!/^[1-9](S?LDK|S?DK|S?K|R)/.test(md.value)) bad.push(['af-madori', '間取り（例：1K、2LDK）']);
+  if (bad.length) { afMark(bad.map(b => b[0]), '入力してください：' + bad.map(b => b[1]).join('・')); return false; }
+  const warn = [];
+  if (afNum('af-rent') < 10000) warn.push(`家賃が ${yen(afNum('af-rent'))} になっています（円で入れてください）`);
+  if (afNum('af-size') > 300) warn.push(`面積が ${afNum('af-size')}㎡ になっています`);
+  if (afNum('af-mgmt') > afNum('af-rent')) warn.push('管理費が家賃より高くなっています');
+  if (afNum('af-floor-no') && afNum('af-floors') && afNum('af-floor-no') > afNum('af-floors')) warn.push('所在階が建物の階数より上になっています');
+  if (typeof editingPropId === 'undefined' || editingPropId == null) {
+    const n = v('af-name').normalize('NFKC'), a = v('af-address').normalize('NFKC').replace(/\s/g, '');
+    const dup = PROPS.find(p => String(p.name || '').normalize('NFKC') === n && String(p.address || '').normalize('NFKC').replace(/\s/g, '') === a);
+    if (dup) warn.push(`同じ名前・住所の物件「${dup.name}」がすでにあります（二重登録かもしれません）`);
+  }
+  if (warn.length && !confirm(warn.join('\n') + '\n\nこのまま保存しますか？')) return false;
+  return true;
+}
+const _addPropertyUX = window.addProperty;
+window.addProperty = async function () {
+  if (afSaving) return;
+  if (!afValidate()) return;
+  afSaving = true;
+  const btn = $('af-submit-btn'), html = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2"></i> 保存しています…'; }
+  try { return await _addPropertyUX.apply(this, arguments); }
+  finally { afSaving = false; afDirty = false; if (btn) { btn.disabled = false; btn.innerHTML = html; } }
+};
+// 下書き（新しく登録するときだけ。この端末に保存）
+const AF_DRAFT_IDS = ['af-name', 'af-address', 'af-area', 'af-station', 'af-walk-min', 'af-rent', 'af-mgmt', 'af-deposit', 'af-key', 'af-madori', 'af-size', 'af-type', 'af-structure', 'af-age', 'af-floor-no', 'af-floors', 'af-access', 'af-desc',
+  'af-available', 'af-transaction', 'af-units', 'af-parking', 'af-contract', 'af-renewal', 'af-guarantor', 'af-conditions', 'af-insurance', 'af-otherfees', 'af-surroundings'];
+function afDraftKey() { return 'vr_af_draft_' + (currentUser ? currentUser.email : ''); }
+function afDraftSave() {
+  if (typeof editingPropId !== 'undefined' && editingPropId != null) return;
+  clearTimeout(afDraftT);
+  afDraftT = setTimeout(() => {
+    const d = {}; AF_DRAFT_IDS.forEach(id => { const e = $(id); if (e && e.value) d[id] = e.value; });
+    if (!Object.keys(d).length) return;
+    const extra = { feats: (fxForm.features || []).slice(), fp: window.editedFloorplanData || null };
+    try { localStorage.setItem(afDraftKey(), JSON.stringify({ t: Date.now(), d, extra })); }
+    catch (e) { try { localStorage.setItem(afDraftKey(), JSON.stringify({ t: Date.now(), d, extra: { feats: extra.feats } })); } catch (e2) {} }
+  }, 600);
+}
+function afDraftClear() { clearTimeout(afDraftT); try { localStorage.removeItem(afDraftKey()); } catch (e) {} const b = $('af-draft'); if (b) b.hidden = true; }
+function afDraftOffer() {
+  const box = $('af-draft'); if (!box) return;
+  let dr = null; try { dr = JSON.parse(localStorage.getItem(afDraftKey()) || 'null'); } catch (e) {}
+  const empty = AF_DRAFT_IDS.every(id => !(($(id) || {}).value || '').trim() || ['af-type', 'af-structure'].includes(id));
+  if (!dr || !dr.d || !empty) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<i class="ti ti-file-text"></i> 前に入力していた下書き（${new Date(dr.t).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}・${esc(dr.d['af-name'] || '名前なし')}）があります <button type="button" class="btn btn-sm btn-p" id="af-draft-yes">つづきから入力</button><button type="button" class="btn btn-sm" id="af-draft-no">消す</button>`;
+  $('af-draft-yes').onclick = () => {
+    Object.entries(dr.d).forEach(([id, v]) => { const e = $(id); if (e) e.value = v; });
+    const x = dr.extra || {};
+    if (Array.isArray(x.feats)) { fxForm.features = x.feats.slice(); renderFormExtras2(); }
+    if (x.fp && x.fp.rooms) { window.editedFloorplanData = x.fp; window.editedFloorplanThumb = null; window._applyFloorplanThumbnail(); }
+    box.hidden = true; afCost(); afScore();
+    toast('下書きを戻しました（写真は選び直してください）', 'info');
+  };
+  $('af-draft-no').onclick = afDraftClear;
+}
+const _clearAddUX = window.clearAddForm;
+window.clearAddForm = function () { const r = _clearAddUX.apply(this, arguments); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftClear(); afDirty = false; setTimeout(() => { afCost(); afScore(); }, 0); return r; };
+const _toggleAddUX = window.toggleAddForm;
+window.toggleAddForm = function () {
+  const f = $('add-form'), open = f && f.classList.contains('show');
+  if (open && afDirty && typeof editingPropId !== 'undefined' && editingPropId != null && !afSaving && !confirm('保存していない変更があります。閉じてもいいですか？')) return;
+  const r = _toggleAddUX.apply(this, arguments);
+  if (!open) { afDirty = false; document.querySelectorAll('#add-form .fx-invalid').forEach(x => x.classList.remove('fx-invalid')); setTimeout(() => { afCost(); afScore(); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftOffer(); else { const b = $('af-draft'); if (b) b.hidden = true; } }, 0); }
+  return r;
+};
+const _startEditUX = window.startEditProp;
+window.startEditProp = async function () { const r = await _startEditUX.apply(this, arguments); afDirty = false; setTimeout(() => { afCost(); afScore(); const b = $('af-draft'); if (b) b.hidden = true; }, 50); return r; };
+
 /* ══════════════ 起動 ══════════════ */
 function boot() {
-  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); fitStickyNav(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs();
+  addNavButtons(); addListControls(); addFormExtras(); addCommuteUI(); addCsvButton(); addDeleteAccount(); addPhotoBulkDelete(); a11yStatic(); fitStickyNav(); heLogos(); initHero(); initChips(); initAsk(); ykcBuild(); initMapView(); addHeroMascot(); addGateMascot(); addFormExtras2(); addExportButtons(); loadServerFieldDefs(); initFormUX();
   const help = $('s-help');
   if (help && !$('fx-help-links')) help.insertAdjacentHTML('beforeend', '<div id="fx-help-links" style="text-align:center;font-size:12px;padding:18px 0 90px;color:#94a3b8"><a href="terms.html" target="_blank">利用規約</a>　・　<a href="privacy.html" target="_blank">個人情報の取り扱い</a>　・　<a href="help.html" target="_blank">使い方ガイド</a></div>');
   setGuestClass();

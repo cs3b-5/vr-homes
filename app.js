@@ -883,7 +883,7 @@ function applyRoleUI(){
   const u=currentUser;if(!u) return;
   updateAvatarDisplay();
   document.getElementById('mp-name').textContent=u.name;
-  document.getElementById('mp-email').textContent=u.email;
+  { const me=document.getElementById('mp-email'); if(me){ me.textContent=''; me.style.display='none'; } }   // メールアドレスは画面に出さない（プロフィールの欄だけ）
   document.getElementById('mp-role-badge').innerHTML=roleLabel(u.role);
   if(document.getElementById('prof-email')) document.getElementById('prof-email').value=u.email;
   const parts=u.name.split(' ');
@@ -892,7 +892,7 @@ function applyRoleUI(){
   document.getElementById('tab-admin').classList.toggle('hidden',!isAdmin());
   document.getElementById('tab-master').classList.toggle('hidden',!isMaster());
   document.getElementById('nav-admin-btn').classList.toggle('hidden',!isAdmin());
-  document.getElementById('admin-email-display').textContent=u.email;
+  document.getElementById('admin-email-display').textContent=(u.name||'')+(u.groupName?'（'+u.groupName+'）':'');
   const mb=document.getElementById('master-name-badge'); if(mb) mb.textContent=u.name||u.email;
   refreshStats();
   if(u.wishlist) renderWishlistUI(u.wishlist);
@@ -913,7 +913,7 @@ function refreshStats(){
   const admins=users.filter(u=>u.role==='admin').length;
   const regulars=users.filter(u=>u.role==='user').length;
   const vr=PROPS.filter(p=>p.floorplanData).length;
-  const mine=currentUser?PROPS.filter(p=>p.ownerEmail===currentUser.email).length:0;
+  const mine=currentUser?PROPS.filter(p=>canEditProp(p)).length:0;
   const rents=PROPS.map(p=>+p.price).filter(v=>v>0);
   const avg=rents.length?Math.round(rents.reduce((a,b)=>a+b,0)/rents.length):0;
   [['admin-user-count',total],['admin-user-count2',total],['master-user-count',users.length],['master-admin-count',admins],['master-regular-count',regulars],
@@ -2354,8 +2354,7 @@ function openContactForm(propId){
     </div>
     <div style="font-size:12px;background:var(--surface2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px;line-height:1.7">
       <div><span style="color:#64748b">送信者：</span><b>${escapeHtml(currentUser.name||'')}</b></div>
-      <div><span style="color:#64748b">返信先：</span>${escapeHtml(currentUser.email||'')}</div>
-      <div style="color:#94a3b8;font-size:11px">返事はサイトの受信箱とメールに届きます</div>
+      <div style="color:#94a3b8;font-size:11px">メールアドレスは相手に知らせません。返事はサイトの受信箱に届きます</div>
     </div>
     <div class="field"><div class="flabel">お問い合わせ内容</div>
       <textarea class="finput" id="ct-msg" rows="5" maxlength="3000" placeholder="内見希望日、質問など" style="resize:vertical"></textarea></div>
@@ -2416,7 +2415,7 @@ async function submitMasterContact(){
 function renderContactSender(){
   const box=document.getElementById('mc-sender'); if(!box) return;
   box.innerHTML=isLoggedIn&&currentUser
-    ?`<span style="color:#64748b">送信者：</span><b>${escapeHtml(currentUser.name||'')}</b>　<span style="color:#64748b">返信先：</span>${escapeHtml(currentUser.email||'')}`
+    ?`<span style="color:#64748b">送信者：</span><b>${escapeHtml(currentUser.name||'')}</b>　<span style="color:#94a3b8">（返事はサイトの受信箱に届きます）</span>`
     :'お問い合わせにはログインが必要です';
 }
 
@@ -2612,8 +2611,13 @@ function updateResultsCount(){
 
 function renderAdminPropTable(){
   const tbody=document.getElementById('prop-table-body');if(!tbody) return;
-  if(!PROPS.length){tbody.innerHTML='<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px">物件が登録されていません</div>';return;}
-  tbody.innerHTML=PROPS.map(p=>{
+  // ふだんは自分（グループ）が管理する物件だけ。チェックを入れるとほかの会社の物件も（見るだけ）
+  const all=!!(document.getElementById('apt-all')||{}).checked;
+  const q=((document.getElementById('apt-q')||{}).value||'').trim().toLowerCase();
+  const list=PROPS.filter(p=>(all||canEditProp(p)) && (!q || `${p.name||''} ${p.area||''} ${p.station||''} ${p.address||''}`.toLowerCase().includes(q)));
+  const cnt=document.getElementById('apt-count'); if(cnt) cnt.textContent=`${list.length}件`;
+  if(!list.length){tbody.innerHTML=`<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px">${PROPS.some(p=>canEditProp(p))||all||q?'条件に合う物件がありません':'まだ物件がありません。「物件を追加」から登録できます'}</div>`;return;}
+  tbody.innerHTML=list.map(p=>{
     const canEdit=canEditProp(p);
     const ownerLabel=p.ownerName?`<span style="font-size:10px;color:#94a3b8">投稿: ${p.ownerName}</span>`:'';
     const editBtns=canEdit?`
@@ -2672,11 +2676,17 @@ function startEditProp(id){
   set('af-parking',d.parking);set('af-contract',d.contract);set('af-renewal',d.renewal);
   set('af-guarantor',d.guarantor);set('af-conditions',d.conditions);set('af-insurance',d.insurance);
   set('af-otherfees',d.otherfees);set('af-surroundings',d.surroundings);
+  { const fm=String(d.floor||'').match(/^(\d+)階(?!建)/), bm=String(d.floor||'').match(/(\d+)階建/);   // 「3階 / 10階建て」
+    set('af-floor-no',fm?fm[1]:''); set('af-floors',bm?bm[1]:''); }
   _newPhotoQueue=[]; renderNewPhotoPreview(); // 新規写真キューをリセット
   const selType=document.getElementById('af-type');
   if(selType){for(let i=0;i<selType.options.length;i++) if(selType.options[i].text===prop.type){selType.selectedIndex=i;break;}}
   const selStr=document.getElementById('af-structure');
-  if(selStr){for(let i=0;i<selStr.options.length;i++) if(selStr.options[i].text===prop.structure){selStr.selectedIndex=i;break;}}
+  if(selStr){ // 値（RC・木造など）か、古いデータの表示名で合わせる
+    const sv=String(prop.structure||'').replace(/（.*$/,'').replace(/^S造$/,'鉄骨');
+    let hit=-1;for(let i=0;i<selStr.options.length;i++){const o=selStr.options[i];if(o.value===sv||o.text===prop.structure){hit=i;break;}}
+    if(hit<0&&sv){const o=document.createElement('option');o.value=sv;o.text=sv;selStr.appendChild(o);hit=selStr.options.length-1;}
+    selStr.selectedIndex=hit<0?0:hit;}
   renderExistingPhotosPreview();
   window.editedFloorplanData=prop.floorplanData||null;
   window.editedFloorplanThumb=prop.floorplanURL||null;
@@ -2887,7 +2897,7 @@ function renderPropDetail(prop){
       pdMiniMap=L.map('pd-mini-map',{zoomControl:false}).setView([prop.lat,prop.lng],15);pdMiniMap.attributionControl.setPrefix(false);
       if(window.fxBaseLayers) fxBaseLayers(pdMiniMap,false);
       else L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',{maxNativeZoom:18,maxZoom:19}).addTo(pdMiniMap);
-      L.marker([prop.lat,prop.lng]).addTo(pdMiniMap);
+      L.marker([prop.lat,prop.lng],{icon:L.divIcon({className:'he-pin-wrap',iconSize:null,html:'<div class="he-pin sel"><span>ここ</span></div>'})}).addTo(pdMiniMap);
     } else {
       miniEl.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;text-align:center"><div><i class="ti ti-map-off" style="font-size:20px;display:block;margin-bottom:4px;opacity:.5"></i>地図データなし</div></div>';
     }
@@ -3055,7 +3065,8 @@ async function addProperty(){
     conditions:gv('af-conditions').trim(),
     insurance:gv('af-insurance').trim(),
     otherfees:gv('af-otherfees').trim(),
-    surroundings:gv('af-surroundings').trim()
+    surroundings:gv('af-surroundings').trim(),
+    floor:(()=>{const a=parseInt(gv('af-floor-no'))||0,b=parseInt(gv('af-floors'))||0;return a&&b?`${a}階 / ${b}階建て`:a?`${a}階`:b?`${b}階建て`:'';})()
   };
   // 並べ替え済みの写真キューを使用（順番はユーザー指定どおり）
   const newPhotoDataURLs=_newPhotoQueue.map(p=>p.dataURL);
@@ -3121,7 +3132,7 @@ async function addProperty(){
 
 function clearAddForm(){
   ['af-name','af-area','af-rent','af-madori','af-size','af-station','af-walk-min','af-address','af-mgmt','af-deposit','af-key','af-age','af-desc',
-   'af-access','af-available','af-units','af-parking','af-contract','af-renewal','af-guarantor','af-conditions','af-insurance','af-otherfees','af-surroundings'].forEach(id=>{const el=document.getElementById(id);if(el) el.value='';});
+   'af-access','af-available','af-units','af-parking','af-contract','af-renewal','af-guarantor','af-conditions','af-insurance','af-otherfees','af-surroundings','af-floor-no','af-floors'].forEach(id=>{const el=document.getElementById(id);if(el) el.value='';});
   const afTrans=document.getElementById('af-transaction');if(afTrans) afTrans.selectedIndex=0;
   const photoInput=document.getElementById('af-photo');if(photoInput) photoInput.value='';
   _newPhotoQueue=[]; if(typeof renderNewPhotoPreview==='function') renderNewPhotoPreview();
@@ -3150,7 +3161,7 @@ function switchMp(id,el){
   if(id==='hist') renderHistory();
 }
 function switchAdmin(id,el){
-  ['props','group','users','stats'].forEach(k=>document.getElementById('admin-'+k).style.display=k===id?'block':'none');
+  ['props','group','resv','stats'].forEach(k=>{const e=document.getElementById('admin-'+k);if(e) e.style.display=k===id?'block':'none';});
   document.querySelectorAll('#s-admin .admin-nav-item').forEach(i=>i.classList.remove('on'));if(el&&el.classList) el.classList.add('on');
   if(id==='users') renderUserTable();
   if(id==='group') renderGroupManagement();

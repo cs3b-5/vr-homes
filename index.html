@@ -198,11 +198,7 @@
   </div>
   <div class="he-active" id="he-active" hidden></div>
   <div class="card-grid" id="card-grid"></div>
-  <div class="pagination">
-    <button class="page-btn"><i class="ti ti-chevron-left" style="font-size:13px"></i></button>
-    <button class="page-btn on">1</button>
-    <button class="page-btn"><i class="ti ti-chevron-right" style="font-size:13px"></i></button>
-  </div>
+  <div class="pagination" id="pagination" style="display:flex;justify-content:center;align-items:center;gap:6px;flex-wrap:wrap;padding:24px 12px 8px"></div>
 
   <!-- 地図で探す（リストと切り替え）-->
   <section class="he-map" id="he-map" hidden aria-label="地図で探す">
@@ -548,7 +544,7 @@
     <!-- マスター宛お問い合わせ -->
     <div style="margin-top:32px">
       <h2 style="font-size:20px;font-weight:800;color:var(--navy);margin-bottom:6px"><i class="ti ti-mail" style="color:var(--blue)"></i> 運営へのお問い合わせ</h2>
-      <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">ヘルプで解決しない場合は、運営へお問い合わせください。返事はサイトの受信箱とメールに届きます。</p>
+      <p style="font-size:13px;color:#64748b;margin-bottom:18px;line-height:1.7">ヘルプで解決しない場合は、運営へお問い合わせください。メールアドレスは相手に知らせず、返事はサイトの受信箱に届きます。</p>
       <div class="card" style="max-width:560px">
         <div id="mc-sender" style="font-size:12px;background:var(--surface2);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px;line-height:1.7">お問い合わせにはログインが必要です</div>
         <div class="field"><div class="flabel">お問い合わせ内容 <span class="req">*</span></div>
@@ -582,9 +578,6 @@
       <div class="admin-nav-item on" onclick="switchAdmin('props',this)"><i class="ti ti-building"></i>物件管理</div>
       <div class="admin-nav-item" onclick="switchAdmin('group',this)"><i class="ti ti-users-group"></i>グループ</div>
       <div class="admin-nav-item" onclick="switchAdmin('stats',this)"><i class="ti ti-chart-bar"></i>分析</div>
-      <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06)">
-        <div class="stat-mini"><div class="stat-mini-label">ユーザー数</div><div class="stat-mini-val" id="admin-user-count">-</div></div>
-      </div>
     </div>
     <div class="admin-main">
       <div id="admin-props">
@@ -618,7 +611,7 @@
             <div class="field"><div class="flabel">管理費（円）</div><input class="finput" type="number" id="af-mgmt" placeholder="5000" onkeydown="handleFormKey(event,'af-deposit')"></div>
             <div class="field"><div class="flabel">敷金（ヶ月）</div><input class="finput" type="number" id="af-deposit" placeholder="1" step="0.5" onkeydown="handleFormKey(event,'af-key')"></div>
             <div class="field"><div class="flabel">礼金（ヶ月）</div><input class="finput" type="number" id="af-key" placeholder="1" step="0.5" onkeydown="handleFormKey(event,'af-madori')"></div>
-            <div class="field"><div class="flabel">間取り <span class="req">*</span></div><input class="finput" id="af-madori" placeholder="2LDK、1K+S など" onkeydown="handleFormKey(event,'af-size')"></div>
+            <div class="field"><div class="flabel">間取り <span class="req">*</span></div><input class="finput" id="af-madori" list="af-madori-list" autocomplete="off" placeholder="1K・2LDK など" onkeydown="handleFormKey(event,'af-size')"><datalist id="af-madori-list"><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3DK</option><option>3LDK</option><option>4LDK</option></datalist></div>
             <div class="field"><div class="flabel">面積（㎡）</div><input class="finput" type="number" id="af-size" placeholder="48" onkeydown="handleFormKey(event,'af-age')"></div>
             <div class="field">
               <div class="flabel">物件種別</div>
@@ -631,17 +624,16 @@
             <div class="field">
               <div class="flabel">建物構造</div>
               <select class="finput" id="af-structure">
-                <option>RC（鉄筋コンクリート）</option>
-                <option>SRC（鉄骨鉄筋コンクリート）</option>
-                <option>S造（鉄骨）</option>
-                <option>木造</option>
-                <option>ALC（軽量気泡コンクリート）</option>
-                <option>PC（プレキャストコンクリート）</option>
-                <option>混構造</option>
-                <option>CFT（コンクリート充填鋼管）</option>
+                <option value="RC">RC（鉄筋コンクリート）</option>
+                <option value="SRC">SRC（鉄骨鉄筋コンクリート）</option>
+                <option value="鉄骨">鉄骨造</option>
+                <option value="軽量鉄骨">軽量鉄骨造</option>
+                <option value="木造">木造</option>
+                <option value="その他">その他</option>
               </select>
             </div>
             <div class="field"><div class="flabel">築年数</div><input class="finput" type="number" id="af-age" placeholder="10" onkeydown="handleFormKey(event,'af-desc')"></div>
+            <div class="field"><div class="flabel">所在階 / 建物の階数</div><div style="display:flex;gap:6px;align-items:center"><input class="finput" type="number" id="af-floor-no" min="1" max="80" placeholder="3"><span style="font-size:12px;color:#64748b;white-space:nowrap">階 /</span><input class="finput" type="number" id="af-floors" min="1" max="80" placeholder="10"><span style="font-size:12px;color:#64748b;white-space:nowrap">階建て</span></div></div>
             <div class="field" style="grid-column:1/-1">
               <div class="flabel">アクセス（複数の駅）<span style="font-size:10px;color:#94a3b8">（「駅を自動取得」で複数駅が入ります・1行1駅）</span></div>
               <textarea class="finput" id="af-access" rows="3" placeholder="あおなみ線/荒子駅 徒歩7分&#10;地下鉄東山線/高畑駅 徒歩8分&#10;あおなみ線/南荒子駅 徒歩12分" style="resize:vertical;font-size:13px"></textarea>
@@ -723,6 +715,11 @@
           </div>
           </div>
         </div>
+        <div class="fx-apt-tools">
+          <input class="finput" id="apt-q" placeholder="物件名・エリアでしぼりこむ" oninput="renderAdminPropTable()">
+          <label class="fx-apt-all"><input type="checkbox" id="apt-all" onchange="renderAdminPropTable()"> ほかの会社の物件も表示</label>
+          <span class="fx-mini" id="apt-count"></span>
+        </div>
         <div class="admin-table-wrap">
           <div class="admin-table-head" style="grid-template-columns:2fr 1fr 1fr 130px">
             <span>物件名</span><span>エリア</span><span>家賃</span><span>操作</span>
@@ -737,29 +734,13 @@
         </p>
         <div id="group-content"></div>
       </div>
-      <div id="admin-users" style="display:none">
-        <h2 style="font-size:18px;font-weight:800;margin-bottom:18px;color:var(--navy)">ユーザー管理</h2>
-        <div style="margin-bottom:14px;display:flex;gap:8px">
-          <input class="finput" id="user-search" oninput="renderUserTable()" placeholder="名前・メールで検索..." style="max-width:280px;padding:7px 11px;font-size:12px">
-          <select class="finput" id="user-filter" onchange="renderUserTable()" style="width:auto;padding:7px 11px;font-size:12px">
-            <option value="">全ロール</option><option value="user">一般</option><option value="admin">管理者</option>
-          </select>
-        </div>
-        <div class="admin-table-wrap">
-          <div class="admin-table-head" style="grid-template-columns:1.5fr 2fr 1fr 1fr 1fr">
-            <span>氏名</span><span>メール</span><span>ロール</span><span>状態</span><span>操作</span>
-          </div>
-          <div id="user-table-body"></div>
-        </div>
-      </div>
       <div id="admin-stats" style="display:none">
         <h2 style="font-size:18px;font-weight:800;margin-bottom:18px;color:var(--navy)">アクセス分析</h2>
         <div class="stat-card-grid">
-          <div class="stat-card"><div class="stat-card-label">登録物件数</div><div class="stat-card-val" id="stat-prop-count">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">サイト全体の物件数</div><div class="stat-card-val" id="stat-prop-count">0</div></div>
           <div class="stat-card"><div class="stat-card-label">VR内見できる物件</div><div class="stat-card-val" id="stat-vr-count">0</div></div>
-          <div class="stat-card"><div class="stat-card-label">あなたが登録した物件</div><div class="stat-card-val" id="stat-my-count">0</div></div>
-          <div class="stat-card"><div class="stat-card-label">平均家賃</div><div class="stat-card-val" id="stat-avg-rent">−</div></div>
-          <div class="stat-card"><div class="stat-card-label">ユーザー数</div><div class="stat-card-val" id="admin-user-count2">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">あなた（グループ）が管理する物件</div><div class="stat-card-val" id="stat-my-count">0</div></div>
+          <div class="stat-card"><div class="stat-card-label">サイト全体の平均家賃</div><div class="stat-card-val" id="stat-avg-rent">−</div></div>
         </div>
       </div>
     </div>

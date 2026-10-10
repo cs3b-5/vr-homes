@@ -360,3 +360,52 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 /* 物件の詳細: お気に入りボタン */
 .pd-fav.on{background:#FFE4E1;border-color:#F43F5E;color:#E11D48}
 .pd-fav.on i{color:#E11D48}
+
+/* 間取り図のサムネイル */
+.prop-img.has-fp{background-image:none!important;background-color:#fff}
+.prop-img.has-fp .prop-img-placeholder{display:none}
+.fx-fp-thumb{position:absolute;inset:8px 10px;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.fx-fp-svg{width:100%;height:100%;display:block}
+.fx-fp-hero{position:relative;height:100%;background:#fff;display:flex;align-items:center;justify-content:center;padding:18px 18px 44px}
+.fx-fp-hero .fx-fp-svg{max-height:100%}
+.fx-fp-cap{position:absolute;left:14px;bottom:12px;font-size:12px;color:#64748b;font-weight:700}
+.fx-fp-vr{position:absolute;right:14px;bottom:10px;border:0;border-radius:999px;background:var(--teal,#1A7F72);color:#fff;font:inherit;font-weight:800;font-size:13px;padding:8px 14px;cursor:pointer}
+.ykc-pick-img.fp,.he-ml-img.fp{background:#fff;padding:6px;display:flex;align-items:center;justify-content:center}
+.ykc-pick-img.fp svg,.he-ml-img.fp svg{width:100%;height:100%}
+/* 地図: ピンが多いときは点で表示 */
+.he-compact .he-pin:not(.sel){padding:0;width:14px;height:14px;border-radius:50%;font-size:0;box-shadow:0 1px 0 var(--ink);border-width:2px}
+.he-compact .he-pin:not(.sel)::after{display:none}
+.he-compact .he-pin:not(.sel){transform:translate(-50%,-50%)}
+.he-compact .leaflet-marker-icon:hover .he-pin:not(.sel),.he-compact .he-pin:not(.sel):hover{width:auto;height:auto;padding:3px 8px;border-radius:10px;font-size:13px;z-index:5;transform:translate(-50%,-100%)}
+.leaflet-control-layers{border:2px solid var(--ink)!important;border-radius:12px!important;font-family:inherit}
+.fx-apt-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+.fx-apt-tools .finput{max-width:280px;padding:7px 11px;font-size:12px}
+.fx-apt-all{display:flex;gap:6px;align-items:center;font-size:12px;color:#475569;cursor:pointer}
+
+/* 物件フォーム */
+.fx-af-sec{grid-column:1/-1;display:flex;align-items:center;gap:8px;font-family:'Zen Maru Gothic',sans-serif;font-weight:900;font-size:16px;color:var(--ink,#1f2937);margin:18px 0 0;padding-top:14px;border-top:2px dashed var(--line,#e5e7eb);scroll-margin-top:150px}
+.fx-af-sec:first-child{margin-top:0;border-top:0;padding-top:0}
+.fx-af-num{width:26px;height:26px;border-radius:50%;background:var(--ink,#1f2937);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+.fx-af-nav{position:sticky;top:0;z-index:5;background:var(--surface,#fff);padding:8px 0 10px;border-bottom:1px solid var(--border,#e5e7eb);margin-bottom:12px}
+.fx-af-chips{display:flex;gap:6px;flex-wrap:wrap}
+.fx-af-chips button,.fx-af-todo button{font:inherit;font-size:12px;font-weight:700;border:1.5px solid var(--border,#e5e7eb);background:#fff;border-radius:999px;padding:4px 10px;cursor:pointer;color:var(--ink,#1f2937)}
+.fx-af-chips button:hover{border-color:var(--ink,#1f2937)}
+.fx-af-score{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:12px;font-weight:700;color:#475569}
+.fx-af-bar{flex:1;max-width:260px;height:8px;border-radius:99px;background:#eef2f7;overflow:hidden}
+.fx-af-bar i{display:block;height:100%;width:0;border-radius:99px;transition:width .3s}
+.fx-af-todo{margin-top:6px;font-size:12px;color:#64748b;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fx-af-todo button{border-style:dashed;color:#b45309;border-color:#f5c27a;background:#fffaf0}
+.fx-af-ok{color:var(--teal,#1A7F72);font-weight:700}
+.fx-af-draft{margin-top:8px;font-size:12px;background:#fff7e6;border:1px solid #f5c27a;border-radius:10px;padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fx-af-draft[hidden]{display:none}
+.fx-af-cost{font-size:13px;background:var(--surface2,#f8fafc);border-radius:10px;padding:10px 12px;line-height:1.8}
+.fx-af-cost .fx-mini{display:block}
+.fx-af-mini{margin-left:8px;font-size:11px!important;padding:3px 9px!important;vertical-align:middle}
+#add-form .field.fx-invalid .finput,#add-form .field.fx-invalid input,#add-form .field.fx-invalid textarea{border-color:#E8604A!important;background:#FFF5F3}
+#add-form .field.fx-invalid .flabel{color:#C2410C}
+@media (max-width:760px){
+  .fx-af-chips,.fx-af-todo{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .fx-af-chips::-webkit-scrollbar,.fx-af-todo::-webkit-scrollbar{display:none}
+  .fx-af-chips button,.fx-af-todo button{flex:none;white-space:nowrap}
+  .fx-af-todo{white-space:nowrap}
+}
