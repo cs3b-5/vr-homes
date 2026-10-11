@@ -1617,7 +1617,15 @@ document.addEventListener('keydown', e => {
 });
 new MutationObserver(() => { a11yCards(); }).observe(document.getElementById('card-grid') || document.body, { childList: true, subtree: false });
 const _openModal = openModal;
-openModal = function () { const b = _openModal.apply(this, arguments); setTimeout(() => { const f = b.querySelector('input,select,textarea,button:not(.fx-x)'); if (f) f.focus({ preventScroll: true }); }, 50); return b; };
+openModal = function () {
+  const b = _openModal.apply(this, arguments);
+  setTimeout(() => {
+    // スマホ（指で操作）では最初のボタンや入力欄にフォーカスしない（青い枠が出たり、キーボードが勝手に開いたりするため）
+    if (matchMedia('(hover: none)').matches) { b.setAttribute('tabindex', '-1'); b.style.outline = 'none'; b.focus({ preventScroll: true }); return; }
+    const f = b.querySelector('input,select,textarea,button:not(.fx-x)'); if (f) f.focus({ preventScroll: true });
+  }, 50);
+  return b;
+};
 
 /* ══════════════ 23. キャラクター「やどかりん」══════════════ */
 const YK = window.Yadokarin;
@@ -1674,8 +1682,9 @@ function ykEmpties() {
   if (!YK) return;
   YK_EMPTY.forEach(([id, icon, face, msg]) => {
     const el = $(id); if (!el) return;
-    const i = el.querySelector('i.ti.' + icon);
-    if (!i || i.closest('.prop-card')) return;
+    // 「まだありません」の大きなアイコンだけを置きかえる（一覧の中のハートボタンなどは対象にしない）
+    const i = [...el.querySelectorAll('i.ti.' + icon)].find(x => !x.closest('button,a,.prop-card,.fav-btn,[onclick]') && parseFloat(x.style.fontSize || 0) >= 28);
+    if (!i) return;
     const holder = document.createElement('div');
     holder.className = 'fx-yk-empty';
     holder.innerHTML = YK.svg({ size: 110, face, wave: face !== 'sad', title: '' });
@@ -2017,6 +2026,8 @@ body:has(#pd-overlay.show) #fx-cmp-bar,body:has(.fx-overlay) #fx-cmp-bar,body:ha
 .fx-yk-empty{display:flex;justify-content:center;margin-bottom:6px}
 .fx-yk-hint{font-size:12px;color:#64748b;margin-top:6px}
 :focus-visible{outline:3px solid #2563eb!important;outline-offset:2px}
+/* 文字を入れる欄は、枠の色で分かるので外側の線は出さない（線が二重・三重になってずれて見えるため） */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):focus-visible,textarea:focus-visible,select:focus-visible{outline:none!important}
 .prop-card:focus-visible{outline-offset:3px}
 .fx-mini{color:#55657a}
 .fx-danger{margin-top:28px;border:1.5px solid #fecaca;background:#fff7f7;border-radius:12px;padding:14px 16px}
@@ -2931,6 +2942,19 @@ function fpThumbs() {
     img.insertAdjacentHTML('afterbegin', `<div class="fx-fp-thumb">${svg}</div>`);
   });
 }
+// マイページのお気に入り: 写真がない物件は間取り図を出す
+const _renderFavFp = window.renderFavorites;
+if (typeof _renderFavFp === 'function') window.renderFavorites = function () {
+  const r = _renderFavFp.apply(this, arguments);
+  try {
+    document.querySelectorAll('#mp-fav-list .prop-list-item[data-prop-id]').forEach(it => {
+      const th = it.querySelector('.prop-thumb'); const p = findProp(+it.dataset.propId);
+      if (!th || !p || !p.fpMini || !th.querySelector('.ti-building')) return;
+      const svg = fpSvg(p.fpMini); if (svg) { th.innerHTML = svg; th.classList.add('fx-fp-th'); }
+    });
+  } catch (e) {}
+  return r;
+};
 const _renderCardsFp = window.renderCards;
 window.renderCards = function () { const r = _renderCardsFp.apply(this, arguments); try { fpThumbs(); } catch (e) {} return r; };
 const _renderPropDetailFp = window.renderPropDetail;

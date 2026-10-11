@@ -1309,17 +1309,17 @@ function renderFavorites(){
   }
   container.innerHTML=favProps.map(p=>{
     const photos=p.photoURLs||[];
-    return `<div class="prop-list-item" style="cursor:pointer" onclick="showPropDetail(${p.id})">
+    return `<div class="prop-list-item" style="cursor:pointer" data-prop-id="${p.id}" onclick="showPropDetail(${p.id})">
       <div class="prop-thumb" style="${photos[0]?'background-image:url('+photos[0]+');background-size:cover;background-position:center':''}">
         ${!photos[0]?'<i class="ti ti-building"></i>':''}
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:700;margin-bottom:3px;color:var(--navy)">${p.name}</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:3px;color:var(--navy)">${escapeHtml(p.name)}</div>
         <div style="font-size:12px;color:#64748b;margin-bottom:4px">¥${Number(p.price).toLocaleString()} / ${p.madori} / ${p.size}㎡</div>
         <div style="font-size:11px;color:#94a3b8">${p.station||''}${p.walkMin?' 徒歩'+p.walkMin+'分':''}</div>
       </div>
-      <button class="btn btn-sm" style="flex-shrink:0;color:var(--red)" onclick="event.stopPropagation();toggleFav(${p.id},null)">
-        <i class="ti ti-heart"></i>
+      <button class="btn btn-sm fx-fav-off" style="flex-shrink:0" title="お気に入りから外す" aria-label="お気に入りから外す" onclick="event.stopPropagation();toggleFav(${p.id},null)">
+        <i class="ti ti-heart-filled"></i><span>外す</span>
       </button>
     </div>`;
   }).join('');

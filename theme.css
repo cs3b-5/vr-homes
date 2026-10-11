@@ -414,3 +414,25 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
   #s-admin > nav .logo span, #s-master > nav .logo span{white-space:nowrap;font-size:15px}
   #admin-email-display, #master-name-badge{display:none}
 }
+
+/* ログイン画面の入力欄: テーマの色で、枠1本だけ光らせる */
+.linput:focus{outline:none;border-color:#2BB3A0!important;background:rgba(43,179,160,.08)!important;box-shadow:0 0 0 3px rgba(43,179,160,.25)!important}
+/* スマホ: 文字が16px未満だと、入力するときに画面が勝手に拡大されて表示がずれる（iPhone）ので16pxにする */
+@media (max-width:760px){
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),textarea,select{font-size:16px!important}
+}
+/* スマホの比較: 左の項目名を細くして、2件を並べて見られるようにする */
+@media (max-width:600px){
+  html body .fx-cmp{min-width:0;font-size:12px;table-layout:fixed}
+  html body .fx-cmp th{width:62px;min-width:62px;max-width:62px;white-space:normal;font-size:10.5px;line-height:1.35;padding:7px 4px 7px 0;box-shadow:2px 0 4px -2px rgba(0,0,0,.08)}
+  html body .fx-cmp td{min-width:calc((100vw - 120px) / 2);width:calc((100vw - 120px) / 2);padding:7px 4px;word-break:break-word}
+  html body .fx-cmp-img{height:64px;font-size:22px}
+  html body .fx-cmp td .btn{padding:4px 8px;font-size:11px}
+  html body .fx-feat span{font-size:10.5px}
+}
+
+/* マイページのお気に入り */
+.fx-fav-off{color:#E11D48!important;border-color:#FBCFD8!important;background:#FFF1F3!important;display:inline-flex;align-items:center;gap:4px;font-weight:700}
+.fx-fav-off span{font-size:11px}
+.prop-thumb.fx-fp-th{background:#fff!important;padding:4px;display:flex;align-items:center;justify-content:center}
+.prop-thumb.fx-fp-th svg{width:100%;height:100%}
