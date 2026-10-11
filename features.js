@@ -563,16 +563,21 @@ window.switchAdmin = function (id, el) {
   if (id === 'stats') renderAnalytics();
   return r;
 };
-async function loadAdminResv() {
+let resvLoading = null, resvLoadedAt = 0;
+async function loadAdminResv(force) {
   if (!currentUser || !isAdmin()) return [];
-  try { adminResvCache = await api('getReservations'); } catch (e) { adminResvCache = []; }
+  // 同時に何度も呼ばれても、サーバーへは1回だけ聞く（数秒以内なら前の結果を使う）
+  if (resvLoading) { await resvLoading; return adminResvCache; }
+  if (!force && Date.now() - resvLoadedAt < 4000) return adminResvCache;
+  resvLoading = (async () => { try { const r = await api('getReservations'); adminResvCache = Array.isArray(r) ? r : []; } catch (e) { adminResvCache = []; } resvLoadedAt = Date.now(); })();
+  try { await resvLoading; } finally { resvLoading = null; }
   const n = adminResvCache.filter(r => r.status === 'pending').length;
   const bd = $('admin-resv-badge'); if (bd) { bd.textContent = n; bd.style.display = n ? 'inline-block' : 'none'; }
   return adminResvCache;
 }
 async function renderAdminResv(reload) {
   const box = $('admin-resv-list'); if (!box) return;
-  if (reload) { box.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`; await loadAdminResv(); }
+  if (reload) { box.innerHTML = `<div class="fx-empty">${t('読み込み中…')}</div>`; await loadAdminResv(true); }
   const now = nowSlot();
   let list = adminResvCache.slice();
   if (resvFilter === 'todo') list = list.filter(r => r.status === 'pending' || (r.status === 'confirmed' && r.slot > now));
@@ -934,8 +939,16 @@ const EN_RE = [
   [/^築(\d+)年$/, (m, a) => `${a} yrs old`],
   [/^全(\d+)件中 (\d+)〜(\d+)件を表示$/, (m, a, b, c) => `Showing ${b}–${c} of ${a}`],
   [/^(\d+)ヶ月$/, (m, a) => `${a} mo`],
-  [/^(.+)駅$/, (m, a) => `${a} Sta.`]
+  [/^(.+)駅$/, (m, a) => `${a} Sta.`],
+  [/^(.+) 徒歩(\d+)分$/, (m, a, b) => `${a} · ${b} min walk`],
+  [/^(\d+(?:\.\d+)?)㎡ \/ (.+)$/, (m, a, b) => `${a}㎡ / ${EN[b] || b}`],
+  [/^(\d+)分$/, (m, a) => `${a} min`],
+  [/^(\d+)年$/, (m, a) => `${a} yrs`],
+  [/^(\d+)階 \/ (\d+)階建て$/, (m, a, b) => `Floor ${a} of ${b}`],
+  [/^(\d+)戸$/, (m, a) => `${a} units`]
 ];
+Object.assign(EN, { 'VR対応': 'VR', '実写VR': 'Real VR', '所在階': 'Floor', 'ここ': 'Here', 'マンション': 'Apartment', 'アパート': 'Low-rise apt.', '一戸建て': 'House', 'タワーマンション': 'Tower apt.',
+  '仲介': 'Brokerage', '普通借家 2年': 'Standard lease, 2 yrs', '保証会社利用可': 'Guarantor company OK', '保証会社利用必須': 'Guarantor company required', '翌月上旬': 'Early next month', '翌月下旬': 'Late next month', '相談': 'Negotiable', '即入居可': 'Move in now', 'なし': 'None', 'オートロック': "Auto-lock", 'バス・トイレ別': "Separate bath", 'エアコン': "A/C", 'インターネット無料': "Free internet", '浴室乾燥機': "Bath dryer", '宅配ボックス': "Parcel box", '南向き': "South-facing", 'ペット可': "Pets OK", '独立洗面台': "Separate vanity", '室内洗濯機置場': "Indoor washer space", 'システムキッチン': "System kitchen", '食洗機': "Dishwasher", 'IHコンロ': "IH stove", 'ウォークインクローゼット': "Walk-in closet", '駐車場': "Parking", '駐輪場': "Bike parking", 'DIY可': "DIY OK", '家具・家電付き': "Furnished", 'リノベーション済み': "Renovated", 'フリーレント': "Free rent", '保証人不要': "No guarantor", '二人暮らし可': "Couples OK", '子供可': "Kids OK", '学生向け': "For students", '女性限定': "Women only", '敷金なし': "No deposit", '礼金なし': "No key money" });
 const ORIG = new WeakMap(), ORIG_ATTR = new WeakMap();
 const SKIP = 'script,style,textarea,input,select,option,.pd-modal #pd-name,#pd-desc,#pd-surroundings,#pd-address,.prop-name,.fx-noi18n,#fe-iframe';
 function trText(s) {
@@ -2524,6 +2537,7 @@ window.showScreen = function (id) {
   }
   const r = _showScreenOld.apply(this, arguments);
   if (id === 'top') setTimeout(heTabMark, 0);
+  if (id === 'help' && typeof fitHelpFrame === 'function') { setTimeout(fitHelpFrame, 30); setTimeout(fitHelpFrame, 400); }
   return r;
 };
 window.initLeafletMap = function () {};   // 古い地図は作らない

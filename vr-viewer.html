@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>VR Homes - VR内見</title>
+<link rel="icon" type="image/png" href="icon-192.png">
 <script>if (/[?&]hero=1/.test(location.search)) document.documentElement.classList.add("hero");</script>
 <style>
   /* トップページの模型表示(?hero=1): 背景を透明にして、操作パネルなどは全部隠す */
@@ -38,6 +39,15 @@
   body.touch #rotateBtn { display: block; }
   #rotateHint { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(10,14,26,.85); color: #fff; font-size: 15px; text-align: center; padding: 24px; }
   #rotateHint.show { display: flex; }
+  /* 画面の向きを固定できない端末（iPhone・向きのロック中など）は、画面ごと90°回して横向きにする */
+  html.rot90 body { position: fixed; left: 0; top: 0; transform-origin: 0 0; }
+  /* 回したときは横長の画面なので、低い横画面と同じ並べ方にする（画面の大きさの判定は端末の縦向きのままなので、ここで指定） */
+  html.rot90 #tools { flex-direction: row; }
+  html.rot90 .tbtn { width: 48px; height: 44px; }
+  html.rot90 .tbtn span { font-size: 16px; }
+  html.rot90 .panel { bottom: calc(62px + env(safe-area-inset-bottom)) !important; right: calc(10px + env(safe-area-inset-right)) !important; max-height: calc(100vw - 140px) !important; width: min(310px, calc(100vh - 96px)) !important; }
+  html.rot90 .bar { max-width: calc(100vh - 20px); top: calc(56px + env(safe-area-inset-top)); }
+  html.rot90 #tagCard { width: min(340px, calc(100vh - 32px)); }
   #rotateHint .ic { font-size: 46px; animation: tilt 1.6s ease-in-out infinite; }
   @keyframes tilt { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
   #title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46vw; min-width: 0; flex-shrink: 1; }
@@ -277,6 +287,7 @@ const roomNameEl = document.getElementById("roomName");
 const closeBtn = document.getElementById("closeBtn");
 const isTouch = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 const isEmbedded = window.parent !== window;
+var rot90 = false;   // 画面ごと90°回して横向きにしているか（下の「スマホを横向きで見る」）
 const HERO = /[?&]hero=1/.test(location.search);
 if (isTouch) document.body.classList.add("touch");
 
@@ -786,6 +797,7 @@ const joy = { x: 0, y: 0, id: null };
     const r = base.getBoundingClientRect();
     let dx = e.clientX - (r.left + r.width / 2);
     let dy = e.clientY - (r.top + r.height / 2);
+    if (rot90) { const t = dx; dx = dy; dy = -t; }   // 画面を回して横向きにしているときは、向きを合わせる
     const d = Math.sqrt(dx * dx + dy * dy);
     if (d > RADIUS) { dx = dx / d * RADIUS; dy = dy / d * RADIUS; }
     stick.style.transform = "translate(" + dx + "px," + dy + "px)";
@@ -1424,8 +1436,9 @@ mm.addEventListener("pointerdown", function (e) {
   e.preventDefault(); e.stopPropagation();
   if (!mmMap) return;
   const r = mm.getBoundingClientRect();
-  const x = mmMap.b.x1 + (e.clientX - r.left - mmMap.ox) / mmMap.s;
-  const z = mmMap.b.z2 - (e.clientY - r.top - mmMap.oy) / mmMap.s;
+  const lx = rot90 ? e.clientY - r.top : e.clientX - r.left, ly = rot90 ? r.right - e.clientX : e.clientY - r.top;
+  const x = mmMap.b.x1 + (lx - mmMap.ox) / mmMap.s;
+  const z = mmMap.b.z2 - (ly - mmMap.oy) / mmMap.s;
   if (!roomAt(x, z)) return;
   if (tour) endTour(false);
   if (live && live.follow) setFollow(false);
@@ -1632,7 +1645,7 @@ function addFurn(c) {
   let at = { x: camera.position.x + Math.sin(yaw) * dist, z: camera.position.z + Math.cos(yaw) * dist };
   if (dollMode && dollCam) {
     const r = canvas.getBoundingClientRect();
-    const p = floorPointAt({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 });
+    const p = floorPointAt({ clientX: r.left + canvas.clientWidth / 2, clientY: r.top + canvas.clientHeight / 2 });
     at = (p && roomAt(p.x, p.z)) ? p : { x: dollCam.target.x, z: dollCam.target.z };
   }
   const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c,
@@ -2421,12 +2434,39 @@ let gotInit = false;
 window.addEventListener("resize", function () { engine.resize(); updateFov(); });
 
 /* ---------- スマホを横向きで見る ---------- */
-// 全画面にして横向きに固定する(Androidなど対応端末)。固定できない端末(iPhoneなど)では
-// 「横向きにしてください」と案内し、回転したら自動で消す。
+// 1) 全画面にして横向きに固定する（Androidなど対応している端末）
+// 2) 固定できない端末（iPhone、向きのロック中など）は、画面ごと90°回して横向きに見せる（rot90）
+//    このとき画面の座標も回すので、ドラッグ・スティック・タップはそのまま使える
+// 3) スマホを実際に横にしたときは、ふつうの横画面になる（回した表示は自動で戻す）
 const rotateBtn = document.getElementById("rotateBtn");
 const rotateHint = document.getElementById("rotateHint");
 const isLandscape = () => window.innerWidth > window.innerHeight;
 function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+function applyRot90() {
+  const b = document.body;
+  if (rot90) {
+    const W = window.innerWidth, H = window.innerHeight;
+    b.style.width = H + "px"; b.style.height = W + "px";
+    b.style.transform = "translateX(" + W + "px) rotate(90deg)";
+  } else { b.style.width = b.style.height = b.style.transform = ""; }
+  document.documentElement.classList.toggle("rot90", rot90);
+  setTimeout(function () { engine.resize(); updateFov(); if (typeof drawMinimap === "function") { mmBounds = null; drawMinimap(); } }, 60);
+}
+function setRot90(on) { if (rot90 === on) return; rot90 = on; applyRot90(); }
+// 回しているあいだは、画面（canvas）に来た指・マウスの位置を回した向きに直してから使う（Babylon と自分の処理の両方に効く）
+["pointerdown", "pointermove", "pointerup", "pointercancel", "pointerover", "pointerout", "pointerenter", "pointerleave", "wheel", "click", "dblclick", "contextmenu"].forEach(function (type) {
+  window.addEventListener(type, function (e) {
+    if (!rot90 || e.target !== canvas || e.__rot) return;
+    const W = window.innerWidth, X = e.clientX, Y = e.clientY;
+    const nx = Y, ny = W - X;
+    try {
+      Object.defineProperty(e, "__rot", { value: true });
+      ["clientX", "pageX", "x", "offsetX", "screenX"].forEach(function (k) { Object.defineProperty(e, k, { value: nx, configurable: true }); });
+      ["clientY", "pageY", "y", "offsetY", "screenY"].forEach(function (k) { Object.defineProperty(e, k, { value: ny, configurable: true }); });
+      if (typeof e.movementX === "number") { const mx = e.movementX, my = e.movementY; Object.defineProperty(e, "movementX", { value: my }); Object.defineProperty(e, "movementY", { value: -mx }); }
+    } catch (err) {}
+  }, true);
+});
 async function enterLandscape() {
   try {
     const el = document.documentElement;
@@ -2437,10 +2477,12 @@ async function enterLandscape() {
   } catch (e) { /* 全画面にできない端末もある */ }
   let locked = false;
   try { if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock("landscape"); locked = true; } } catch (e) { locked = false; }
-  if (!locked && !isLandscape()) rotateHint.classList.add("show");
   rotateBtn.textContent = T("⤡ 縦に戻す"); landscapeOn = true;
+  // 固定できたか少し待って確かめる。縦のままなら画面ごと回す
+  setTimeout(function () { if (landscapeOn && !isLandscape()) setRot90(true); }, locked ? 600 : 150);
 }
 async function exitLandscape() {
+  setRot90(false);
   try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
   try { if (fsElement()) { if (document.exitFullscreen) await document.exitFullscreen(); else if (document.webkitExitFullscreen) document.webkitExitFullscreen(); } } catch (e) {}
   rotateHint.classList.remove("show");
@@ -2450,13 +2492,17 @@ let landscapeOn = false;
 rotateBtn.addEventListener("click", function () { (landscapeOn ? exitLandscape : enterLandscape)(); });
 document.getElementById("rotateHintClose").addEventListener("click", function () { rotateHint.classList.remove("show"); });
 function onOrientation() {
-  if (isLandscape()) rotateHint.classList.remove("show");
   // 回転直後は画面サイズがまだ変わっていないことがあるので、少し待ってから合わせ直す
-  setTimeout(function () { engine.resize(); updateFov(); }, 250);
+  setTimeout(function () {
+    if (isLandscape()) { rotateHint.classList.remove("show"); if (rot90) setRot90(false); }   // 実際に横にした → ふつうの横画面
+    else if (rot90) applyRot90();
+    engine.resize(); updateFov();
+  }, 250);
 }
 window.addEventListener("orientationchange", onOrientation);
+window.addEventListener("resize", function () { if (rot90) { if (isLandscape()) setRot90(false); else applyRot90(); } });
 if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener("change", onOrientation);
-document.addEventListener("fullscreenchange", function () { if (!fsElement()) { rotateBtn.textContent = T("⤢ 横向き"); landscapeOn = false; } setTimeout(function () { engine.resize(); }, 200); });
+document.addEventListener("fullscreenchange", function () { if (!fsElement() && !rot90) { rotateBtn.textContent = T("⤢ 横向き"); landscapeOn = false; } setTimeout(function () { engine.resize(); }, 200); });
 </script>
 </body>
 </html>

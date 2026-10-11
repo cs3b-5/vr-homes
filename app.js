@@ -2203,19 +2203,24 @@ function getFilteredProps(){
 /* ══════════════════════════════════════
    PROPERTY DATA
 ══════════════════════════════════════ */
+let _propsSeq=0;   // 読み込みが重なったときは、いちばん新しい結果だけ使う（ゲストのときの古い一覧で上書きしないため）
 async function fetchAndRenderProps(){
+  const seq=++_propsSeq;
   const grid=document.getElementById('card-grid');
   grid.innerHTML=`<div style="grid-column:1/-1;padding:40px 0;text-align:center;color:#64748b">
     <i class="ti ti-loader-2" style="font-size:24px;animation:spin 1s linear infinite;display:inline-block"></i>
     <div style="margin-top:10px;font-size:13px">物件を読み込み中…</div></div>`;
   try{
     const res=await fetch(AWS_API_URL+'?action=list',{method:'GET'});
+    if(seq!==_propsSeq) return;
     if(!res.ok) throw new Error(`HTTP ${res.status}`);
     const data=await res.json();
+    if(seq!==_propsSeq) return;
     PROPS=Array.isArray(data)?data:(data.items||data.properties||data.body||[]);
     PROPS.forEach(p=>{if(!p.photoURLs) p.photoURLs=p.photoURL?[p.photoURL]:[];if(!p.features) p.features=p.tags||[];});
     showDataSourceBadge('AWS');
   }catch(e){
+    if(seq!==_propsSeq) return;   // もっと新しい読み込みがあるので、この失敗は気にしない
     console.error('AWS接続エラー:',e);
     PROPS=DEMO_PROPS.map(p=>({...p}));
     showDataSourceBadge('local');

@@ -409,3 +409,8 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
   .fx-af-chips button,.fx-af-todo button{flex:none;white-space:nowrap}
   .fx-af-todo{white-space:nowrap}
 }
+/* スマホ: 管理者・マスターの上の帯を詰める */
+@media (max-width:600px){
+  #s-admin > nav .logo span, #s-master > nav .logo span{white-space:nowrap;font-size:15px}
+  #admin-email-display, #master-name-badge{display:none}
+}

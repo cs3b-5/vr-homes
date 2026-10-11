@@ -21,6 +21,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VR Homes">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- OGP -->
 <meta property="og:title" content="VR Homes — VR内見不動産">
@@ -249,77 +250,7 @@
   </footer>
 </div>
 
-<!-- ══════ MAP ══════ -->
-<div class="screen" id="s-map">
-  <nav class="nav">
-    <div class="logo" onclick="guardedScreen('top')">
-      <span class="logo-yk" aria-hidden="true"></span>VR Homes
-    </div>
-    <div class="nav-links">
-      <span class="nl" onclick="guardedScreen('top')">← 一覧</span>
-      <span class="nl on">マップ</span>
-    </div>
-    <div class="nav-r">
-      <button class="btn btn-sm" onclick="guardedScreen('mypage')"><i class="ti ti-user"></i>マイページ</button>
-    </div>
-  </nav>
-  <div class="map-wrap">
-    <div class="map-sidebar">
-      <div class="map-sidebar-head">
-        <h3><i class="ti ti-filter"></i> 物件を絞り込む</h3>
-        <div class="map-search-bar">
-          <i class="ti ti-search" style="font-size:13px;color:rgba(255,255,255,.6)"></i>
-          <input id="map-addr-input" type="text" placeholder="住所・エリアで検索..."
-            onkeydown="if(event.key==='Enter')searchMapAddress()">
-          <button onclick="searchMapAddress()" title="検索"><i class="ti ti-arrow-right"></i></button>
-        </div>
-      </div>
-      <div class="map-filters" id="map-filters-container">
-        <!-- JS で動的生成 -->
-      </div>
-      <div class="map-results-section">
-        <div class="map-results-title">
-          <span>検索結果</span>
-          <span id="map-count" style="color:#94a3b8;font-weight:400">0件</span>
-        </div>
-        <div id="map-results"></div>
-      </div>
-    </div>
-    <div class="map-area">
-      <div id="leaf-map" style="width:100%;height:100%"></div>
-
-      <!-- スマホ専用：地図に重なる検索バー＆条件バー -->
-      <div class="map-mobile-overlay">
-        <div class="map-mobile-search">
-          <i class="ti ti-search" style="font-size:15px;color:#64748b;flex-shrink:0"></i>
-          <input id="map-addr-input-m" type="text" placeholder="住所・エリアで検索..."
-            onkeydown="if(event.key==='Enter'){searchMapAddressMobile();this.blur();}">
-          <button onclick="searchMapAddressMobile()" title="検索" style="flex-shrink:0"><i class="ti ti-arrow-right"></i></button>
-        </div>
-        <button class="map-mobile-filter-chip" onclick="openMobileFilterSheet()">
-          <i class="ti ti-adjustments-horizontal"></i>
-          <span>条件で絞り込む</span>
-          <span id="map-mobile-count" class="map-mobile-count">0件</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- スマホ専用：全画面フィルターシート -->
-    <div class="map-filter-sheet" id="map-filter-sheet">
-      <div class="map-filter-sheet-head">
-        <h3><i class="ti ti-adjustments-horizontal"></i> 条件で絞り込む</h3>
-        <button onclick="closeMobileFilterSheet()" class="map-sheet-close"><i class="ti ti-x"></i></button>
-      </div>
-      <div class="map-filter-sheet-body" id="map-filters-container-m">
-        <!-- JS で動的生成 -->
-      </div>
-      <div class="map-filter-sheet-foot">
-        <button class="btn" style="flex:1;justify-content:center" onclick="resetFilters();closeMobileFilterSheet()"><i class="ti ti-refresh"></i> リセット</button>
-        <button class="btn btn-p" style="flex:2;justify-content:center" onclick="applyMapFilters();closeMobileFilterSheet()"><i class="ti ti-search"></i> この条件で見る</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- 古い「マップ」画面は、トップの「地図」表示にまとめたので消した -->
 
 <!-- ══════ MYPAGE ══════ -->
 <div class="screen" id="s-mypage">
@@ -503,7 +434,7 @@
     <h2 style="font-size:22px;font-weight:800;color:var(--navy);margin-bottom:6px"><i class="ti ti-help-circle" style="color:var(--blue)"></i> サイトの使い方</h2>
     <p style="font-size:13px;color:#64748b;margin-bottom:18px">VR Homes の基本的な使い方をご案内します。</p>
     <div style="border:1.5px solid var(--border);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh-sm);background:var(--surface)">
-      <iframe src="help.html" style="width:100%;height:600px;border:0;display:block" title="使い方ヘルプ"></iframe>
+      <iframe id="help-frame" src="help.html" style="width:100%;height:600px;border:0;display:block" title="使い方ヘルプ" scrolling="no" onload="fitHelpFrame()"></iframe>
     </div>
 
     <!-- VR内見の動作環境 -->
@@ -765,7 +696,6 @@
     <div class="admin-sidebar">
       <div class="admin-sidebar-title">MASTER MENU</div>
       <div class="admin-nav-item on" onclick="switchMaster('users',this)"><i class="ti ti-users"></i>全ユーザー管理</div>
-      <div class="admin-nav-item" onclick="switchMaster('roles',this)"><i class="ti ti-shield"></i>ロール変更</div>
       <div class="admin-nav-item" onclick="switchMaster('fields',this)"><i class="ti ti-list-details"></i>物件条件管理</div>
       <div class="admin-nav-item" onclick="switchMaster('listings',this)"><i class="ti ti-building-community"></i>掲載の管理</div>
       <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.06)">
@@ -969,6 +899,14 @@
 
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* 使い方ガイドの枠を中身の高さに合わせる（枠の中だけスクロールする二重スクロールをなくす） */
+function fitHelpFrame(){
+  const f=document.getElementById('help-frame'); if(!f) return;
+  try{ const d=f.contentDocument; if(!d||!d.body) return; f.style.height=Math.max(400,d.documentElement.scrollHeight)+'px'; }catch(e){ f.removeAttribute('scrolling'); }
+}
+window.addEventListener('resize',()=>{ clearTimeout(window._hfT); window._hfT=setTimeout(fitHelpFrame,200); });
+</script>
 <script src="mascot.js"></script>
 <script src="app.js"></script>
 <script src="yk-ai.js"></script>
