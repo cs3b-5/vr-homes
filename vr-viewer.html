@@ -37,8 +37,17 @@
   #closeBtn, #rotateBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
   #closeBtn { background: #2563eb; color: #fff; font-weight: 700; }
   body.touch #rotateBtn { display: block; }
+  #xrBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 700; display: none; background: #7C3AED; color: #fff; }
+  body.xr-ok #xrBtn { display: block; }
+  html.hero #xrBtn { display: none !important; }
   #rotateHint { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(10,14,26,.85); color: #fff; font-size: 15px; text-align: center; padding: 24px; }
   #rotateHint.show { display: flex; }
+  .fcolors { flex-wrap: wrap; gap: 5px !important; }
+  .fsw { width: 24px; height: 24px; min-width: 24px; padding: 0 !important; border-radius: 50% !important; border: 2px solid #fff !important; box-shadow: 0 0 0 1px #cbd5e1; cursor: pointer; }
+  .fsw.on { box-shadow: 0 0 0 2px #2563eb; }
+  .fpick { position: relative; width: 26px; height: 26px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); cursor: pointer; }
+  .fpick input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; border: 0; padding: 0; }
+  .fpick span { font-size: 13px; pointer-events: none; filter: drop-shadow(0 0 1px #fff); }
   /* 画面の向きを固定できない端末（iPhone・向きのロック中など）は、画面ごと90°回して横向きにする */
   html.rot90 body { position: fixed; left: 0; top: 0; transform-origin: 0 0; }
   /* 回したときは横長の画面なので、低い横画面と同じ並べ方にする（画面の大きさの判定は端末の縦向きのままなので、ここで指定） */
@@ -154,6 +163,7 @@
 <div id="topbar">
   <button id="closeBtn" class="pill" data-t="← サイトに戻る">← サイトに戻る</button>
   <button id="rotateBtn" class="pill" title="全画面・横向きで見る" data-t="⤢ 横向き">⤢ 横向き</button>
+  <button id="xrBtn" class="pill" title="Meta Quest などのVRゴーグルで見る" data-t="🥽 VRゴーグルで見る">🥽 VRゴーグルで見る</button>
   <button id="modeBtn" class="pill" title="実写と間取りを切り替える">🏠 間取りで見る</button>
   <div id="title" class="pill"></div>
   <div id="roomName" class="pill"></div>
@@ -410,6 +420,131 @@ function furnitureMat(hex) {
   const key = /^#[0-9a-fA-F]{6}$/.test(hex || "") ? hex : (/^#[0-9a-fA-F]{3}$/.test(hex || "") ? "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : "#888888");
   if (!furnMats[key]) furnMats[key] = stdMat("furn" + key, key);
   return furnMats[key];
+}
+
+/* ---------- 家具の形 ----------
+   家具は「1m×1m×1m の箱」を基準に部品を組み立て、あとで幅・高さ・奥行に引きのばす。
+   部品の位置・大きさは、箱の中心を0、端を±0.5 とした割合で書く（下が y=-0.5、奥(頭側)が z=+0.5）。 */
+function furnKind(n) {
+  n = String(n || "");
+  if (/ベッド|bed/i.test(n)) return "bed";
+  if (/ソファ|sofa|couch/i.test(n)) return "sofa";
+  if (/ローテーブル|座卓/.test(n)) return "lowtable";
+  if (/こたつ/.test(n)) return "kotatsu";
+  if (/ダイニング|テーブル|table/i.test(n)) return "table";
+  if (/デスク|机|desk/i.test(n)) return "desk";
+  if (/チェア|椅子|いす|chair/i.test(n)) return "chair";
+  if (/冷蔵庫|fridge|refrig/i.test(n)) return "fridge";
+  if (/洗濯機|washer|washing/i.test(n)) return "washer";
+  if (/テレビ|tv/i.test(n)) return "tv";
+  if (/本棚|ラック|shelf|book/i.test(n)) return "shelf";
+  if (/タンス|たんす|クローゼット|ワードローブ|収納|chest|wardrobe/i.test(n)) return "chest";
+  if (/ラグ|カーペット|じゅうたん|rug|carpet/i.test(n)) return "rug";
+  if (/植物|グリーン|plant/i.test(n)) return "plant";
+  return "box";
+}
+function shadeHex(hex, k) {   // k>0 で明るく、k<0 で暗く
+  const c = BABYLON.Color3.FromHexString(/^#[0-9a-fA-F]{6}$/.test(hex || "") ? hex : "#888888");
+  const f = function (v) { return Math.max(0, Math.min(1, k >= 0 ? v + (1 - v) * k : v * (1 + k))); };
+  return new BABYLON.Color3(f(c.r), f(c.g), f(c.b)).toHexString();
+}
+// [形, 中心x, 中心y, 中心z, 幅, 高さ, 奥行, 色]（形: b=箱 c=円柱 s=球。色: main=選んだ色 / dark / light / それ以外は色そのもの）
+function furnParts(kind) {
+  const L = function (x, y, z, w, h, d, col) { return ["b", x, y, z, w, h, d, col]; };
+  const legs = function (h, t, col, inset) { const a = 0.5 - (inset || 0.05); return [L(-a, -0.5 + h / 2, -a, t, h, t, col), L(a, -0.5 + h / 2, -a, t, h, t, col), L(-a, -0.5 + h / 2, a, t, h, t, col), L(a, -0.5 + h / 2, a, t, h, t, col)]; };
+  switch (kind) {
+    case "bed": return [
+      L(0, -0.33, 0, 1, 0.34, 1, "dark"),                       // 台
+      L(0, -0.04, -0.02, 0.96, 0.26, 0.95, "#F8FAFC"),          // マットレス
+      L(0, 0.13, -0.17, 0.98, 0.1, 0.66, "main"),               // 掛けふとん
+      L(0, 0.13, 0.36, 0.62, 0.12, 0.17, "#E2E8F0"),            // まくら
+      L(0, 0.35, 0.485, 1, 1.7, 0.03, "dark")];                 // ヘッドボード（ベッドより高い）
+    case "sofa": return [
+      L(0, -0.38, 0, 1, 0.24, 1, "dark"),                       // 台
+      L(0, -0.12, -0.06, 0.78, 0.28, 0.84, "main"),             // 座面
+      L(0, 0.18, 0.36, 0.78, 0.64, 0.28, "main"),               // 背もたれ
+      L(-0.445, -0.03, 0, 0.11, 0.7, 1, "main"),                // ひじかけ
+      L(0.445, -0.03, 0, 0.11, 0.7, 1, "main"),
+      L(-0.2, 0.06, 0.12, 0.34, 0.26, 0.12, "light"),           // クッション
+      L(0.2, 0.06, 0.12, 0.34, 0.26, 0.12, "light")];
+    case "table": return [L(0, 0.46, 0, 1, 0.08, 1, "main")].concat(legs(0.92, 0.06, "dark", 0.07));
+    case "lowtable": return [L(0, 0.4, 0, 1, 0.2, 1, "main")].concat(legs(0.8, 0.08, "dark", 0.08));
+    case "kotatsu": return [
+      L(0, 0.46, 0, 1.06, 0.08, 1.06, "#B07A4F"),               // 天板
+      L(0, 0.0, 0, 1.12, 0.8, 1.12, "main"),                    // ふとん（少しはみ出す）
+      L(0, -0.44, 0, 1.2, 0.12, 1.2, "main"),                   // 床に広がるすそ
+      L(0, 0.41, 0, 1.06, 0.03, 1.06, "light")];
+    case "desk": return [
+      L(0, 0.47, 0, 1, 0.06, 1, "main"),                        // 天板
+      L(-0.47, -0.03, 0, 0.04, 0.94, 0.94, "dark"),             // 脚（板）
+      L(0.47, -0.03, 0, 0.04, 0.94, 0.94, "dark"),
+      L(0.28, 0.32, -0.05, 0.36, 0.2, 0.85, "dark"),            // 引き出し
+      L(0, -0.1, 0.46, 0.9, 0.5, 0.03, "dark")];                // 幕板
+    case "chair": return [
+      L(0, -0.04, 0, 1, 0.08, 1, "main"),                       // 座面
+      L(0, 0.27, 0.45, 1, 0.55, 0.08, "main")].concat(legs(0.46, 0.08, "dark", 0.08)); // 背もたれ
+    case "fridge": return [
+      L(0, 0, 0, 1, 1, 1, "main"),
+      L(0, 0.14, -0.505, 0.98, 0.01, 0.01, "dark"),             // 扉のすき間
+      L(0, -0.2, -0.505, 0.98, 0.01, 0.01, "dark"),
+      L(0.38, 0.33, -0.52, 0.04, 0.22, 0.03, "#94A3B8"),        // 取っ手
+      L(0.38, -0.03, -0.52, 0.04, 0.12, 0.03, "#94A3B8"),
+      L(0.38, -0.36, -0.52, 0.04, 0.1, 0.03, "#94A3B8")];
+    case "washer": return [
+      L(0, 0, 0, 1, 1, 1, "main"),
+      L(0, 0.42, -0.25, 0.9, 0.14, 0.45, "light"),              // 操作パネル
+      ["c", 0, -0.08, -0.505, 0.7, 0.02, 0.62, "#93C5FD"],      // ドラム窓（前を向けて回す）
+      ["c", 0, -0.08, -0.51, 0.5, 0.02, 0.44, "#1E293B"]];
+    case "tv": return [
+      L(0, 0, 0, 1, 1, 1, "main"),                              // テレビ台
+      L(-0.25, 0, -0.505, 0.47, 0.8, 0.01, "dark"),             // 扉
+      L(0.25, 0, -0.505, 0.47, 0.8, 0.01, "dark"),
+      L(0, 0.56, 0.05, 0.16, 0.12, 0.3, "#111827"),             // テレビの足
+      L(0, 1.25, 0.08, 0.8, 1.3, 0.08, "#111827"),              // テレビ
+      L(0, 1.25, 0.035, 0.76, 1.2, 0.01, "#1E3A5F")];           // 画面
+    case "shelf": {
+      const o = [L(-0.48, 0, 0, 0.04, 1, 1, "main"), L(0.48, 0, 0, 0.04, 1, 1, "main"), L(0, 0.48, 0, 1, 0.04, 1, "main"), L(0, -0.48, 0, 1, 0.04, 1, "main"), L(0, 0, 0.48, 1, 1, 0.04, "dark")];
+      const books = ["#B91C1C", "#1D4ED8", "#15803D", "#CA8A04", "#7C3AED", "#0F766E"];
+      [-0.24, 0, 0.24].forEach(function (y, i) {
+        o.push(L(0, y, 0, 0.92, 0.03, 0.96, "main"));
+        for (let k = 0; k < 5; k++) o.push(L(-0.36 + k * 0.12 + (i % 2) * 0.05, y + 0.1, 0.05, 0.08, 0.17 - (k % 3) * 0.025, 0.7, books[(k + i) % books.length]));
+      });
+      return o;
+    }
+    case "chest": return [
+      L(0, 0, 0, 1, 1, 1, "main"),
+      L(0, 0.25, -0.505, 0.92, 0.42, 0.01, "dark"),             // 引き出し
+      L(0, -0.22, -0.505, 0.92, 0.42, 0.01, "dark"),
+      L(0, 0.25, -0.52, 0.2, 0.04, 0.03, "#CBD5E1"),
+      L(0, -0.22, -0.52, 0.2, 0.04, 0.03, "#CBD5E1")];
+    case "rug": return [L(0, 0, 0, 1, 1, 1, "main"), L(0, 0.02, 0, 0.84, 1, 0.84, "light")];
+    case "plant": return [
+      ["c", 0, -0.32, 0, 0.6, 0.36, 0.6, "#78350F"],            // 鉢
+      ["c", 0, -0.06, 0, 0.08, 0.3, 0.08, "#4D7C0F"],           // 幹
+      ["s", 0, 0.22, 0, 0.95, 0.56, 0.95, "main"],              // 葉
+      ["s", 0.18, 0.05, 0.12, 0.5, 0.3, 0.5, "dark"]];
+    default: return [L(0, 0, 0, 1, 1, 1, "main")];
+  }
+}
+// 部品を作って root にぶら下げる（root を w×h×d に引きのばすと、部品もいっしょにのびる）
+function buildFurnModel(root, kind, color, name, meta) {
+  const main = /^#[0-9a-fA-F]{6}$/.test(color || "") ? color : "#8B5CF6";
+  const parts = [];
+  furnParts(kind).forEach(function (q) {
+    let m;
+    if (q[0] === "c") { m = BABYLON.MeshBuilder.CreateCylinder(name, { diameter: 1, height: 1, tessellation: 20 }, scene); if (Math.abs(q[3]) > 0.49) m.rotation.x = Math.PI / 2; }
+    else if (q[0] === "s") m = BABYLON.MeshBuilder.CreateSphere(name, { diameter: 1, segments: 10 }, scene);
+    else m = BABYLON.MeshBuilder.CreateBox(name, unitBox, scene);
+    m.parent = root;
+    m.position.set(q[1], q[2], q[3]);
+    m.scaling.set(q[4], q[5], q[6]);   // 前を向けた円柱は「幅・厚み・高さ」の順
+    const col = q[7] === "main" ? main : q[7] === "dark" ? shadeHex(main, -0.35) : q[7] === "light" ? shadeHex(main, 0.45) : q[7];
+    m.material = furnitureMat(col);
+    m.metadata = meta || null;
+    m.receiveShadows = true;
+    parts.push(m);
+  });
+  return parts;
 }
 
 /* ---------- 形状ヘルパー ---------- */
@@ -684,16 +819,15 @@ function buildPlan(plan) {
     const w = num(f.w, 0), d = num(f.d, 0), h = num(f.h, 0.8) || 0.8;
     if (w <= 0 || d <= 0) return;
     const p = toWorld(num(f.cx, 0), num(f.cy, 0));
-    const box = BABYLON.MeshBuilder.CreateBox("furniture" + i, { width: w, height: h, depth: d }, scene);
+    // ぶつかり判定用の見えない箱 ＋ 形の部品
+    const box = BABYLON.MeshBuilder.CreateBox("furniture" + i, unitBox, scene);
+    box.scaling.set(w, h, d);
     box.position.set(p.x, h / 2, p.z);
     box.rotation.y = num(f.rotation, 0) * Math.PI / 180;
-    box.material = furnitureMat(f.color);
+    box.isVisible = false;
     box.checkCollisions = true;
     box.parent = planRoot;
-    box.enableEdgesRendering();
-    box.edgesWidth = 1.5;
-    box.edgesColor = new BABYLON.Color4(0, 0, 0, 0.25);
-    box.freezeWorldMatrix();
+    buildFurnModel(box, furnKind((f.type || "") + " " + (f.name || "")), f.color, "furniture" + i, null);
     furnBoxes.push({ x: p.x, z: p.z, r: Math.max(w, d) / 2 + BODY_RADIUS });
   });
 
@@ -866,9 +1000,11 @@ async function setupXR() {
   try {
     const ok = await navigator.xr.isSessionSupported("immersive-vr");
     if (!ok) return;
-    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes });
+    // Babylon の右下の小さなVRボタンは、道具のボタンに隠れて見えなかったので使わず、上に大きなボタンを出す
+    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true });
     if (!xrHelper.baseExperience) return;
     hookXR();
+    document.body.classList.add("xr-ok");
     xrHelper.baseExperience.onInitialXRPoseSetObservable.add(function (xrCam) {
       xrCam.position.x = currentSpawn.x;
       xrCam.position.z = currentSpawn.z;
@@ -877,6 +1013,17 @@ async function setupXR() {
     console.warn("WebXRは利用できません:", err);
   }
 }
+
+document.getElementById("xrBtn").addEventListener("click", async function () {
+  if (!xrHelper || !xrHelper.baseExperience) { vtoast(T("このブラウザはVRゴーグルに対応していません")); return; }
+  try {
+    if (inXR) { await xrHelper.baseExperience.exitXRAsync(); return; }
+    await xrHelper.baseExperience.enterXRAsync("immersive-vr", "local-floor", xrHelper.renderTarget);
+  } catch (e) {
+    try { await xrHelper.baseExperience.enterXRAsync("immersive-vr", "local", xrHelper.renderTarget); }
+    catch (e2) { console.warn(e2); vtoast(T("VRを始められませんでした。ゴーグルのブラウザで開いてください")); }
+  }
+});
 
 /* ---------- 実写(ガウシアンスプラット) ---------- */
 // 実写データは見た目だけに使い、壁の当たり判定は間取りのまま残す。
@@ -1065,7 +1212,7 @@ async function setupSplat(opts) {
 /* ---------- 言語 ---------- */
 let LANG = (function () { try { return localStorage.getItem("vr_lang") || "ja"; } catch (e) { return "ja"; } })();
 const EN = {
-  "✕ 閉じる": "✕ Close", "← サイトに戻る": "← Back to site", "⤢ 横向き": "⤢ Landscape", "⤡ 縦に戻す": "⤡ Portrait",
+  "✕ 閉じる": "✕ Close", "← サイトに戻る": "← Back to site", "⤢ 横向き": "⤢ Landscape", "🥽 VRゴーグルで見る": "🥽 View in VR headset", "このブラウザはVRゴーグルに対応していません": "This browser does not support VR headsets", "VRを始められませんでした。ゴーグルのブラウザで開いてください": "Could not start VR. Open this page in the headset browser.", "⤡ 縦に戻す": "⤡ Portrait",
   "🏠 間取りで見る": "🏠 Floor plan", "📷 実写で見る": "📷 Real photo",
   "左下のスティックで移動 / 画面ドラッグで見回す": "Move with the stick / drag to look around",
   "W A S D で移動 / ドラッグで見回す / Shiftで速く": "WASD to move / drag to look / Shift to run",
@@ -1080,7 +1227,7 @@ const EN = {
   "この内見を始める": "Start a session", "参加コード": "Join code", "参加": "Join", "コードをコピー": "Copy code",
   "招待リンクをコピー": "Copy invite link", "案内する人について行く": "Follow the guide", "メッセージ": "Message",
   "送信": "Send", "退出する": "Leave", "終了する": "End session",
-  "ベッド(シングル)": "Bed (single)", "ベッド(ダブル)": "Bed (double)", "ソファ(2人)": "Sofa (2 seats)",
+  "ベッド(シングル)": "Bed (single)", "ベッド(ダブル)": "Bed (double)", "ソファ(2人)": "Sofa (2 seats)", "ソファ(3人)": "Sofa (3 seats)", "ローテーブル": "Coffee table", "チェア": "Chair", "タンス": "Chest", "ラグ": "Rug", "観葉植物": "Plant", "色": "Color", "好きな色": "Pick any color",
   "ダイニングテーブル": "Dining table", "デスク": "Desk", "冷蔵庫": "Fridge", "洗濯機": "Washer", "テレビ台": "TV stand",
   "本棚": "Bookshelf", "こたつ": "Kotatsu", "サイズを指定": "Custom size", "置いた家具": "Placed item",
   "幅": "W", "奥行": "D", "高さ": "H", "回転": "Rotate", "削除": "Delete", "全部消す": "Clear all",
@@ -1580,10 +1727,17 @@ const CATALOG = [
   { n: "テレビ台", w: 1.5, d: 0.4, h: 0.45, c: "#57534E" },
   { n: "本棚", w: 0.8, d: 0.3, h: 1.8, c: "#A16207" },
   { n: "こたつ", w: 0.8, d: 0.8, h: 0.4, c: "#D97706" },
+  { n: "ソファ(3人)", w: 2.0, d: 0.88, h: 0.8, c: "#64748B" },
+  { n: "ローテーブル", w: 1.0, d: 0.5, h: 0.38, c: "#B07A4F" },
+  { n: "チェア", w: 0.45, d: 0.5, h: 0.45, c: "#B07A4F" },
+  { n: "タンス", w: 0.8, d: 0.45, h: 1.0, c: "#D6B48A" },
+  { n: "ラグ", w: 1.4, d: 2.0, h: 0.015, c: "#C7B299" },
+  { n: "観葉植物", w: 0.45, d: 0.45, h: 1.2, c: "#3F8F3A" },
   { n: "サイズを指定", w: 1.0, d: 1.0, h: 0.8, c: "#8B5CF6" }
 ];
 let furnMode = false, myFurn = [], selFurn = null, furnDrag = null, furnSeq = 1;
 const unitBox = { width: 1, height: 1, depth: 1 };
+const FURN_COLORS = ["#F8FAFC", "#D6B48A", "#B07A4F", "#6B4F3A", "#64748B", "#1F2937", "#93A9D1", "#3F8F3A", "#E8604A", "#F2C94C"];
 const furnNgMat = (function () { const m = stdMat("furnNg", "#EF4444"); m.alpha = 0.75; m.emissiveColor = new BABYLON.Color3(0.35, 0.05, 0.05); return m; })();
 function setFurn(on) {
   furnMode = on;
@@ -1619,22 +1773,35 @@ function furnFits(f) {
   return cs.every(function (p) { return pointInPolygon(p.x, p.z, room.pts); });
 }
 function makeFurnMesh(f) {
+  // 見えない箱（つかむ・影・表示の切りかえ用）に、形の部品をぶら下げる
   const m = BABYLON.MeshBuilder.CreateBox("myFurn", unitBox, scene);
-  const mat = stdMat("myFurnMat" + f.id, f.c || "#8B5CF6"); mat.alpha = 0.92;
-  m.material = mat; f.mat = mat;
+  m.isVisible = false;
   m.metadata = { f: f };
-  m.enableEdgesRendering(); m.edgesWidth = 2; m.edgesColor = new BABYLON.Color4(0, 0, 0, 0.4);
   f.mesh = m;
+  furnRebuild(f);
+  if (typeof sunGen !== "undefined" && sunGen) sunGen.addShadowCaster(m, true);
+}
+function furnRebuild(f) {   // 形・色が変わったら部品を作り直す
+  (f.parts || []).forEach(function (pm) { pm.dispose(); });
+  f.kind = f.kind || furnKind(f.n);
+  f.parts = buildFurnModel(f.mesh, f.kind, f.c, "myFurn", { f: f });
+  f.parts.forEach(function (pm) { pm._mat = pm.material; });
+  f._sel = null; f._fit = null;
   updateFurnMesh(f);
 }
 function updateFurnMesh(f) {
   f.mesh.scaling.set(f.w, f.h, f.d);
   f.mesh.position.set(f.x, f.h / 2 + 0.002, f.z);
   f.mesh.rotation.y = f.rot * Math.PI / 180;
-  const fit = furnFits(f);
-  f.mesh.material = fit ? f.mat : furnNgMat;
-  f.mesh.edgesColor = f === selFurn ? new BABYLON.Color4(0.15, 0.4, 1, 1) : new BABYLON.Color4(0, 0, 0, 0.4);
-  f.mesh.edgesWidth = f === selFurn ? 3 : 1.5;
+  const fit = furnFits(f), sel = f === selFurn;
+  if (f._fit !== fit) { (f.parts || []).forEach(function (pm) { pm.material = fit ? pm._mat : furnNgMat; }); f._fit = fit; }
+  if (f._sel !== sel) {   // 選んでいる家具は青い線でふちどる
+    (f.parts || []).forEach(function (pm) {
+      if (sel) { pm.enableEdgesRendering(); pm.edgesWidth = 2.5; pm.edgesColor = new BABYLON.Color4(0.15, 0.4, 1, 1); }
+      else pm.disableEdgesRendering();
+    });
+    f._sel = sel;
+  }
   if (f.label) f.label.el.className = "lbl flabel" + (fit ? "" : " ng");
   if (f.label) f.label.el.textContent = sizeText(f) + (fit ? "" : " ⚠");
 }
@@ -1679,6 +1846,8 @@ function renderFurnPanel() {
     '<div class="row"><span>' + T("幅") + '</span><input type="number" data-k="w" value="' + Math.round(f.w * 100) + '" min="10" max="600">' +
     '<span>' + T("奥行") + '</span><input type="number" data-k="d" value="' + Math.round(f.d * 100) + '" min="10" max="600"></div>' +
     '<div class="row"><span>' + T("高さ") + '</span><input type="number" data-k="h" value="' + Math.round(f.h * 100) + '" min="5" max="260"><span style="color:#94a3b8">cm</span></div>' +
+    '<div class="row fcolors"><span>' + T("色") + '</span>' + FURN_COLORS.map(function (c) { return '<button class="fsw' + (String(f.c).toLowerCase() === c.toLowerCase() ? " on" : "") + '" data-c="' + c + '" style="background:' + c + '" aria-label="' + c + '"></button>'; }).join("") +
+    '<label class="fpick" title="' + T("好きな色") + '"><input type="color" id="fColor" value="' + (/^#[0-9a-fA-F]{6}$/.test(f.c || "") ? f.c : "#8b5cf6") + '"><span>🎨</span></label></div>' +
     '<div class="row"><span>' + T("回転") + '</span><button class="gray" data-r="-90">-90°</button><button class="gray" data-r="-15">-15°</button><button class="gray" data-r="15">+15°</button><button class="gray" data-r="90">+90°</button></div>' +
     '<div class="row"><button class="red" id="fDel">' + T("削除") + '</button><button class="gray" id="fDone">OK</button></div>';
   el.querySelectorAll("input[data-k]").forEach(function (inp) {
@@ -1688,6 +1857,10 @@ function renderFurnPanel() {
     });
   });
   el.querySelectorAll("[data-r]").forEach(function (b) { b.addEventListener("click", function () { f.rot = ((f.rot + (+b.dataset.r)) % 360 + 360) % 360; updateFurnMesh(f); saveMyFurniture(); renderFurnPanel(); }); });
+  const setColor = function (c) { if (!/^#[0-9a-fA-F]{6}$/.test(c)) return; f.c = c; furnRebuild(f); saveMyFurniture(); drawMinimap(); };
+  el.querySelectorAll(".fsw").forEach(function (b) { b.addEventListener("click", function () { setColor(b.dataset.c); renderFurnPanel(); }); });
+  const cp = document.getElementById("fColor");
+  if (cp) { cp.addEventListener("input", function () { setColor(cp.value); el.querySelectorAll(".fsw").forEach(function (x) { x.classList.remove("on"); }); }); cp.addEventListener("change", function () { renderFurnPanel(); }); }
   document.getElementById("fDel").addEventListener("click", function () {
     myFurn = myFurn.filter(function (x) { return x !== f; });
     removeLabel(f.label); f.label = null; f.mesh.dispose(); selFurn = null;
