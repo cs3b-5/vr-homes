@@ -37,7 +37,7 @@ const DEFAULT_FIELD_DEFS = {
   features: ['オートロック','バス・トイレ別','エアコン','インターネット無料','浴室乾燥機','宅配ボックス','南向き',
              'ペット可','独立洗面台','室内洗濯機置場','システムキッチン','食洗機','IHコンロ','ウォークインクローゼット',
              '駐車場','駐輪場','即入居可','DIY可','家具・家電付き','リノベーション済み','フリーレント','保証人不要',
-             '二人暮らし可','子供可','学生向け','女性限定','敷金なし','礼金なし'],
+             '二人暮らし可','子供可','学生向け','女性限定','敷金なし','礼金なし','ロフト付き','対面キッチン'],
   madori: ['1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4LDK以上'],
 };
 
@@ -544,11 +544,13 @@ function openFloorEditor(propId){
   _fePendingInit={type:'init',mode:'edit',data:null,propName:''};
   if(propId!=null){
     const prop=PROPS.find(p=>p.id===propId);
-    if(prop){_fePendingInit.data=prop.floorplanData||null;_fePendingInit.propName=prop.name||'';_fePendingInit.area=+prop.size||0;}
+    if(prop){_fePendingInit.data=prop.floorplanData||null;_fePendingInit.propName=prop.name||'';_fePendingInit.area=+prop.size||0;_fePendingInit.madori=prop.madori||'';_fePendingInit.ptype=prop.type||'';}
   } else {
     _fePendingInit.data=window.editedFloorplanData||null;
     _fePendingInit.propName=(document.getElementById('af-name')||{}).value||'新規物件';
     _fePendingInit.area=+((document.getElementById('af-size')||{}).value)||0;  // 専有面積(画像から自動作成の縮尺に使う)
+    _fePendingInit.madori=(document.getElementById('af-madori')||{}).value||'';   // 「間取りを自動で作る」の初期値
+    _fePendingInit.ptype=(document.getElementById('af-type')||{}).value||'';if(_fePendingInit.ptype==='一戸建て'&&((document.getElementById('af-floors')||{}).value||'')==='1')_fePendingInit.ptype='平屋';
   }
   _openFloorEditorModal('edit');
 }

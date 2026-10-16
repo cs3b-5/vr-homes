@@ -51,6 +51,11 @@ button{cursor:pointer}
 .tool kbd{position:absolute;top:3px;right:5px;font-size:9px;color:var(--ink-4);font-family:inherit}
 .tool.wide{grid-column:span 2;flex-direction:row;min-height:36px;gap:7px}
 .tool.wide svg{width:18px;height:18px}
+.tgrid3{grid-template-columns:1fr 1fr 1fr}
+.tool .emo{font-size:19px;line-height:1;height:21px;display:block}
+.tool.part{min-height:50px;font-size:11px;padding:5px 2px}
+.parts-note{margin:6px 2px 0;line-height:1.5}
+.parts-note kbd{font-size:10px;border:1px solid var(--line);border-radius:4px;padding:0 3px;background:#fff}
 .furn-cats{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
 .chip{height:24px;padding:0 9px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:11.5px;color:var(--ink-2)}
 .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
@@ -107,6 +112,14 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
 .seg button{height:30px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:11.5px}
 .seg button.on{border-color:var(--blue);background:var(--blue-l);color:var(--blue-d);font-weight:700}
+.seg.seg2{grid-template-columns:repeat(2,1fr)} .seg.seg4{grid-template-columns:repeat(2,1fr)}
+.levelbar{position:absolute;left:10px;top:52px;display:flex;gap:4px;z-index:5;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:10px;padding:4px}
+.lvb{height:28px;min-width:38px;padding:0 8px;border:1px solid var(--line);border-radius:7px;background:#fff;font-weight:700;font-size:12px;color:var(--ink-2)}
+.lvb.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.lvb.add{color:var(--blue-d);font-weight:600}
+.lvb.del{min-width:30px;padding:0 6px}
+@media (max-width:860px){ .levelbar{top:48px;left:6px} }
+.gen-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .list{display:grid;gap:4px}
 .li{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;text-align:left;width:100%}
 .li:hover{border-color:var(--line-2)}
@@ -144,6 +157,8 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
   .tool{min-width:62px;min-height:50px}
   .tool.wide{grid-column:auto;flex-direction:column;min-height:50px}
   .tool kbd{display:none}
+  .parts-note{display:none}
+  .tgrid3{display:flex}
   .bg-step{display:none}
   .furn-step{display:flex}
   .furn-cats{display:none}
@@ -200,6 +215,7 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
           <button class="tool" data-tool="poly" title="自由な形の部屋・斜めの壁 (P)"><kbd>P</kbd><svg viewBox="0 0 24 24"><path d="M4 5h9l7 7v7H4z"/></svg>L字・斜め</button>
           <button class="tool" data-tool="wall" title="壁を引く (L)"><kbd>L</kbd><svg viewBox="0 0 24 24"><path d="M4 18 20 6" stroke-width="3.2"/></svg>壁だけ</button>
           <button class="tool wide" id="bAddRoom" title="サイズを数字で指定して部屋を追加"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/><path d="M8 12h8M12 8v8"/></svg>数字で部屋を追加</button>
+          <button class="tool wide" id="bGen" title="間取り（1K・3LDKなど）を選ぶと、トイレ・お風呂・キッチン・階段つきの間取りを自動で作ります"><svg viewBox="0 0 24 24"><path d="M5 19 19 5"/><path d="M15 4l1-2 1 2 2 1-2 1-1 2-1-2-2-1zM6 6l.6-1.2L7.8 4l-1.2-.6L6 2l-.6 1.4L4 4l1.4.8z"/></svg>間取りを自動で作る</button>
         </div>
       </div>
       <div class="step">
@@ -211,8 +227,13 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
           <button class="tool" data-tool="tag" title="案内タグ: VR内見で設備などの説明を表示 (T)"><kbd>T</kbd><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v6M12 7.5v.5" stroke-width="2.4"/></svg>案内タグ</button>
         </div>
       </div>
+      <div class="step parts-step">
+        <div class="step-h"><span class="n">3</span><span>水回り・階段・ロフト</span></div>
+        <div class="tgrid tgrid3" id="partList"></div>
+        <p class="mini parts-note">選んで図の上をクリックすると、設備つきの部屋を置けます（<kbd>R</kbd>で回転）</p>
+      </div>
       <div class="step furn-step">
-        <div class="step-h"><span class="n">3</span><span>家具を置く</span></div>
+        <div class="step-h"><span class="n">4</span><span>家具を置く</span></div>
         <div class="furn-cats" id="furnCats"></div>
         <div class="furn-list" id="furnList"></div>
       </div>
@@ -250,6 +271,7 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
       <div class="hint" id="hint"><span class="txt" id="hintTxt"></span><span class="acts" id="hintActs"></span></div>
       <div class="numbox" id="numbox"><span id="numLabel">長さ</span><input id="numInput" inputmode="decimal" autocomplete="off"><span>m</span></div>
       <div class="stat" id="stat"></div>
+      <div class="levelbar" id="levelBar"></div>
       <div class="legend-toggle hide-sm">
         <select class="btn small" id="gridSel" title="スナップ(吸着)の間隔">
           <option value="0.05">吸着 5cm</option>
@@ -277,6 +299,28 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
     <div class="row" style="justify-content:flex-end">
       <button class="btn ghost" id="autoCancel">やめる</button>
       <button class="btn primary" id="autoOk">作成する</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="genModal">
+  <div class="dialog">
+    <h3>✨ 間取りを自動で作る</h3>
+    <p class="mini" style="margin:-4px 0 12px">トイレ・お風呂・洗面台・キッチン・下駄箱・クローゼットつきの間取りを作ります。一戸建ては階段つきの2階建てか平屋、ロフトも選べます。できあがった後で自由に直せます。</p>
+    <div class="gen-grid">
+      <div class="field"><label>間取り</label><select class="in" id="gMadori"></select></div>
+      <div class="field"><label>建物</label><select class="in" id="gType"><option value="">マンション・アパート</option><option value="一戸建て">一戸建て（2階建て）</option><option value="平屋">一戸建て（平屋）</option></select></div>
+      <div class="field"><label>広さ（だいたい）</label><div class="unit" data-u="㎡"><input class="in" id="gSize" type="number" step="0.5" placeholder="おまかせ"></div></div>
+      <div class="field"><label>キッチン</label><select class="in" id="gKitchen"><option value="auto">おまかせ</option><option value="face">対面キッチン</option><option value="wall">壁付きキッチン</option></select></div>
+      <div class="field"><label>お風呂とトイレ</label><select class="in" id="gBath"><option value="auto">おまかせ</option><option value="sep">別々</option><option value="unit">一緒（ユニットバス）</option></select></div>
+      <div class="field"><label>ロフト</label><select class="in" id="gLoft"><option value="auto">おまかせ</option><option value="yes">あり</option><option value="no">なし</option></select></div>
+      <div class="field"><label>和室</label><select class="in" id="gWa"><option value="auto">おまかせ</option><option value="yes">あり</option><option value="no">なし</option></select></div>
+      <div class="field" id="gT2row"><label>2階のトイレ</label><select class="in" id="gToilet2"><option value="auto">おまかせ</option><option value="each">あり（1階と2階）</option><option value="one">なし（1階だけ）</option></select></div>
+    </div>
+    <div class="mini" id="gNote" style="margin:2px 0 10px"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" id="gCancel">やめる</button>
+      <button class="btn primary" id="gOk">作る</button>
     </div>
   </div>
 </div>
@@ -313,16 +357,22 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
    - openings:   { type:'door'|'window'|'passage', edgeIndex, offsetAlongWall(0〜1), width, height, doorType }
    - furnitures: { id, type, name, icon, cx, cy, w, d, h, pw, ph, rotation, color }
    - walls:      { id, x1, y1, x2, y2 }
+   - 階: 部屋・家具・壁・タグの level(0=1階, 1=2階…)。エディタの中では、今の階のものだけ plan.rooms などに入れ、
+         ほかの階は plan.stash[階] にしまっておく（今までの処理をそのまま使える）
+   - 部屋の種類 kind: "stairs"(階段) / "void"(吹き抜け・上の階の階段の穴) / "loft"(ロフト) ほか
+       stairs:{shape:"u"|"straight", up:"N|S|E|W", turn:"L|R"} / loftY(ロフトの床の高さm) / ladder:{side, at} / ceilH(天井の高さm)
    親ページ(index.html)とは postMessage でやり取りする
-     子→親: vr-editor-ready / vr-editor-save {data, thumbnail} / vr-editor-cancel
-     親→子: init {data, propName}
+     子→親: vr-editor-ready / vr-editor-save {data, thumbnail} / vr-editor-cancel / vr-editor-gen {req}（自動で作る）
+     親→子: init {data, propName, area, madori, ptype} / vr-editor-gen-result {data, info} | {error}
    ===================================================================== */
 
 const M = 50;                    // 1m = 50px(エディタ座標)
 const WALL_DRAW_T = 0.12;        // 描画上の壁の厚み(m)
 const TATAMI = 1.62;             // 1帖 = 1.62㎡(不動産表示の基準)
 const ROOM_COLORS = ['#1D9E75','#185FA5','#BA7517','#993556','#533AB7','#0891B2','#65A30D','#DC2626','#78716C','#D97706'];
-const ROOM_NAMES = ['LDK','洋室','和室','寝室','キッチン','ダイニング','玄関','廊下','浴室','洗面所','トイレ','収納','クローゼット','バルコニー'];
+const ROOM_NAMES = ['LDK','洋室','和室','寝室','キッチン','ダイニング','玄関','廊下','浴室','洗面所','トイレ','収納','クローゼット','バルコニー','階段','ロフト'];
+const ROOM_KINDS = [['', '部屋'], ['stairs', '階段'], ['void', '吹き抜け・階段の穴'], ['loft', 'ロフト']];
+const DIRS = [['N', '↑ 北へ'], ['S', '↓ 南へ'], ['E', '→ 東へ'], ['W', '← 西へ']];
 const ROOM_PRESETS = [
   { n:'4.5帖', w:2.73, d:2.73 }, { n:'6帖', w:3.64, d:2.73 }, { n:'8帖', w:3.64, d:3.64 }, { n:'10帖', w:4.55, d:3.64 },
   { n:'12帖', w:5.46, d:3.64 }, { n:'玄関', w:1.82, d:1.37 }, { n:'浴室', w:1.82, d:1.37 }, { n:'トイレ', w:0.91, d:1.82 }
@@ -346,16 +396,19 @@ const FURNITURE = {
     {id:'fridge',name:'冷蔵庫',icon:'🧊',w:0.6,d:0.65,h:1.8,color:'#B0C4DE'},
     {id:'sink',name:'シンク',icon:'🚰',w:0.8,d:0.6,h:0.85,color:'#C0C0C0'},
     {id:'stove',name:'コンロ',icon:'🍳',w:0.6,d:0.6,h:0.85,color:'#888888'},
-    {id:'counter',name:'カウンター',icon:'🍽',w:2.0,d:0.6,h:0.85,color:'#D2B48C'}
+    {id:'counter',name:'カウンター',icon:'🍽',w:2.0,d:0.6,h:0.85,color:'#D2B48C'},
+    {id:'kitchen',name:'システムキッチン',icon:'🍳',w:2.55,d:0.65,h:0.85,color:'#E7E5E4'},
+    {id:'cupboard',name:'カップボード',icon:'🍽',w:1.8,d:0.45,h:1.8,color:'#D6C4A8'}
   ],
   '水まわり': [
     {id:'bathtub',name:'バスタブ',icon:'🛁',w:0.8,d:1.5,h:0.6,color:'#B0E0E6'},
     {id:'washstand',name:'洗面台',icon:'🪥',w:0.8,d:0.5,h:0.85,color:'#E0E0E0'},
     {id:'toilet',name:'トイレ',icon:'🚽',w:0.45,d:0.65,h:0.85,color:'#F5F5F5'},
-    {id:'shower',name:'シャワー',icon:'🚿',w:0.9,d:0.9,h:2.2,color:'#87CEEB'}
+    {id:'shower',name:'シャワー',icon:'🚿',w:0.9,d:0.9,h:2.2,color:'#87CEEB'},
+    {id:'washpan',name:'洗濯機置場',icon:'🧺',w:0.64,d:0.64,h:0.1,color:'#F8FAFC'},
+    {id:'shoebox',name:'下駄箱',icon:'👞',w:0.9,d:0.38,h:0.9,color:'#C8A97E'}
   ],
   'その他': [
-    {id:'stairs',name:'階段',icon:'🪜',w:1.0,d:2.0,h:1.0,color:'#DEB887'},
     {id:'plant',name:'観葉植物',icon:'🪴',w:0.4,d:0.4,h:1.2,color:'#228B22'},
     {id:'piano',name:'ピアノ',icon:'🎹',w:1.5,d:0.6,h:1.2,color:'#222222'},
     {id:'ac',name:'エアコン',icon:'❄️',w:0.8,d:0.2,h:0.3,color:'#E8E8E8'}
@@ -460,10 +513,65 @@ function evScreen(e) { const r = cv.getBoundingClientRect(); return { x: e.clien
 
 /* ───────── データの出し入れ ───────── */
 function serialize() { return JSON.stringify(plan); }
-function restore(json) { plan = JSON.parse(json); if (!plan.tags) plan.tags = []; selection = []; refreshAll(); }
+function restore(json) { plan = JSON.parse(json); if (!plan.tags) plan.tags = []; selection = []; refreshAll(); renderLevelBar(); }
+
+/* ───────── 階（1階・2階…）───────── */
+function emptyLevel() { return { rooms: [], furnitures: [], walls: [], tags: [] }; }
+function levelCount() { return Math.max((plan.lv || 0) + 1, (plan.stash || []).length); }
+function levelData(i) {   // i階の中身（今の階なら plan の配列そのもの）
+  if (i === (plan.lv || 0)) return { rooms: plan.rooms, furnitures: plan.furnitures, walls: plan.walls, tags: plan.tags || [] };
+  return (plan.stash && plan.stash[i]) || emptyLevel();
+}
+function switchLevel(n) {
+  n = Math.max(0, n);
+  if (n === (plan.lv || 0)) return;
+  cancelDraft();
+  if (!plan.stash) plan.stash = [];
+  plan.stash[plan.lv || 0] = { rooms: plan.rooms, furnitures: plan.furnitures, walls: plan.walls, tags: plan.tags || [] };
+  const t = plan.stash[n] || emptyLevel();
+  plan.rooms = t.rooms; plan.furnitures = t.furnitures; plan.walls = t.walls; plan.tags = t.tags || [];
+  plan.stash[n] = null;
+  plan.lv = n;
+  selection = [];
+  refreshAll(); renderLevelBar();
+}
+function addLevel() {
+  if (levelCount() >= 4) { toast('4階までです'); return; }
+  const n = levelCount();
+  change(() => { if (!plan.stash) plan.stash = []; plan.stash[n] = emptyLevel(); });
+  switchLevel(n);
+  toast(`${n + 1}階を追加しました。うすく見えている下の階に合わせて部屋を描いてください`);
+}
+function removeLevel() {
+  const n = plan.lv || 0; if (n === 0) return;
+  const d = levelData(n);
+  if ((d.rooms.length || d.furnitures.length || d.walls.length) && !confirm(`${n + 1}階をまるごと消しますか?(元に戻すで復活できます)`)) return;
+  change(() => {
+    plan.stash = plan.stash || [];
+    plan.stash.splice(n, 1);
+    const t = plan.stash[n - 1] || emptyLevel();
+    plan.rooms = t.rooms; plan.furnitures = t.furnitures; plan.walls = t.walls; plan.tags = t.tags || [];
+    plan.stash[n - 1] = null; plan.lv = n - 1;
+    while (plan.stash.length > 1 && !plan.stash[plan.stash.length - 1] && plan.stash.length - 1 !== plan.lv) plan.stash.pop();
+  });
+  selection = []; refreshAll(); renderLevelBar();
+}
+function renderLevelBar() {
+  const box = $('levelBar'); if (!box) return;
+  const n = levelCount(), lv = plan.lv || 0;
+  let h = '';
+  for (let i = 0; i < n; i++) h += `<button class="lvb ${i === lv ? 'on' : ''}" data-l="${i}" title="${i + 1}階を編集">${i + 1}F</button>`;
+  h += `<button class="lvb add" id="lvAdd" title="上に階を追加（一戸建て・メゾネット）">＋階</button>`;
+  if (lv > 0) h += `<button class="lvb del" id="lvDel" title="この階を消す">🗑</button>`;
+  box.innerHTML = h;
+  box.querySelectorAll('[data-l]').forEach(b => b.onclick = () => switchLevel(+b.dataset.l));
+  $('lvAdd').onclick = addLevel;
+  if ($('lvDel')) $('lvDel').onclick = removeLevel;
+}
 
 function importData(data) {
   const rooms = [], furnitures = [], walls = [];
+  const lvOf = o => Math.max(0, Math.min(3, Math.round(+(o && o.level) || 0)));
   (data && data.rooms || []).forEach((r, ri) => {
     let verts, openings = [];
     if (Array.isArray(r.vertices) && r.vertices.length >= 3) {
@@ -483,17 +591,37 @@ function importData(data) {
         if (map) openings.push(normOpening(o, map[0], map[1]));
       });
     }
-    rooms.push({ id: newId(), name: r.name || ('部屋' + (ri + 1)), color: r.color || ROOM_COLORS[ri % ROOM_COLORS.length], vertices: verts, openings, groupId: r.groupId || null });
+    const room = { id: newId(), name: r.name || ('部屋' + (ri + 1)), color: r.color || ROOM_COLORS[ri % ROOM_COLORS.length], vertices: verts, openings, groupId: r.groupId || null, level: lvOf(r) };
+    if (r.kind) room.kind = String(r.kind).slice(0, 12);
+    if (r.stairs && typeof r.stairs === 'object') room.stairs = { shape: r.stairs.shape === 'straight' ? 'straight' : 'u', up: 'NSEW'.includes(r.stairs.up) && r.stairs.up ? r.stairs.up : 'N', turn: r.stairs.turn === 'R' ? 'R' : 'L' };
+    if (+r.loftY) room.loftY = +r.loftY;
+    if (r.ladder && typeof r.ladder === 'object') room.ladder = { side: 'NSEW'.includes(r.ladder.side) && r.ladder.side ? r.ladder.side : 'S', at: clamp(+r.ladder.at || 0.8, 0.05, 0.95) };
+    if (+r.ceilH) room.ceilH = +r.ceilH;
+    rooms.push(room);
   });
   ((data && (data.furnitures || data.furniture)) || []).forEach(f => {
     const w = +f.w || (+f.pw / M) || 1, d = +f.d || (+f.ph / M) || 1;
-    furnitures.push({ id: newId(), type: f.type || 'custom', name: f.name || '家具', icon: f.icon || '▪', cx: +f.cx || 0, cy: +f.cy || 0, w, d, h: +f.h || 0.8, rotation: +f.rotation || 0, color: f.color || '#888888' });
+    const fo = { id: newId(), type: f.type || 'custom', name: f.name || '家具', icon: f.icon || '▪', cx: +f.cx || 0, cy: +f.cy || 0, w, d, h: +f.h || 0.8, rotation: +f.rotation || 0, color: f.color || '#888888', level: lvOf(f) };
+    if (f.fixed) fo.fixed = true;
+    furnitures.push(fo);
   });
-  ((data && data.walls) || []).forEach(w => walls.push({ id: newId(), x1: +w.x1 || 0, y1: +w.y1 || 0, x2: +w.x2 || 0, y2: +w.y2 || 0 }));
+  ((data && data.walls) || []).forEach(w => walls.push({ id: newId(), x1: +w.x1 || 0, y1: +w.y1 || 0, x2: +w.x2 || 0, y2: +w.y2 || 0, level: lvOf(w) }));
   const tags = [];
-  ((data && data.tags) || []).forEach(t => { if (t && (t.title || t.text)) tags.push({ id: newId(), x: +t.x || 0, y: +t.y || 0, h: +t.h || 1.2, title: String(t.title || '').slice(0, 40), text: String(t.text || '').slice(0, 400) }); });
+  ((data && data.tags) || []).forEach(t => { if (t && (t.title || t.text)) tags.push({ id: newId(), x: +t.x || 0, y: +t.y || 0, h: +t.h || 1.2, title: String(t.title || '').slice(0, 40), text: String(t.text || '').slice(0, 400), level: lvOf(t) }); });
   const north = ((+(data && data.north) || 0) % 360 + 360) % 360;
-  return { rooms, furnitures, walls, tags, north };
+  // 階ごとに分ける（1階を編集中、ほかは stash に）
+  let top = 0;
+  [rooms, furnitures, walls, tags].forEach(a => a.forEach(o => { top = Math.max(top, o.level); }));
+  const stash = [];
+  for (let i = 0; i <= top; i++) {
+    const pick = a => a.filter(o => o.level === i).map(o => { const c = Object.assign({}, o); delete c.level; return c; });
+    stash[i] = { rooms: pick(rooms), furnitures: pick(furnitures), walls: pick(walls), tags: pick(tags) };
+  }
+  const first = stash[0];
+  stash[0] = null;
+  const out = { rooms: first.rooms, furnitures: first.furnitures, walls: first.walls, tags: first.tags, north, lv: 0, stash: top > 0 ? stash : [] };
+  if (+(data && data.floorH)) out.floorH = +data.floorH;
+  return out;
 }
 function normOpening(o, edgeIndex, along) {
   const type = o.type === 'window' ? 'window' : o.type === 'passage' ? 'passage' : 'door';
@@ -503,20 +631,29 @@ function normOpening(o, edgeIndex, along) {
   if (type === 'door') op.doorType = o.doorType || 'swing_left';
   return op;
 }
-function exportData() {
-  return {
-    rooms: plan.rooms.map(r => {
+function exportData() { return exportFrom(plan); }
+// 内部の形（今の階＋stash）→ 保存する形（全部の階をまとめて、level をつける）
+function exportFrom(P) {
+  const out = { rooms: [], furnitures: [], walls: [], tags: [], north: +P.north || 0 };
+  const n = Math.max((P.lv || 0) + 1, (P.stash || []).length);
+  const lvTag = (o, i) => { if (i) o.level = i; return o; };
+  for (let i = 0; i < n; i++) {
+    const d = i === (P.lv || 0) ? P : ((P.stash && P.stash[i]) || emptyLevel());
+    (d.rooms || []).forEach(r => {
       const b = bbox(r.vertices);
-      return { id: r.id, name: r.name, color: r.color, groupId: r.groupId || null,
+      const o = { id: r.id, name: r.name, color: r.color, groupId: r.groupId || null,
         wx: b.x1, wy: b.y1, ww: b.x2 - b.x1, wh: b.y2 - b.y1,
         vertices: r.vertices.map(v => ({ x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100 })),
         openings: r.openings.map(o => Object.assign({}, o)) };
-    }),
-    furnitures: plan.furnitures.map(f => ({ id: f.id, type: f.type, name: f.name, icon: f.icon, cx: f.cx, cy: f.cy, w: f.w, d: f.d, h: f.h, pw: f.w * M, ph: f.d * M, rotation: f.rotation, color: f.color })),
-    walls: plan.walls.map(w => ({ id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 })),
-    north: +plan.north || 0,
-    tags: (plan.tags || []).filter(t => t.title || t.text).map(t => ({ id: t.id, x: Math.round(t.x * 10) / 10, y: Math.round(t.y * 10) / 10, h: t.h, title: t.title, text: t.text }))
-  };
+      ['kind', 'stairs', 'loftY', 'ladder', 'ceilH'].forEach(k => { if (r[k] !== undefined && r[k] !== '' && r[k] !== null) o[k] = r[k]; });
+      out.rooms.push(lvTag(o, i));
+    });
+    (d.furnitures || []).forEach(f => { const o = { id: f.id, type: f.type, name: f.name, icon: f.icon, cx: f.cx, cy: f.cy, w: f.w, d: f.d, h: f.h, pw: f.w * M, ph: f.d * M, rotation: f.rotation, color: f.color }; if (f.fixed) o.fixed = true; out.furnitures.push(lvTag(o, i)); });
+    (d.walls || []).forEach(w => out.walls.push(lvTag({ id: w.id, x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 }, i)));
+    (d.tags || []).filter(t => t.title || t.text).forEach(t => out.tags.push(lvTag({ id: t.id, x: Math.round(t.x * 10) / 10, y: Math.round(t.y * 10) / 10, h: t.h, title: t.title, text: t.text }, i)));
+  }
+  if (n > 1 || P.floorH) out.floorH = +P.floorH || 2.8;
+  return out;
 }
 
 /* ───────── 履歴(元に戻す/やり直す)───────── */
@@ -539,15 +676,18 @@ function autosave() {
 }
 
 /* ───────── スナップ(吸着)───────── */
+function ghostRooms() { const lv = plan.lv || 0; return lv > 0 ? levelData(lv - 1).rooms : []; }   // 下の階
 function allVertices(excludeRoom) {
   const out = [];
   plan.rooms.forEach(r => { if (r !== excludeRoom) r.vertices.forEach(v => out.push(v)); });
+  ghostRooms().forEach(r => r.vertices.forEach(v => out.push(v)));
   plan.walls.forEach(w => { out.push({ x: w.x1, y: w.y1 }); out.push({ x: w.x2, y: w.y2 }); });
   return out;
 }
 function allEdges(excludeRoom) {
   const out = [];
   plan.rooms.forEach(r => { if (r === excludeRoom) return; r.vertices.forEach((v, i) => out.push([v, r.vertices[(i + 1) % r.vertices.length]])); });
+  ghostRooms().forEach(r => r.vertices.forEach((v, i) => out.push([v, r.vertices[(i + 1) % r.vertices.length]])));
   plan.walls.forEach(w => out.push([{ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 }]));
   return out;
 }
@@ -682,15 +822,24 @@ function render() {
   }
   const sel = new Set(selection.map(s => s.obj));
 
+  // ほかの階（下の階。1階を編集中なら2階）をうすく
+  const gh = ghostRooms();
+  if (gh.length) {
+    ctx.save(); ctx.setLineDash([px(5), px(4)]); ctx.lineWidth = px(1.5); ctx.strokeStyle = 'rgba(100,116,139,.55)';
+    gh.forEach(r => { tracePoly(r.vertices); ctx.fillStyle = 'rgba(148,163,184,.10)'; ctx.fill(); ctx.stroke(); });
+    ctx.restore();
+  }
   // 部屋の床
   plan.rooms.forEach(r => {
     tracePoly(r.vertices);
-    ctx.fillStyle = hexA(r.color, sel.has(r) ? 0.28 : 0.16);
+    ctx.fillStyle = r.kind === 'loft' ? hexA(r.color, sel.has(r) ? 0.2 : 0.08) : hexA(r.color, sel.has(r) ? 0.28 : 0.16);
     ctx.fill();
+    if (r.kind === 'stairs' || r.kind === 'void') drawStairMark(r);
   });
-  // 壁
+  // 壁（ロフトは壁ではなく点線）
   ctx.lineCap = 'butt';
-  plan.rooms.forEach(r => r.vertices.forEach((v, i) => {
+  plan.rooms.forEach(r => { if (r.kind !== 'loft') return; tracePoly(r.vertices); ctx.save(); ctx.setLineDash([px(6), px(4)]); ctx.lineWidth = px(sel.has(r) ? 3 : 2); ctx.strokeStyle = sel.has(r) ? '#1d4ed8' : '#7c3aed'; ctx.stroke(); ctx.restore(); drawLadderMark(r); });
+  plan.rooms.forEach(r => r.kind !== 'loft' && r.vertices.forEach((v, i) => {
     const e = edgeInfo(r, i), holes = holesForEdge(r, i);
     let cur = 0;
     ctx.strokeStyle = sel.has(r) ? '#1d4ed8' : '#1e293b';
@@ -700,7 +849,7 @@ function render() {
     seg(cur, e.len);
   }));
   // 角を埋める
-  plan.rooms.forEach(r => r.vertices.forEach(v => { ctx.fillStyle = sel.has(r) ? '#1d4ed8' : '#1e293b'; const s = WALL_DRAW_T * M / 2; ctx.fillRect(v.x - s, v.y - s, s * 2, s * 2); }));
+  plan.rooms.forEach(r => r.kind !== 'loft' && r.vertices.forEach(v => { ctx.fillStyle = sel.has(r) ? '#1d4ed8' : '#1e293b'; const s = WALL_DRAW_T * M / 2; ctx.fillRect(v.x - s, v.y - s, s * 2, s * 2); }));
   // 独立した壁
   plan.walls.forEach(w => {
     ctx.strokeStyle = sel.has(w) ? '#1d4ed8' : '#334155';
@@ -726,6 +875,8 @@ function render() {
   // 描画中
   drawDraft();
   if (openingPreview) drawOpeningPreview(openingPreview);
+  if (tool === 'part') drawPartGhost();
+  if (tool === 'loft') drawLoftGhost();
   if (drag && drag.kind === 'box') {
     const b = drag;
     ctx.fillStyle = 'rgba(37,99,235,.08)'; ctx.strokeStyle = '#2563eb'; ctx.lineWidth = px(1); ctx.setLineDash([px(4), px(3)]);
@@ -751,6 +902,48 @@ function render() {
   updateStat();
 }
 
+// 階段: 段の線と上る向きの矢印 / 吹き抜け: ×
+function drawStairMark(r) {
+  const b = bbox(r.vertices), W = b.x2 - b.x1, H = b.y2 - b.y1;
+  ctx.save(); tracePoly(r.vertices); ctx.clip();
+  ctx.strokeStyle = 'rgba(146,64,14,.6)'; ctx.lineWidth = px(1);
+  if (r.kind === 'void') {
+    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.moveTo(b.x2, b.y1); ctx.lineTo(b.x1, b.y2); ctx.stroke();
+    ctx.restore(); return;
+  }
+  const st = r.stairs || { shape: 'u', up: 'N', turn: 'L' };
+  const d = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }[st.up] || [0, -1];
+  const horiz = d[0] !== 0, len = horiz ? W : H, wid = horiz ? H : W;
+  const step = 0.25 * M;
+  for (let t = step; t < len; t += step) {   // 段の線（上る向きに直角）
+    ctx.beginPath();
+    if (horiz) { ctx.moveTo(b.x1 + t, b.y1); ctx.lineTo(b.x1 + t, b.y2); } else { ctx.moveTo(b.x1, b.y1 + t); ctx.lineTo(b.x2, b.y1 + t); }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // 矢印（上り始め → 上る向き。折り返しは戻ってくる）
+  const c = { x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 }, rt = [-d[1], d[0]];   // 上る向きの右（図の座標）
+  const s1 = st.turn === 'R' ? -1 : 1, q = wid / 4;
+  const P = (a, side) => ({ x: c.x + d[0] * (a - len / 2) + rt[0] * side, y: c.y + d[1] * (a - len / 2) + rt[1] * side });
+  const pts = st.shape === 'straight' || wid < 1.2 * M ? [P(len * 0.1, 0), P(len * 0.9, 0)] : [P(len * 0.1, s1 * q), P(len * 0.8, s1 * q), P(len * 0.8, -s1 * q), P(len * 0.1, -s1 * q)];
+  ctx.strokeStyle = '#b45309'; ctx.lineWidth = px(2); ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.stroke();
+  const a = pts[pts.length - 2], e = pts[pts.length - 1], ang = Math.atan2(e.y - a.y, e.x - a.x), hl = px(9);
+  ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x - hl * Math.cos(ang - 0.5), e.y - hl * Math.sin(ang - 0.5)); ctx.lineTo(e.x - hl * Math.cos(ang + 0.5), e.y - hl * Math.sin(ang + 0.5)); ctx.closePath(); ctx.fillStyle = '#b45309'; ctx.fill();
+  ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, px(3.5), 0, Math.PI * 2); ctx.fill();
+}
+function drawLadderMark(r) {
+  const ld = r.ladder || { side: 'S', at: 0.8 }, b = bbox(r.vertices);
+  const at = clamp(+ld.at || 0.8, 0.05, 0.95);
+  const p = { N: { x: b.x1 + (b.x2 - b.x1) * at, y: b.y1, dx: 0, dy: -1 }, S: { x: b.x1 + (b.x2 - b.x1) * at, y: b.y2, dx: 0, dy: 1 },
+    W: { x: b.x1, y: b.y1 + (b.y2 - b.y1) * at, dx: -1, dy: 0 }, E: { x: b.x2, y: b.y1 + (b.y2 - b.y1) * at, dx: 1, dy: 0 } }[ld.side] || null;
+  if (!p) return;
+  const w = 0.22 * M, l = 0.55 * M, ox = p.dy !== 0 ? 1 : 0, oy = p.dx !== 0 ? 1 : 0;
+  ctx.strokeStyle = '#7c3aed'; ctx.lineWidth = px(2);
+  ctx.beginPath();
+  [-1, 1].forEach(s => { ctx.moveTo(p.x + ox * w * s, p.y + oy * w * s); ctx.lineTo(p.x + ox * w * s + p.dx * l, p.y + oy * w * s + p.dy * l); });
+  for (let t = 0.12; t < 1; t += 0.25) { ctx.moveTo(p.x - ox * w + p.dx * l * t, p.y - oy * w + p.dy * l * t); ctx.lineTo(p.x + ox * w + p.dx * l * t, p.y + oy * w + p.dy * l * t); }
+  ctx.stroke();
+}
 function drawCompass(W) {
   const cx = W - 38, cy = 38, r = 22, a = (+plan.north || 0) * Math.PI / 180;
   ctx.save(); ctx.translate(cx, cy);
@@ -856,8 +1049,9 @@ function drawRoomLabel(r, selected) {
   if (minSide < 26) return;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = `700 ${minSide > 90 ? 13 : 11}px system-ui`;
-  ctx.fillStyle = selected ? '#1d4ed8' : '#0f172a';
+  ctx.fillStyle = selected ? '#1d4ed8' : r.kind === 'loft' ? '#6d28d9' : '#0f172a';
   ctx.fillText(r.name, c.x, c.y - 8);
+  if (r.kind === 'loft' || r.kind === 'void') { ctx.font = '11px system-ui'; ctx.fillStyle = '#6d28d9'; ctx.fillText(r.kind === 'loft' ? `床の高さ ${(+r.loftY || 2.1).toFixed(2)}m` : '床なし（吹き抜け）', c.x, c.y + 8); return; }
   ctx.font = '11px system-ui'; ctx.fillStyle = '#475569';
   ctx.fillText(`${(a / TATAMI).toFixed(1)}帖 (${a.toFixed(1)}㎡)`, c.x, c.y + 8);
 }
@@ -1018,6 +1212,8 @@ function updateHint() {
     case 'passage': setHint('部屋の壁をクリックして通路(ドアなしの開口)を付ける'); break;
     case 'tag': setHint('説明を出したい場所をクリック(例: エアコン、収納、窓)。VR内見で表示されます'); break;
     case 'furniture': setHint(furnPick ? `「${furnPick.name}」を置く場所をクリック(Escで終了)` : '左の一覧から家具を選んでください'); break;
+    case 'part': setHint(partPick ? (partGhost && partGhost.overlap ? '⚠ ほかの部屋と重なっています。' : '') + `「${partPick.name}」を置く場所をクリック。ほかの部屋の角や壁に吸い付きます` : '', [{ label: '↻ 回転 (R)', fn: rotatePart }, { label: 'やめる', fn: () => setTool('select') }]); break;
+    case 'loft': setHint('ロフトを作る部屋の中をクリック（クリックした所に近い壁の側にできます）', [{ label: 'やめる', fn: () => setTool('select') }]); break;
     case 'calib':
       if (!calib || !calib.p1) setHint('下絵の上で、長さがわかる線の始点をクリック(例: 寸法線の端)');
       else if (!calib.p2) setHint('終点をクリック');
@@ -1031,11 +1227,13 @@ function updateHint() {
 }
 
 /* ───────── 道具の切り替え ───────── */
+function rotatePart() { partRot = (partRot + 1) % 4; if (hover) updatePartGhost(hover); updateHint(); draw(); }
 function setTool(t) {
   if (t !== tool) cancelDraft();
   if (['calib', 'bgmove', 'roomfill', 'autowall'].includes(t) && !bg) { toast('先に下絵の画像を読み込んでください'); return; }
   tool = t;
   if (t !== 'furniture') { furnPick = null; renderFurnList(); }
+  if (t !== 'part' && t !== 'loft') { partPick = null; partGhost = null; loftGhost = null; renderPartList(); }
   document.querySelectorAll('.tool[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   openingPreview = null;
   if (t === 'calib') calib = { p1: null, p2: null }; else { calib = null; closeNumbox(); }
@@ -1106,7 +1304,7 @@ cv.addEventListener('pointerdown', onDown);
 cv.addEventListener('pointermove', onMove);
 cv.addEventListener('pointerup', onUp);
 cv.addEventListener('pointercancel', onUp);
-cv.addEventListener('pointerleave', () => { if (!drag) { hover = null; openingPreview = null; draw(); } });
+cv.addEventListener('pointerleave', () => { if (!drag) { hover = null; openingPreview = null; partGhost = null; loftGhost = null; draw(); } });
 cv.addEventListener('dblclick', onDbl);
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('wheel', e => {
@@ -1154,6 +1352,8 @@ function onDown(e) {
     case 'wall': return clickWall(p);
     case 'door': case 'window': case 'passage': return placeOpening(p);
     case 'furniture': return placeFurniture(p);
+    case 'part': updatePartGhost(p); return placePart();
+    case 'loft': return placeLoft(p);
     case 'tag': return placeTag(p);
     case 'calib': return clickCalib(p);
     case 'bgmove': if (bg) drag = { kind: 'bgmove', p0: p, x0: bg.x, y0: bg.y }; return;
@@ -1322,6 +1522,8 @@ function onMove(e) {
       openingPreview = { room: ne.room, i: ne.i, f: clampAlong(ne.e, OPENING_DEFAULTS[tool].width, tLen / ne.e.len), type: tool };
     } else openingPreview = null;
   }
+  else if (tool === 'part') { const was = partGhost && partGhost.overlap; updatePartGhost(p); if ((partGhost && partGhost.overlap) !== was) updateHint(); }
+  else if (tool === 'loft') updateLoftGhost(p);
   else if (tool === 'select') {
     const h = hitTest(p);
     cv.style.cursor = !h ? 'default' : h.kind === 'vertex' || h.kind === 'wallEnd' ? 'move' : h.kind === 'insert' ? 'copy' : h.kind === 'edge' ? (h.room && Math.abs(edgeInfo(h.room, h.i).ux) > 0.7 ? 'ns-resize' : 'ew-resize') : h.kind === 'rotate' ? 'grab' : 'pointer';
@@ -1513,6 +1715,325 @@ function placeFurniture(p) {
   setSelection([{ kind: 'furn', obj: f }]);
 }
 
+
+/* ───────── 水回り・階段・ロフトの部品 ─────────
+   部品 = 設備（トイレ・浴槽など）とドア・窓がついた部屋のセット。単位はm、左上が(0,0)。
+   rooms: { name, x, y, w, h, color, kind?, stairs?, ops:[[壁 N|E|S|W, 左/上からの位置0〜1, 種類, 幅, 開き方?, 高さ?]] }
+   furn:  [種類, 中心x, 中心y, 幅, 奥行, 向き(0=北の壁に背を向ける), 名前?, 高さ?] */
+const C_WET = '#64748B', C_HALL = '#94A3B8', C_STAIR = '#A16207', C_LOFT = '#7C3AED';
+const FIXDEF = {   // 設備の見た目（家具と同じ形で保存。VR内見でもこの形で出る）
+  toilet: { name: 'トイレ', icon: '🚽', h: 0.8, color: '#F8FAFC' }, bathtub: { name: '浴槽', icon: '🛁', h: 0.55, color: '#E0F2FE' },
+  washstand: { name: '洗面台', icon: '🪥', h: 0.85, color: '#F1F5F9' }, kitchen: { name: 'キッチン', icon: '🍳', h: 0.85, color: '#E7E5E4' },
+  washpan: { name: '洗濯機置場', icon: '🧺', h: 0.1, color: '#F8FAFC' }, shoebox: { name: '下駄箱', icon: '👞', h: 0.9, color: '#C8A97E' },
+  closet: { name: 'クローゼット', icon: '👗', h: 2.2, color: '#E7DCC8' }, cupboard: { name: 'カップボード', icon: '🍽', h: 1.8, color: '#D6C4A8' },
+  fridge: { name: '冷蔵庫', icon: '🧊', h: 1.8, color: '#B0C4DE' }
+};
+const U9 = 0.91;
+const PARTS = [
+  { id: 'toilet', icon: '🚽', name: 'トイレ', tip: 'トイレ（手洗いつき）0.91×1.82m',
+    rooms: [{ name: 'トイレ', x: 0, y: 0, w: U9, h: 2 * U9, color: C_WET, ops: [['S', 0.5, 'door', 0.65, 'swing_left_out'], ['N', 0.5, 'window', 0.5, null, 0.5]] }],
+    furn: [['toilet', U9 / 2, 0.38, 0.42, 0.72, 0], ['washstand', U9 - 0.13, 1.2, 0.4, 0.22, 90, '手洗い', 0.8]] },
+  { id: 'bath', icon: '🛁', name: '浴室＋洗面', tip: '浴室と洗面脱衣室のセット（洗濯機置場つき）3.64×1.82m',
+    rooms: [{ name: '浴室', x: 0, y: 0, w: 2 * U9, h: 2 * U9, color: C_WET, ops: [['N', 0.5, 'window', 0.7, null, 0.7]] },
+            { name: '洗面室', x: 2 * U9, y: 0, w: 2 * U9, h: 2 * U9, color: C_WET, ops: [['W', 0.5, 'door', 0.75, 'slide_left'], ['S', 0.5, 'door', 0.75, 'slide_left']] }],
+    furn: [['bathtub', 0.43, U9, 1.6, 0.8, 270], ['washstand', 2 * U9 + 0.5, 0.27, 0.75, 0.5, 0], ['washpan', 4 * U9 - 0.37, 0.36, 0.64, 0.64, 0]] },
+  { id: 'unit', icon: '🚿', name: 'ユニットバス', tip: '浴槽・トイレ・洗面がひとつになったユニットバス 1.6×2.0m',
+    rooms: [{ name: 'ユニットバス', x: 0, y: 0, w: 1.6, h: 2.0, color: C_WET, ops: [['W', 0.62, 'door', 0.65, 'swing_left']] }],
+    furn: [['bathtub', 0.8, 0.37, 1.4, 0.7, 0], ['toilet', 1.24, 1.45, 0.42, 0.68, 90, null, 0.75], ['washstand', 0.33, 1.79, 0.5, 0.38, 180, '洗面ボウル', 0.8]] },
+  { id: 'entry', icon: '👞', name: '玄関', tip: '玄関（外へのドア・下駄箱つき）1.82×1.37m',
+    rooms: [{ name: '玄関', x: 0, y: 0, w: 2 * U9, h: 1.37, color: C_HALL, ops: [['N', 0.5, 'door', 0.85, 'swing_left_out'], ['S', 0.5, 'passage', 1.2]] }],
+    furn: [['shoebox', 2 * U9 - 0.21, 0.69, 0.9, 0.38, 90]] },
+  { id: 'kitchen', icon: '🍳', name: 'キッチン', tip: '壁付きキッチンと冷蔵庫置場（部屋の中に置きます）',
+    rooms: [], furn: [['kitchen', 1.275, 0.33, 2.55, 0.65, 0], ['fridge', 2.55 + 0.35, 0.34, 0.6, 0.65, 0]] },
+  { id: 'wic', icon: '👗', name: 'WIC', tip: 'ウォークインクローゼット 1.82×1.82m',
+    rooms: [{ name: 'ウォークインクローゼット', x: 0, y: 0, w: 2 * U9, h: 2 * U9, color: C_HALL, ops: [['S', 0.5, 'door', 0.75, 'swing_left']] }],
+    furn: [['closet', U9, 0.3, 1.7, 0.5, 0, '棚', 2.0], ['closet', 0.27, 1.05, 1.0, 0.5, 270, '棚', 2.0]] },
+  { id: 'stairs', icon: '🪜', name: '階段(折り返し)', tip: '折り返し階段 1.82×1.82m。上の階に「階段の穴」も自動で作ります',
+    rooms: [{ name: '階段', x: 0, y: 0, w: 2 * U9, h: 2 * U9, color: C_STAIR, kind: 'stairs', stairs: { shape: 'u', up: 'N', turn: 'L' }, ops: [['S', 0.75, 'passage', 0.8]] }], furn: [] },
+  { id: 'stairs2', icon: '🪜', name: '階段(まっすぐ)', tip: 'まっすぐの階段 0.91×3.64m。上の階に「階段の穴」も自動で作ります',
+    rooms: [{ name: '階段', x: 0, y: 0, w: U9, h: 4 * U9, color: C_STAIR, kind: 'stairs', stairs: { shape: 'straight', up: 'N', turn: 'L' }, ops: [['S', 0.5, 'passage', 0.8]] }], furn: [] },
+  { id: 'loft', icon: '🔼', name: 'ロフト', tip: '部屋をクリックすると、その部屋の上にロフト（はしごつき）を作ります', special: 'loft' }
+];
+let partPick = null, partRot = 0, partGhost = null, loftGhost = null;
+const ROT_DIR = ['N', 'E', 'S', 'W'];
+const rotDir = (d, k) => ROT_DIR[(ROT_DIR.indexOf(d) + k) % 4];
+
+function renderPartList() {
+  const box = $('partList'); if (!box) return;
+  box.innerHTML = PARTS.map(pt => `<button class="tool part ${partPick && partPick.id === pt.id ? 'on' : ''}" data-part="${pt.id}" title="${esc(pt.tip)}"><span class="emo">${pt.icon}</span>${esc(pt.name)}</button>`).join('');
+  box.querySelectorAll('[data-part]').forEach(b => b.onclick = () => {
+    const pt = PARTS.find(q => q.id === b.dataset.part);
+    if (partPick && partPick.id === pt.id) { setTool('select'); return; }
+    setTool(pt.special === 'loft' ? 'loft' : 'part');
+    partPick = pt; partRot = 0; renderPartList(); updateHint(); draw();
+  });
+}
+// 部品を k 回（90°ずつ時計回り）回した形を、エディタの座標(px)で作る
+function partShape(pt, k) {
+  const rot = (x, y) => { let q = { x, y }; for (let i = 0; i < k; i++) q = { x: -q.y, y: q.x }; return q; };
+  const rooms = pt.rooms.map(r => {
+    const vs = [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]].map(([x, y]) => rot(x * M, y * M));
+    const ops = r.ops.map(([wall, a, type, w, dt, h]) => {
+      const m = { N: [0, a], E: [1, a], S: [2, 1 - a], W: [3, 1 - a] }[wall];
+      const o = { type, edgeIndex: m[0], offsetAlongWall: m[1], width: w, height: h || (type === 'window' ? 1.1 : 2.0) };
+      if (type === 'door') o.doorType = dt || 'swing_left';
+      return o;
+    });
+    const o = { name: r.name, color: r.color, vertices: vs, openings: ops };
+    if (r.kind) o.kind = r.kind;
+    if (r.stairs) o.stairs = Object.assign({}, r.stairs, { up: rotDir(r.stairs.up, k) });
+    return o;
+  });
+  const furn = pt.furn.map(([type, cx, cy, w, d, rotation, name, h]) => {
+    const c = rot(cx * M, cy * M), def = FIXDEF[type];
+    return { type, name: name || def.name, icon: def.icon, cx: c.x, cy: c.y, w, d, h: h || def.h, rotation: (rotation + 90 * k) % 360, color: def.color, fixed: true };
+  });
+  // 左上を(0,0)にそろえる
+  const pts = rooms.flatMap(r => r.vertices).concat(furn.flatMap(f => furnCorners(f)));
+  const b = bbox(pts);
+  rooms.forEach(r => r.vertices.forEach(v => { v.x -= b.x1; v.y -= b.y1; }));
+  furn.forEach(f => { f.cx -= b.x1; f.cy -= b.y1; });
+  return { rooms, furn, w: b.x2 - b.x1, h: b.y2 - b.y1 };
+}
+// カーソルの位置に部品を置くときの、ずらす量（ほかの部屋の角・壁の線に吸い付く）
+function partOffset(sh, p) {
+  let dx = p.x - sh.w / 2, dy = p.y - sh.h / 2;
+  const verts = sh.rooms.length ? sh.rooms.flatMap(r => r.vertices) : [{ x: 0, y: 0 }, { x: sh.w, y: 0 }, { x: 0, y: sh.h }, { x: sh.w, y: sh.h }];
+  if (shiftDown) return { dx, dy, snapped: false };
+  const others = allVertices(null), tol = 14 / view.scale;
+  let best = null;
+  verts.forEach(v => others.forEach(w => { const d = Math.hypot(w.x - (v.x + dx), w.y - (v.y + dy)); if (d < tol && (!best || d < best.d)) best = { d, ex: w.x - (v.x + dx), ey: w.y - (v.y + dy) }; }));
+  if (best) return { dx: dx + best.ex, dy: dy + best.ey, snapped: true };
+  let bx = null, by = null;
+  verts.forEach(v => others.forEach(w => {
+    const ex = w.x - (v.x + dx), ey = w.y - (v.y + dy);
+    if (Math.abs(ex) < tol && (!bx || Math.abs(ex) < Math.abs(bx))) bx = ex;
+    if (Math.abs(ey) < tol && (!by || Math.abs(ey) < Math.abs(by))) by = ey;
+  }));
+  dx = bx !== null ? dx + bx : gridSnap(dx);
+  dy = by !== null ? dy + by : gridSnap(dy);
+  return { dx, dy, snapped: bx !== null || by !== null };
+}
+function updatePartGhost(p) {
+  if (tool !== 'part' || !partPick || !p) { partGhost = null; return; }
+  const sh = partShape(partPick, partRot), o = partOffset(sh, p);
+  const rooms = sh.rooms.map(r => Object.assign({}, r, { vertices: r.vertices.map(v => ({ x: v.x + o.dx, y: v.y + o.dy })) }));
+  const furn = sh.furn.map(f => Object.assign({}, f, { cx: f.cx + o.dx, cy: f.cy + o.dy }));
+  // ほかの部屋と重なっていないか（部屋の真ん中が、ほかの部屋の中に入っていたら重なり）
+  const overlap = rooms.some(r => plan.rooms.some(q => q.kind !== 'loft' && pointInPoly(centroid(r.vertices), q.vertices)));
+  const inRoom = !rooms.length && furn.every(f => plan.rooms.some(q => pointInPoly({ x: f.cx, y: f.cy }, q.vertices)));
+  partGhost = { rooms, furn, overlap, inRoom, snapped: o.snapped };
+}
+function drawPartGhost() {
+  if (!partGhost) return;
+  const bad = partGhost.overlap;
+  ctx.save();
+  partGhost.rooms.forEach(r => {
+    tracePoly(r.vertices); ctx.fillStyle = bad ? 'rgba(239,68,68,.16)' : hexA(r.color, 0.22); ctx.fill();
+    ctx.setLineDash([px(6), px(4)]); ctx.lineWidth = px(2.2); ctx.strokeStyle = bad ? '#dc2626' : '#2563eb'; ctx.stroke(); ctx.setLineDash([]);
+    if (r.kind === 'stairs') drawStairMark(r);
+    r.openings.forEach(o => { ctx.globalAlpha = 0.85; drawOpening(r, o, false); ctx.globalAlpha = 1; });
+  });
+  ctx.globalAlpha = 0.85;
+  partGhost.furn.forEach(f => drawFurniture(f, false));
+  ctx.restore();
+}
+function placePart() {
+  if (!partGhost) return;
+  const g = partGhost, lv = plan.lv || 0, added = [];
+  if (!g.rooms.length && !g.inRoom) { toast('キッチンは部屋（LDKなど）の中に置いてください'); return; }
+  let upper = null;
+  change(() => {
+    g.rooms.forEach(r => {
+      const room = { id: newId(), name: r.name, color: r.color, vertices: r.vertices.map(v => ({ x: v.x, y: v.y })), openings: r.openings.map(o => Object.assign({}, o)), groupId: null };
+      if (r.kind) room.kind = r.kind;
+      if (r.stairs) room.stairs = Object.assign({}, r.stairs);
+      plan.rooms.push(room); added.push({ kind: 'room', obj: room });
+      if (room.kind === 'stairs' && levelCount() < 4) upper = room;
+    });
+    g.furn.forEach(f => { const o = Object.assign({ id: newId() }, f); plan.furnitures.push(o); added.push({ kind: 'furn', obj: o }); });
+    if (upper) {   // 上の階の同じ場所に「階段の穴」
+      if (!plan.stash) plan.stash = [];
+      if (levelCount() <= lv + 1) plan.stash[lv + 1] = emptyLevel();
+      const up = plan.stash[lv + 1] || (plan.stash[lv + 1] = emptyLevel());
+      const vd = voidRoomFor(upper);
+      if (!up.rooms.some(q => q.kind === 'void' && dist(centroid(q.vertices), centroid(vd.vertices)) < 5)) up.rooms.push(vd); else upper = null;
+    }
+  });
+  renderLevelBar();
+  const overlap = g.overlap, narrow = window.innerWidth <= 860, name = partPick.name;
+  if (narrow) { setTool('select'); setSelection([]); }   // スマホは図が見えるように、詳細を開かない
+  else setSelection(added.filter(a => a.kind === 'room').slice(0, 1).concat(added.filter(a => a.kind === 'furn').slice(0, g.rooms.length ? 0 : 1)));
+  if (upper) toast(`${lv + 2}階に「階段の穴」も作りました（上の ${lv + 2}F ボタンで見られます）`);
+  else if (overlap) toast('ほかの部屋と重なっています。ドラッグで位置を直してください');
+  else toast(narrow ? `「${name}」を置きました。ドラッグで動かせます` : `「${name}」を置きました。続けて置けます（Escで終了）`);
+}
+// 階段の真上に置く「階段の穴」（上がってきた所に通路つき）
+function voidRoomFor(r) {
+  const verts = r.vertices.map(v => ({ x: v.x, y: v.y }));
+  const st = r.stairs || { shape: 'u', up: 'N', turn: 'L' };
+  const room = { id: newId(), name: '階段', color: '#64748B', vertices: verts, openings: [], groupId: null, kind: 'void' };
+  const b = bbox(verts), c = { x: (b.x1 + b.x2) / 2, y: (b.y1 + b.y2) / 2 };
+  const d = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] }[st.up] || [0, -1], rt = [-d[1], d[0]];
+  const len = d[0] ? b.x2 - b.x1 : b.y2 - b.y1, wid = d[0] ? b.y2 - b.y1 : b.x2 - b.x1;
+  let p;
+  if (st.shape === 'straight' || wid < 1.2 * M) p = { x: c.x + d[0] * len / 2, y: c.y + d[1] * len / 2 };
+  else { const s1 = st.turn === 'R' ? -1 : 1; p = { x: c.x - d[0] * len / 2 - rt[0] * s1 * wid / 4, y: c.y - d[1] * len / 2 - rt[1] * s1 * wid / 4 }; }
+  let best = null;
+  verts.forEach((v, i) => { const e = edgeInfo(room, i), sd = segDist(p, e.a, e.b); if (!best || sd.d < best.d) best = { i, t: sd.t, d: sd.d, e }; });
+  if (best) room.openings.push({ type: 'passage', edgeIndex: best.i, offsetAlongWall: clampAlong(best.e, 0.8, best.t), width: 0.8, height: 2.0 });
+  return room;
+}
+
+/* ロフト: 部屋をクリック → カーソルに近い側の上にロフトを作る */
+function loftHost(p) {
+  const list = plan.rooms.filter(r => !['loft', 'stairs', 'void'].includes(r.kind) && isAxisRect(r) && pointInPoly(p, r.vertices));
+  list.sort((a, b) => polyAreaM2(a.vertices) - polyAreaM2(b.vertices));
+  return list[0] || null;
+}
+function updateLoftGhost(p) {
+  loftGhost = null;
+  if (tool !== 'loft' || !p) return;
+  const r = loftHost(p); if (!r) return;
+  const b = bbox(r.vertices), W = (b.x2 - b.x1) / M, H = (b.y2 - b.y1) / M;
+  const dN = p.y - b.y1, dS = b.y2 - p.y, dW = p.x - b.x1, dE = b.x2 - p.x;
+  const side = [['N', dN], ['S', dS], ['W', dW], ['E', dE]].sort((a, c) => a[1] - c[1])[0][0];
+  const span = side === 'N' || side === 'S' ? H : W;
+  const dep = Math.min(Math.max(1.4, span * 0.45), 2.4, span - 1.0);
+  if (dep < 1.0) { loftGhost = { r, bad: true, verts: r.vertices }; return; }
+  const D = dep * M;
+  const rect = { N: [b.x1, b.y1, b.x2, b.y1 + D], S: [b.x1, b.y2 - D, b.x2, b.y2], W: [b.x1, b.y1, b.x1 + D, b.y2], E: [b.x2 - D, b.y1, b.x2, b.y2] }[side];
+  const verts = [{ x: rect[0], y: rect[1] }, { x: rect[2], y: rect[1] }, { x: rect[2], y: rect[3] }, { x: rect[0], y: rect[3] }];
+  loftGhost = { r, side, dep, verts, ladder: { side: { N: 'S', S: 'N', W: 'E', E: 'W' }[side], at: 0.8 } };
+}
+function drawLoftGhost() {
+  if (!loftGhost) return;
+  ctx.save();
+  tracePoly(loftGhost.verts);
+  ctx.fillStyle = loftGhost.bad ? 'rgba(239,68,68,.15)' : 'rgba(124,58,237,.18)'; ctx.fill();
+  ctx.setLineDash([px(6), px(4)]); ctx.lineWidth = px(2.2); ctx.strokeStyle = loftGhost.bad ? '#dc2626' : '#7c3aed'; ctx.stroke();
+  ctx.restore();
+  if (!loftGhost.bad) drawLadderMark({ vertices: loftGhost.verts, ladder: loftGhost.ladder });
+}
+function placeLoft(p) {
+  updateLoftGhost(p);
+  const g = loftGhost;
+  if (!g) { toast('ロフトを作る部屋（四角い部屋）の中をクリックしてください'); return; }
+  if (g.bad) { toast('この部屋は小さすぎてロフトを作れません'); return; }
+  const host = g.r;
+  if (plan.rooms.some(q => q.kind === 'loft' && pointInPoly(centroid(q.vertices), host.vertices))) { toast('この部屋にはもうロフトがあります'); return; }
+  const room = { id: newId(), name: 'ロフト', color: C_LOFT, vertices: g.verts.map(v => ({ x: v.x, y: v.y })), openings: [], groupId: null, kind: 'loft', loftY: 2.1, ladder: g.ladder };
+  change(() => {
+    plan.rooms.push(room);
+    if (!(+host.ceilH >= 3.4)) host.ceilH = 3.6;
+    plan.furnitures.forEach(f => { if ((f.type === 'closet' || f.h > 1.9) && pointInPoly({ x: f.cx, y: f.cy }, room.vertices)) f.h = Math.min(f.h, 1.85); });   // ロフトの下は低く
+  });
+  setTool('select');
+  setSelection([{ kind: 'room', obj: room }]);
+  toast(`「${host.name}」の上に約${(polyAreaM2(room.vertices) / TATAMI).toFixed(1)}帖のロフトを作りました。天井を3.6mに上げています`);
+}
+
+/* ───────── 設備を自動で置く（部屋の名前から） ─────────
+   トイレ→便器・手洗い / 浴室→浴槽 / 洗面→洗面台・洗濯機置場 / キッチン・LDK→キッチン・冷蔵庫 / 玄関→下駄箱 / 洋室→クローゼット / 和室→押入れ */
+function fixturesFor(r) {
+  const n = r.name || '', a = polyAreaM2(r.vertices), b = bbox(r.vertices), long = Math.max(b.x2 - b.x1, b.y2 - b.y1) / M;
+  if (r.kind === 'stairs' || r.kind === 'void' || r.kind === 'loft') return [];
+  if (/ユニットバス/.test(n)) return [['bathtub', Math.min(1.4, long - 0.15), 0.7], ['toilet', 0.42, 0.68, null, 0.75], ['washstand', 0.5, 0.38, '洗面ボウル', 0.8]];
+  if (/トイレ|ＷＣ|WC/i.test(n)) return [['toilet', 0.42, 0.72]].concat(a >= 1.5 ? [['washstand', 0.4, 0.22, '手洗い', 0.8]] : []);
+  if (/浴室|風呂|バス/.test(n)) return [['bathtub', Math.min(1.6, long - 0.15), 0.8]];
+  if (/洗面|脱衣|ランドリー/.test(n)) return [['washstand', 0.75, 0.5], ['washpan', 0.64, 0.64]];
+  if (/LDK|ＬＤＫ|DK|ＤＫ|キッチン|ダイニング|台所/i.test(n)) return [['kitchen', a >= 12 ? 2.55 : a >= 7 ? 2.1 : 1.8, 0.65], ['fridge', 0.6, 0.65]];
+  if (/玄関/.test(n)) return [['shoebox', 0.9, 0.38]];
+  if (/和室/.test(n)) return [['closet', Math.min(1.8, long - 0.6), 0.8, '押入れ', 2.2]];
+  if (/洋室|寝室|子供|子ども|書斎/.test(n)) return [['closet', Math.min(1.8, long - 1.1), 0.6]];
+  return [];
+}
+function openingZones(room) {   // ドア・通路の開く所（設備を置かない所）。窓は背の高い設備だけよける
+  const out = [];
+  const lvRooms = plan.rooms;
+  lvRooms.forEach(q => q.openings.forEach(o => {
+    const g = openingGeom(q, o), e = g.e, mid = g.mid, hw = o.width * M / 2;
+    const dIn = o.type === 'window' ? 0.3 * M : (o.width + 0.1) * M, dOut = o.type === 'window' ? 0 : (o.type === 'passage' ? 0.6 * M : 0.5 * M);
+    const pts = [];
+    [-1, 1].forEach(s => [dIn, -dOut].forEach(t => pts.push({ x: mid.x + e.ux * s * hw + e.nx * t, y: mid.y + e.uy * s * hw + e.ny * t })));
+    const bb = bbox(pts); bb.win = o.type === 'window'; out.push(bb);
+  }));
+  return out;
+}
+function rectHit(a, b, m) { m = m || 0; return a.x1 < b.x2 - m && b.x1 < a.x2 - m && a.y1 < b.y2 - m && b.y1 < a.y2 - m; }
+function frontRect(f, c) {
+  const k = furnCorners(f), b = bbox(k), C = c * M, r = ((f.rotation % 360) + 360) % 360;
+  return r === 0 ? { x1: b.x1, y1: b.y2, x2: b.x2, y2: b.y2 + C } : r === 180 ? { x1: b.x1, y1: b.y1 - C, x2: b.x2, y2: b.y1 } : r === 90 ? { x1: b.x1 - C, y1: b.y1, x2: b.x1, y2: b.y2 } : { x1: b.x2, y1: b.y1, x2: b.x2 + C, y2: b.y2 };
+}
+const FRONT_C = { kitchen: 0.75, washpan: 0.55, toilet: 0.45, washstand: 0.5, shoebox: 0.5, closet: 0.55, cupboard: 0.7, bathtub: 0.35, fridge: 0.6 };
+function autoPlaceIn(room, spec, zones, placed) {
+  const [type, w, d, name, h] = spec, def = FIXDEF[type];
+  const tall = (h || def.h) > 1.0, b = bbox(room.vertices);
+  const W = (b.x2 - b.x1) / M, H = (b.y2 - b.y1) / M;
+  // 壁の順番: ドア・窓の少ない、長い壁から
+  const need = d + (FRONT_C[type] || 0.5) * 0.8;   // 設備の前に立てる奥行きがある壁だけ
+  const walls = ['N', 'S', 'W', 'E'].map(wl => {
+    const len = wl === 'N' || wl === 'S' ? W : H, depth = wl === 'N' || wl === 'S' ? H : W;
+    return { wl, len, depth };
+  }).filter(o => o.len >= w + 0.1 && o.depth >= need);
+  const busy = wl => zones.filter(z => { const L = { N: b.y1, S: b.y2, W: b.x1, E: b.x2 }[wl]; return wl === 'N' || wl === 'S' ? Math.abs((z.y1 + z.y2) / 2 - L) < 0.8 * M && z.x2 > b.x1 && z.x1 < b.x2 : Math.abs((z.x1 + z.x2) / 2 - L) < 0.8 * M && z.y2 > b.y1 && z.y1 < b.y2; }).length;
+  walls.sort((p, q) => busy(p.wl) - busy(q.wl) || q.len - p.len);
+  for (const { wl, len } of walls) {
+    for (let k = w / 2 + 0.05; k <= len - w / 2 - 0.05 + 1e-6; k += 0.1) {
+      for (const pos of [k, len - k]) {
+        let cx, cy, rot;
+        if (wl === 'N' || wl === 'S') { cx = b.x1 + pos * M; cy = wl === 'N' ? b.y1 + (d / 2 + 0.02) * M : b.y2 - (d / 2 + 0.02) * M; rot = wl === 'N' ? 0 : 180; }
+        else { cy = b.y1 + pos * M; cx = wl === 'W' ? b.x1 + (d / 2 + 0.02) * M : b.x2 - (d / 2 + 0.02) * M; rot = wl === 'W' ? 270 : 90; }
+        const f = { type, name: name || def.name, icon: def.icon, cx, cy, w, d, h: h || def.h, rotation: rot, color: def.color, fixed: true };
+        const fr = bbox(furnCorners(f)), front = frontRect(f, FRONT_C[type] || 0.5);
+        if (!furnCorners(f).every(c => pointInPoly({ x: c.x + (cx - c.x) * 0.02, y: c.y + (cy - c.y) * 0.02 }, room.vertices))) continue;
+        if (zones.some(z => (!z.win || tall) && rectHit(fr, z, 0.04 * M))) continue;
+        if (zones.some(z => !z.win && rectHit(front, z, 0.3 * M))) continue;
+        const others = plan.furnitures.concat(placed);
+        if (others.some(q => rectHit(fr, bbox(furnCorners(q)), -0.01 * M) || rectHit(front, bbox(furnCorners(q)), 0.02 * M) || (q.type !== 'cupboard' && rectHit(fr, frontRect(q, FRONT_C[q.type] || 0.4), 0.02 * M)))) continue;
+        return f;
+      }
+    }
+  }
+  return null;
+}
+function autoFixtures(r) {
+  if (!isAxisRect(r)) { toast('設備の自動配置は四角い部屋だけです'); return; }
+  const specs = fixturesFor(r);
+  if (!specs.length) { toast('この部屋の名前では置く設備がありません（名前を「トイレ」「浴室」「洗面所」「LDK」などにしてください）'); return; }
+  const zones = openingZones(r), placed = [], miss = [];
+  for (let i = 0; i < specs.length; i++) {
+    const sp = specs[i];
+    if (plan.furnitures.some(f => f.type === sp[0] && pointInPoly({ x: f.cx, y: f.cy }, r.vertices) && (!sp[3] || f.name === sp[3]))) continue;
+    const f = autoPlaceIn(r, sp, zones, placed);
+    if (f) placed.push(f); else { miss.push(sp[3] || FIXDEF[sp[0]].name); if (i === 0) break; }
+  }
+  if (!placed.length) { toast(miss.length ? `置ける場所がありませんでした（${miss.join('・')}）。部屋を広げるか、ドアの位置を変えてください` : 'もう設備が置いてあります'); return; }
+  change(() => placed.forEach(f => { f.id = newId(); plan.furnitures.push(f); }));
+  toast(`${placed.map(f => f.name).join('・')} を置きました` + (miss.length ? `（${miss.join('・')} は場所がありませんでした）` : ''));
+}
+function autoFixturesAll() {
+  let n = 0;
+  const miss = [];
+  beginChange();
+  plan.rooms.forEach(r => {
+    if (!isAxisRect(r)) return;
+    const specs = fixturesFor(r); if (!specs.length) return;
+    const zones = openingZones(r), placed = [];
+    for (let i = 0; i < specs.length; i++) {
+      const sp = specs[i];
+      const inRoom = f => pointInPoly({ x: f.cx, y: f.cy }, r.vertices);
+      if (plan.furnitures.some(f => f.type === sp[0] && inRoom(f) && (!sp[3] || f.name === sp[3]))) continue;
+      const f = autoPlaceIn(r, sp, zones, placed);
+      if (f) { f.id = newId(); placed.push(f); plan.furnitures.push(f); n++; }
+      else { miss.push(r.name); if (i === 0) break; }   // いちばん大事な設備（便器・浴槽など）が置けなければ、その部屋はやめる
+    }
+  });
+  endChange(); refreshAll();
+  const m = [...new Set(miss)];
+  toast((n ? `${n}個の設備を置きました（部屋の名前から決めています）` : '置ける設備がありませんでした（部屋の名前を「トイレ」「浴室」などにすると置けます）') + (m.length ? `。${m.join('・')} は場所が足りませんでした` : ''));
+}
+
 /* ───────── 案内タグ ───────── */
 function placeTag(p) {
   const t = { id: newId(), x: p.x, y: p.y, h: 1.2, title: '', text: '' };
@@ -1618,6 +2139,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') { e.preventDefault(); return nudge(step, 0); }
   if (e.key === 'ArrowUp') { e.preventDefault(); return nudge(0, -step); }
   if (e.key === 'ArrowDown') { e.preventDefault(); return nudge(0, step); }
+  if (tool === 'part' && e.key.toLowerCase() === 'r') { e.preventDefault(); return rotatePart(); }
   const map = { v: 'select', r: 'rect', p: 'poly', l: 'wall', d: 'door', w: 'window', o: 'passage', t: 'tag' };
   if (map[e.key.toLowerCase()]) return setTool(map[e.key.toLowerCase()]);
   if (e.key === '0') return fitView();
@@ -1670,14 +2192,16 @@ function renderProps() {
 function planSummary() {
   const total = plan.rooms.reduce((s, r) => s + polyAreaM2(r.vertices), 0);
   const list = plan.rooms.map((r, i) => { const a = polyAreaM2(r.vertices); return `<button class="li" data-i="${i}"><span class="dot" style="background:${r.color}"></span><span class="nm">${esc(r.name)}</span><span class="v">${(a / TATAMI).toFixed(1)}帖</span></button>`; }).join('');
-  return `<div class="ph">間取りの一覧</div>
+  return `<div class="ph">間取りの一覧${levelCount() > 1 ? ` <span class="tag">${(plan.lv || 0) + 1}階</span>` : ''}</div>
     <div class="big"><b>${total.toFixed(1)}㎡</b><span>${(total / TATAMI).toFixed(1)}帖 ・ ${plan.rooms.length}部屋</span></div>
     ${plan.rooms.length ? `<div class="list">${list}</div>` : `<div class="empty">まだ部屋がありません。<br>① 左の「四角い部屋」でドラッグ<br>② または「数字で部屋を追加」<br>③ 間取り図の画像から自動で作ることもできます</div><div class="acts"><button class="btn primary" id="sAuto">✨ 間取り図の画像から作る</button></div>`}
     <div class="field" style="margin-top:12px"><label>方角（北の向き）<span class="mini" style="font-weight:400"> — VR内見の「日当たり」に使います</span></label>
       <div class="row"><button class="btn" id="nL" title="左に15°">⟲ 15°</button><div class="unit" data-u="°" style="flex:1"><input class="in" id="nDeg" type="number" step="5" value="${Math.round(+plan.north || 0)}"></div><button class="btn" id="nR" title="右に15°">⟳ 15°</button></div>
       <div class="mini">右上の方位マークの赤い矢印が北です。図面の方位記号に合わせてください（0°＝上が北）。</div></div>
     <div class="acts" style="margin-top:12px">
+      <button class="btn" id="sGen">✨ 間取りを自動で作る</button>
       <button class="btn" id="sAdd">数字で部屋を追加</button>
+      ${plan.rooms.length ? '<button class="btn" id="sFix" title="部屋の名前から、トイレ・浴槽・洗面台・キッチン・収納などをまとめて置きます">🪄 設備をまとめて置く</button>' : ''}
       ${plan.rooms.length ? '<button class="btn" id="sWalk">🚶 3Dで歩く</button>' : ''}
       ${plan.rooms.length || plan.walls.length || plan.furnitures.length ? '<button class="btn danger" id="sClear">すべて消す</button>' : ''}
     </div>
@@ -1691,12 +2215,14 @@ function planSummary() {
 function bindSummary() {
   document.querySelectorAll('#propsBody .li').forEach(b => b.onclick = () => { setTool('select'); setSelection([{ kind: 'room', obj: plan.rooms[+b.dataset.i] }]); });
   const a = $('sAdd'); if (a) a.onclick = openAddDialog;
+  const g = $('sGen'); if (g) g.onclick = openGenDialog;
   const setN = v => change(() => { plan.north = ((Math.round(v) % 360) + 360) % 360; });
   onNum('nDeg', v => setN(v));
   const nl = $('nL'); if (nl) nl.onclick = () => setN((+plan.north || 0) - 15);
   const nr = $('nR'); if (nr) nr.onclick = () => setN((+plan.north || 0) + 15);
   const au = $('sAuto'); if (au) au.onclick = startAutoFromImage;
   const w = $('sWalk'); if (w) w.onclick = openWalk;
+  const fx = $('sFix'); if (fx) fx.onclick = autoFixturesAll;
   const c = $('sClear'); if (c) c.onclick = () => { if (confirm('間取りをすべて消しますか?(元に戻すで復活できます)')) { change(() => { plan.rooms = []; plan.walls = []; plan.furnitures = []; plan.tags = []; }); setSelection([]); } };
 }
 
@@ -1711,8 +2237,11 @@ function roomProps(r) {
     ${rect ? `<div class="two">${numField('pW', '幅(横)', ((b.x2 - b.x1) / M).toFixed(2), 'm')}${numField('pD', '奥行(縦)', ((b.y2 - b.y1) / M).toFixed(2), 'm')}</div>
       <div class="field"><label>広さから決める</label><div class="unit" data-u="帖"><input class="in" id="pTatami" type="number" step="0.5" placeholder="例: 6"></div></div>`
     : `<p class="mini">角■をドラッグで形を変えられます。寸法は図に表示されています。</p>`}
+    <div class="field"><label>種類</label><div class="seg seg4">${ROOM_KINDS.map(([k, n]) => `<button data-k="${k}" class="${(['stairs', 'void', 'loft'].includes(r.kind) ? r.kind : '') === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+    ${kindFields(r)}
     <div class="field"><label>色</label><div class="swatches">${ROOM_COLORS.map(c => `<button class="sw ${c === r.color ? 'on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}</div></div>
     <div class="field"><label>ドア・窓 (${r.openings.length})</label>${ops ? `<div class="list">${ops}</div>` : '<div class="mini">左の「ドア」「窓」で壁をクリックすると付けられます</div>'}</div>
+    ${fixturesFor(r).length ? `<div class="acts"><button class="btn" id="aFix" title="部屋の名前から、トイレ・浴槽・洗面台・キッチン・収納などを、ドアをよけて置きます">🪄 設備を自動で置く</button>${!r.kind ? '<button class="btn" id="aLoft" title="この部屋の上にロフトを作ります">🔼 ロフトを作る</button>' : ''}</div>` : (!r.kind && isAxisRect(r) ? '<div class="acts"><button class="btn" id="aLoft">🔼 ロフトを作る</button></div>' : '')}
     <div class="acts"><button class="btn" id="aDup">複製</button><button class="btn danger" id="aDel">削除</button></div>`;
   const nm = $('pName');
   nm.addEventListener('change', () => change(() => { r.name = nm.value.trim() || '部屋'; }));
@@ -1727,6 +2256,59 @@ function roomProps(r) {
     onNum('pTatami', v => { if (v > 0) { const bb = bbox(r.vertices), ratio = (bb.x2 - bb.x1) / (bb.y2 - bb.y1), area = v * TATAMI; const d = Math.sqrt(area / ratio); resize(+(d * ratio).toFixed(2), +d.toFixed(2)); } });
   }
   $('aDup').onclick = duplicate; $('aDel').onclick = deleteSelection;
+  if ($('aFix')) $('aFix').onclick = () => autoFixtures(r);
+  if ($('aLoft')) $('aLoft').onclick = () => { const b = bbox(r.vertices); setTool('loft'); partPick = PARTS.find(q => q.id === 'loft'); renderPartList(); placeLoft({ x: (b.x1 + b.x2) / 2, y: b.y1 + 2 }); };
+  bindKindFields(r);
+}
+function kindFields(r) {
+  if (r.kind === 'stairs') {
+    const st = r.stairs || { shape: 'u', up: 'N', turn: 'L' };
+    return `<div class="field"><label>階段の形</label><div class="seg seg2">${[['u', '折り返し'], ['straight', 'まっすぐ']].map(([k, n]) => `<button data-sh="${k}" class="${st.shape === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      <div class="field"><label>上り始めの向き</label><div class="seg seg4">${DIRS.map(([k, n]) => `<button data-up="${k}" class="${st.up === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      ${st.shape === 'u' ? `<div class="field"><label>踊り場で曲がる向き</label><div class="seg seg2">${[['L', '左に曲がる'], ['R', '右に曲がる']].map(([k, n]) => `<button data-tu="${k}" class="${st.turn === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>` : ''}
+      <p class="mini">茶色の矢印の●から上ります。上り口の壁に「通路」を付けてください。上の階の同じ場所には「吹き抜け・階段の穴」の部屋が必要です。</p>
+      <div class="acts"><button class="btn" id="kVoid">⬆ 上の階に階段の穴を作る</button></div>`;
+  }
+  if (r.kind === 'loft') {
+    const ld = r.ladder || { side: 'S', at: 0.8 };
+    return `${numField('kLoftY', 'ロフトの床の高さ', (+r.loftY || 2.1).toFixed(2), 'm', 0.05)}
+      <div class="field"><label>はしごの位置（ロフトのどの辺から下りるか）</label><div class="seg seg4">${DIRS.map(([k, n]) => `<button data-ls="${k}" class="${ld.side === k ? 'on' : ''}">${n.replace('へ', '')}</button>`).join('')}</div>
+      <input type="range" id="kLadAt" min="5" max="95" value="${Math.round((+ld.at || 0.8) * 100)}" style="width:100%;margin-top:6px"></div>
+      <p class="mini">ロフトは下の部屋（洋室など）に重ねて描きます。下の部屋の天井は自動で高くなります。</p>`;
+  }
+  if (r.kind === 'void') return `<p class="mini">床のない場所です。下の階の階段の真上に重ねてください。上がってきた所の壁に「通路」を付けます。</p>`;
+  return numField('kCeil', '天井の高さ', (+r.ceilH || 2.4).toFixed(2), 'm', 0.05);
+}
+function bindKindFields(r) {
+  document.querySelectorAll('#propsBody [data-k]').forEach(b => b.onclick = () => change(() => {
+    const k = b.dataset.k;
+    if (k) r.kind = k; else if (['stairs', 'void', 'loft'].includes(r.kind)) delete r.kind;
+    if (k === 'stairs') { r.stairs = r.stairs || { shape: 'u', up: 'N', turn: 'L' }; if (/^部屋|^洋室/.test(r.name)) r.name = '階段'; r.color = '#A16207'; }
+    if (k === 'loft') { r.loftY = r.loftY || 2.1; r.ladder = r.ladder || { side: 'S', at: 0.8 }; if (/^部屋|^洋室/.test(r.name)) r.name = 'ロフト'; r.color = '#7C3AED'; }
+    if (k === 'void') { if (/^部屋|^洋室/.test(r.name)) r.name = '吹き抜け'; r.color = '#64748B'; }
+  }));
+  const setSt = (key, v) => change(() => { r.stairs = Object.assign({ shape: 'u', up: 'N', turn: 'L' }, r.stairs || {}, { [key]: v }); });
+  document.querySelectorAll('#propsBody [data-sh]').forEach(b => b.onclick = () => setSt('shape', b.dataset.sh));
+  document.querySelectorAll('#propsBody [data-up]').forEach(b => b.onclick = () => setSt('up', b.dataset.up));
+  document.querySelectorAll('#propsBody [data-tu]').forEach(b => b.onclick = () => setSt('turn', b.dataset.tu));
+  document.querySelectorAll('#propsBody [data-ls]').forEach(b => b.onclick = () => change(() => { r.ladder = Object.assign({ side: 'S', at: 0.8 }, r.ladder || {}, { side: b.dataset.ls }); }));
+  const la = $('kLadAt'); if (la) la.onchange = () => change(() => { r.ladder = Object.assign({ side: 'S', at: 0.8 }, r.ladder || {}, { at: +la.value / 100 }); });
+  onNum('kLoftY', v => { if (v >= 1.4 && v <= 3) change(() => { r.loftY = v; }); });
+  onNum('kCeil', v => { if (v >= 2 && v <= 6) change(() => { if (Math.abs(v - 2.4) < 0.001) delete r.ceilH; else r.ceilH = v; }); });
+  const kv = $('kVoid'); if (kv) kv.onclick = () => makeVoidAbove(r);
+}
+// 階段の真上（上の階）に、同じ形の「階段の穴」を作る
+function makeVoidAbove(r) {
+  const lv = plan.lv || 0, verts = r.vertices.map(v => ({ x: v.x, y: v.y }));
+  const st = r.stairs || { shape: 'u', up: 'N', turn: 'L' };
+  if (levelCount() <= lv + 1) change(() => { if (!plan.stash) plan.stash = []; plan.stash[lv + 1] = emptyLevel(); });
+  switchLevel(lv + 1);
+  const exists = plan.rooms.some(q => q.kind === 'void' && Math.abs(polyAreaM2(q.vertices) - polyAreaM2(verts)) < 0.05 && dist(centroid(q.vertices), centroid(verts)) < 5);
+  if (exists) { toast('もうあります'); return; }
+  const room = voidRoomFor(r);   // 上がってきた所に通路つき
+  change(() => plan.rooms.push(room));
+  setSelection([{ kind: 'room', obj: room }]);
+  toast(`${lv + 2}階に階段の穴を作りました。上がった先の廊下とつながっているか確かめてください`);
 }
 
 function openingProps(room, o) {
@@ -2456,6 +3038,39 @@ function guessRoomName(rank, m2) {
   return rank === 1 ? '洋室' : '洋室' + rank;
 }
 
+/* ───────── 間取りを自動で作る（サーバーで作るので、サイトから開いたときだけ）───────── */
+const GEN_MADORI = ['1R', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3DK', '3LDK', '4LDK', '5LDK'];
+let genDefaults = { madori: '', ptype: '' }, genBusy = false;
+function openGenDialog() {
+  if (!embedded) { toast('物件の登録画面から間取りエディタを開いたときに使えます'); return; }
+  $('gMadori').innerHTML = GEN_MADORI.map(m => `<option ${m === genDefaults.madori ? 'selected' : ''}>${m}</option>`).join('');
+  if (!genDefaults.madori) $('gMadori').value = '1K';
+  $('gType').value = genDefaults.ptype === '一戸建て' ? '一戸建て' : genDefaults.ptype === '平屋' ? '平屋' : '';
+  genTypeUI();
+  $('gSize').value = propArea || '';
+  $('gNote').textContent = plan.rooms.length || levelCount() > 1 ? '※ いまの間取りは置きかわります（元に戻すで戻せます）' : '';
+  $('genModal').classList.add('show');
+}
+function genTypeUI() { $('gT2row').style.display = $('gType').value === '一戸建て' ? '' : 'none'; }
+$('gType').addEventListener('change', genTypeUI);
+$('gCancel').onclick = () => $('genModal').classList.remove('show');
+$('gOk').onclick = () => {
+  if (genBusy) return;
+  genBusy = true; $('gOk').textContent = '作っています…'; $('gOk').disabled = true;
+  postToParent({ type: 'vr-editor-gen', req: { madori: $('gMadori').value, type: $('gType').value, size: +$('gSize').value || 0,
+    kitchen: $('gKitchen').value, bath: $('gBath').value, loft: $('gLoft').value, washitsu: $('gWa').value, toilet2: $('gToilet2').value } });
+  setTimeout(() => { if (genBusy) genDone(null, 'サーバーから返事がありません'); }, 20000);
+};
+function genDone(msg, error) {
+  genBusy = false; $('gOk').textContent = '作る'; $('gOk').disabled = false;
+  if (error || !msg || !msg.data) { toast('作れませんでした' + (error ? ': ' + error : '')); return; }
+  $('genModal').classList.remove('show');
+  change(() => { plan = importData(msg.data); });
+  setSelection([]); renderLevelBar(); fitView();
+  toast(msg.info || '間取りを作りました');
+}
+$('bGen').onclick = openGenDialog;
+
 /* ───────── 3Dで歩く(vr-viewer.html を中で開く)───────── */
 let viewerFrame = null;
 function openWalk() {
@@ -2472,14 +3087,28 @@ function closeWalk() { $('viewer').classList.remove('show'); $('viewer').innerHT
 
 /* ───────── 保存・読み込み ───────── */
 function generateThumbnail() {
-  const b = contentBoxNoBg(); if (!b) return null;
-  const W = 240, H = 180, tc = document.createElement('canvas'); tc.width = W; tc.height = H;
-  const t = tc.getContext('2d'), pad = 10, s = Math.min((W - pad * 2) / Math.max(b.x2 - b.x1, 1), (H - pad * 2) / Math.max(b.y2 - b.y1, 1));
+  // 階が複数あるときは 1F・2F… を横に並べる
+  const lvs = [];
+  for (let i = 0; i < levelCount(); i++) { const d = levelData(i); if (d.rooms.length || d.walls.length) lvs.push({ i, d }); }
+  if (!lvs.length) return null;
+  const pts = [];
+  lvs.forEach(({ d }) => { d.rooms.forEach(r => r.vertices.forEach(v => pts.push(v))); d.walls.forEach(w => pts.push({ x: w.x1, y: w.y1 }, { x: w.x2, y: w.y2 })); });
+  const b = bbox(pts), bw = Math.max(b.x2 - b.x1, 1), bh = Math.max(b.y2 - b.y1, 1), gap = bw * 0.12;
+  const W = lvs.length > 1 ? 360 : 240, H = 180, tc = document.createElement('canvas'); tc.width = W; tc.height = H;
+  const t = tc.getContext('2d'), pad = 10, top = lvs.length > 1 ? 16 : 0;
+  const totW = bw * lvs.length + gap * (lvs.length - 1);
+  const s = Math.min((W - pad * 2) / totW, (H - pad * 2 - top) / bh);
   t.fillStyle = '#fff'; t.fillRect(0, 0, W, H);
-  t.translate((W - (b.x2 - b.x1) * s) / 2 - b.x1 * s, (H - (b.y2 - b.y1) * s) / 2 - b.y1 * s); t.scale(s, s);
-  plan.rooms.forEach(r => { t.beginPath(); r.vertices.forEach((v, i) => i ? t.lineTo(v.x, v.y) : t.moveTo(v.x, v.y)); t.closePath(); t.fillStyle = hexA(r.color, 0.27); t.fill(); t.strokeStyle = '#1e293b'; t.lineWidth = 2 / s; t.stroke(); });
-  plan.walls.forEach(w => { t.strokeStyle = '#334155'; t.lineWidth = 2 / s; t.beginPath(); t.moveTo(w.x1, w.y1); t.lineTo(w.x2, w.y2); t.stroke(); });
-  plan.furnitures.forEach(f => { const c = furnCorners(f); t.beginPath(); c.forEach((p, i) => i ? t.lineTo(p.x, p.y) : t.moveTo(p.x, p.y)); t.closePath(); t.fillStyle = hexA(f.color, 0.8); t.fill(); });
+  lvs.forEach(({ i, d }, k) => {
+    t.save();
+    const ox = (W - totW * s) / 2 + k * (bw + gap) * s, oy = top + (H - top - bh * s) / 2;
+    if (lvs.length > 1) { t.fillStyle = '#2563eb'; t.font = 'bold 12px system-ui,sans-serif'; t.fillText((i + 1) + 'F', ox, 13); }
+    t.translate(ox - b.x1 * s, oy - b.y1 * s); t.scale(s, s);
+    d.rooms.forEach(r => { t.beginPath(); r.vertices.forEach((v, j) => j ? t.lineTo(v.x, v.y) : t.moveTo(v.x, v.y)); t.closePath(); t.fillStyle = hexA(r.kind === 'void' ? '#94a3b8' : r.color, r.kind === 'loft' ? 0.12 : 0.27); t.fill(); t.strokeStyle = r.kind === 'loft' ? '#7c3aed' : '#1e293b'; t.lineWidth = 2 / s; if (r.kind === 'loft') t.setLineDash([4 / s, 3 / s]); t.stroke(); t.setLineDash([]); });
+    d.walls.forEach(w => { t.strokeStyle = '#334155'; t.lineWidth = 2 / s; t.beginPath(); t.moveTo(w.x1, w.y1); t.lineTo(w.x2, w.y2); t.stroke(); });
+    d.furnitures.forEach(f => { const c = furnCorners(f); t.beginPath(); c.forEach((p, j) => j ? t.lineTo(p.x, p.y) : t.moveTo(p.x, p.y)); t.closePath(); t.fillStyle = hexA(f.color, 0.8); t.fill(); });
+    t.restore();
+  });
   return tc.toDataURL('image/png');
 }
 function contentBoxNoBg() { const keep = bg; bg = null; const b = contentBox(); bg = keep; return b; }
@@ -2515,14 +3144,16 @@ window.addEventListener('message', e => {
     return;
   }
   // 親ページから
+  if (msg.type === 'vr-editor-gen-result') { genDone(msg, msg.error); return; }
   if (msg.type === 'init') {
     embedded = true; showEmbedButtons();
     propName = msg.propName || '';
     propArea = +msg.area || 0;
+    genDefaults = { madori: String(msg.madori || '').replace(/S(?=L?D?K)/, '').replace(/以上$/, ''), ptype: msg.ptype || '' };
     $('propName').textContent = propName ? '— ' + propName : '';
     plan = msg.data && typeof msg.data === 'object' ? importData(msg.data) : { rooms: [], furnitures: [], walls: [], tags: [] };
     undoStack.length = 0; redoStack.length = 0; updateUndoButtons();
-    setSelection([]);
+    setSelection([]); renderLevelBar();
     setTimeout(fitView, 30);
   }
 });
@@ -2544,7 +3175,7 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
 
 /* ───────── 起動 ───────── */
 (function boot() {
-  renderFurnCats(); renderFurnList();
+  renderFurnCats(); renderFurnList(); renderPartList();
   if (embedded) showEmbedButtons();
   else {
     // 単体で開いたときは前回の下書きを復元
@@ -2552,6 +3183,7 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
   }
   setTool('select');
   updateUndoButtons();
+  renderLevelBar();
   resize();
   setSelection([]);
   setTimeout(fitView, 30);
@@ -2559,7 +3191,7 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
 })();
 function exportLike(d) {
   // 下書きは内部形式で保存しているので、読み込み用の形にそろえる
-  return { rooms: (d.rooms || []).map(r => ({ name: r.name, color: r.color, vertices: r.vertices, openings: r.openings, groupId: r.groupId })), furnitures: d.furnitures || [], walls: d.walls || [], tags: d.tags || [], north: d.north || 0 };
+  return exportFrom({ rooms: d.rooms || [], furnitures: d.furnitures || [], walls: d.walls || [], tags: d.tags || [], north: d.north || 0, lv: d.lv || 0, stash: d.stash || [], floorH: d.floorH });
 }
 </script>
 </body>

@@ -948,7 +948,7 @@ const EN_RE = [
   [/^(\d+)戸$/, (m, a) => `${a} units`]
 ];
 Object.assign(EN, { 'VR対応': 'VR', '実写VR': 'Real VR', '所在階': 'Floor', 'ここ': 'Here', 'マンション': 'Apartment', 'アパート': 'Low-rise apt.', '一戸建て': 'House', 'タワーマンション': 'Tower apt.',
-  '仲介': 'Brokerage', '普通借家 2年': 'Standard lease, 2 yrs', '保証会社利用可': 'Guarantor company OK', '保証会社利用必須': 'Guarantor company required', '翌月上旬': 'Early next month', '翌月下旬': 'Late next month', '相談': 'Negotiable', '即入居可': 'Move in now', 'なし': 'None', 'オートロック': "Auto-lock", 'バス・トイレ別': "Separate bath", 'エアコン': "A/C", 'インターネット無料': "Free internet", '浴室乾燥機': "Bath dryer", '宅配ボックス': "Parcel box", '南向き': "South-facing", 'ペット可': "Pets OK", '独立洗面台': "Separate vanity", '室内洗濯機置場': "Indoor washer space", 'システムキッチン': "System kitchen", '食洗機': "Dishwasher", 'IHコンロ': "IH stove", 'ウォークインクローゼット': "Walk-in closet", '駐車場': "Parking", '駐輪場': "Bike parking", 'DIY可': "DIY OK", '家具・家電付き': "Furnished", 'リノベーション済み': "Renovated", 'フリーレント': "Free rent", '保証人不要': "No guarantor", '二人暮らし可': "Couples OK", '子供可': "Kids OK", '学生向け': "For students", '女性限定': "Women only", '敷金なし': "No deposit", '礼金なし': "No key money" });
+  '仲介': 'Brokerage', '普通借家 2年': 'Standard lease, 2 yrs', '保証会社利用可': 'Guarantor company OK', '保証会社利用必須': 'Guarantor company required', '翌月上旬': 'Early next month', '翌月下旬': 'Late next month', '相談': 'Negotiable', '即入居可': 'Move in now', 'なし': 'None', 'オートロック': "Auto-lock", 'バス・トイレ別': "Separate bath", 'エアコン': "A/C", 'インターネット無料': "Free internet", '浴室乾燥機': "Bath dryer", '宅配ボックス': "Parcel box", '南向き': "South-facing", 'ペット可': "Pets OK", '独立洗面台': "Separate vanity", '室内洗濯機置場': "Indoor washer space", 'システムキッチン': "System kitchen", '食洗機': "Dishwasher", 'IHコンロ': "IH stove", 'ウォークインクローゼット': "Walk-in closet", '駐車場': "Parking", '駐輪場': "Bike parking", 'DIY可': "DIY OK", '家具・家電付き': "Furnished", 'リノベーション済み': "Renovated", 'フリーレント': "Free rent", '保証人不要': "No guarantor", '二人暮らし可': "Couples OK", '子供可': "Kids OK", '学生向け': "For students", '女性限定': "Women only", '敷金なし': "No deposit", '礼金なし': "No key money", 'ロフト付き': "Loft", '対面キッチン': "Open kitchen", '一戸建て': "House" });
 const ORIG = new WeakMap(), ORIG_ATTR = new WeakMap();
 const SKIP = 'script,style,textarea,input,select,option,.pd-modal #pd-name,#pd-desc,#pd-surroundings,#pd-address,.prop-name,.fx-noi18n,#fe-iframe';
 function trText(s) {
@@ -2911,13 +2911,22 @@ function fpColor(n) {
 function fpSvg(mini, opts) {
   if (!Array.isArray(mini) || !mini.length) return '';
   opts = opts || {};
-  const shapes = mini.map(r => {
-    if (r.p) { const pts = []; for (let i = 0; i + 1 < r.p.length; i += 2) pts.push([+r.p[i], +r.p[i + 1]]); return { n: r.n, pts }; }
-    const [x, y, w, h] = (r.r || []).map(Number); return { n: r.n, pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] };
+  let shapes = mini.map(r => {
+    if (r.p) { const pts = []; for (let i = 0; i + 1 < r.p.length; i += 2) pts.push([+r.p[i], +r.p[i + 1]]); return { n: r.n, pts, l: +r.l || 0, k: r.k }; }
+    const [x, y, w, h] = (r.r || []).map(Number); return { n: r.n, pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], l: +r.l || 0, k: r.k };
   }).filter(s => s.pts.length >= 3 && s.pts.every(p => isFinite(p[0]) && isFinite(p[1])));
   if (!shapes.length) return '';
   let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
   shapes.forEach(s => s.pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }));
+  // 2階建て: 2階を右に並べる
+  const lvs = [...new Set(shapes.map(s => s.l))].sort((a, b) => a - b);
+  const labels = [];
+  if (lvs.length > 1) {
+    const gap = (x2 - x1) * 0.14, step = x2 - x1 + gap;
+    shapes = shapes.map(s => { const k = lvs.indexOf(s.l); return Object.assign({}, s, { pts: s.pts.map(([x, y]) => [x + k * step, y]) }); });
+    lvs.forEach((l, k) => labels.push({ x: x1 + k * step, t: (l + 1) + 'F' }));
+    x2 = x2 + (lvs.length - 1) * step;
+  }
   const W = Math.max(1, x2 - x1), H = Math.max(1, y2 - y1), pad = Math.max(W, H) * 0.06;
   const sw = Math.max(W, H) / 160, fs = Math.max(W, H) / (opts.big ? 26 : 16);
   const body = shapes.map(s => {
@@ -2927,9 +2936,12 @@ function fpSvg(mini, opts) {
     const rw = Math.max(...xs) - Math.min(...xs), rh = Math.max(...ys) - Math.min(...ys);
     const label = s.n && rw > fs * Math.min(5, s.n.length) * 0.9 && rh > fs * 1.4
       ? `<text x="${cx}" y="${cy}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" fill="#334155" font-weight="700">${esc(s.n)}</text>` : '';
-    return `<polygon points="${d}" fill="${fpColor(s.n)}" stroke="#334155" stroke-width="${sw}" stroke-linejoin="round"/>${label}`;
-  }).join('');
-  return `<svg class="fx-fp-svg" viewBox="${x1 - pad} ${y1 - pad} ${W + pad * 2} ${H + pad * 2}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(t('間取り図'))}">${body}</svg>`;
+    if (s.k === 'loft') return `<polygon points="${d}" fill="rgba(124,58,237,.10)" stroke="#7c3aed" stroke-width="${sw}" stroke-dasharray="${sw * 3} ${sw * 2}"/>`;
+    const fill = s.k === 'stairs' ? '#FDE68A' : s.k === 'void' ? '#E2E8F0' : fpColor(s.n);
+    return `<polygon points="${d}" fill="${fill}" stroke="#334155" stroke-width="${sw}" stroke-linejoin="round"/>${label}`;
+  }).join('') + labels.map(L => `<text x="${L.x}" y="${y1 - pad * 0.25}" font-size="${fs * 1.1}" fill="#2563eb" font-weight="800">${L.t}</text>`).join('');
+  const top = labels.length ? fs * 1.2 : 0;
+  return `<svg class="fx-fp-svg" viewBox="${x1 - pad} ${y1 - pad - top} ${W + pad * 2} ${H + pad * 2 + top}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(t('間取り図'))}">${body}</svg>`;
 }
 window.fxFpSvg = fpSvg;
 function fpThumbs() {
@@ -2973,9 +2985,14 @@ window.renderPropDetail = function (prop) {
    ・項目を「基本 → 場所 → お金 → 設備と説明 → 写真とVR → 公開と内見 → 詳細」に分けて、上のボタンで移動できる
    ・必須項目のチェック、入力の充実度、費用の目安、説明文と間取りの自動作成、下書きの自動保存、二重登録の注意 */
 function fpMiniFrom(fp) {
-  return ((fp && fp.rooms) || []).map(r => Array.isArray(r.vertices) && r.vertices.length >= 3
-    ? { n: r.name, p: r.vertices.flatMap(v => [+v.x || 0, +v.y || 0]) }
-    : { n: r.name, r: [+r.wx || 0, +r.wy || 0, +r.ww || 0, +r.wh || 0] });
+  return ((fp && fp.rooms) || []).map(r => {
+    const o = Array.isArray(r.vertices) && r.vertices.length >= 3
+      ? { n: r.name, p: r.vertices.flatMap(v => [+v.x || 0, +v.y || 0]) }
+      : { n: r.name, r: [+r.wx || 0, +r.wy || 0, +r.ww || 0, +r.wh || 0] };
+    if (+r.level) o.l = +r.level;
+    if (['stairs', 'void', 'loft'].includes(r.kind)) o.k = r.kind;
+    return o;
+  });
 }
 function svgDataURL(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')); }
 const _applyFpThumb = window._applyFloorplanThumbnail;
@@ -3034,7 +3051,15 @@ function initFormUX() {
   // 説明文の自動作成・間取りの自動作成ボタン
   const desc = $('af-desc');
   if (desc) desc.closest('.field').querySelector('.flabel').insertAdjacentHTML('beforeend', ' <button type="button" class="btn btn-sm fx-af-mini" id="af-desc-gen"><i class="ti ti-sparkles"></i> 入力した内容から説明文を作る</button>');
-  if (fpb) fpb.insertAdjacentHTML('afterend', ' <button type="button" class="btn btn-sm btn-p" id="af-fp-gen"><i class="ti ti-wand"></i> 間取りを自動で作る</button><div class="fx-mini" style="margin-top:6px">「間取り」と「面積」から、VR内見できる間取りを自動で作ります。作ったあと「間取りを編集する」で直せます。押すたびに別の形になります。</div>');
+  if (fpb) fpb.insertAdjacentHTML('afterend', ' <button type="button" class="btn btn-sm btn-p" id="af-fp-gen"><i class="ti ti-wand"></i> 間取りを自動で作る</button><div class="fx-mini" style="margin-top:6px">「間取り」「面積」「建物の種類」から、トイレ・お風呂・洗面台・キッチンつきの、VR内見できる間取りを自動で作ります。一戸建ては階段つきの2階建てか平屋になります（建物の階数が1なら平屋）。作ったあと「間取りを編集する」で直せます。押すたびに別の形になります。</div>'
+    + '<details class="fx-gen-opt"><summary>作り方を選ぶ（ロフト・対面キッチン・和室・平屋など）</summary><div class="fx-gen-grid">'
+    + '<label>ロフト<select id="af-gen-loft"><option value="auto">おまかせ</option><option value="yes">あり</option><option value="no">なし</option></select></label>'
+    + '<label>お風呂とトイレ<select id="af-gen-bath"><option value="auto">おまかせ</option><option value="sep">別々</option><option value="unit">一緒（ユニットバス）</option></select></label>'
+    + '<label>キッチン<select id="af-gen-kitchen"><option value="auto">おまかせ</option><option value="face">対面キッチン</option><option value="wall">壁付きキッチン</option></select></label>'
+    + '<label>和室<select id="af-gen-wa"><option value="auto">おまかせ</option><option value="yes">あり</option><option value="no">なし</option></select></label>'
+    + '<label>一戸建ての階数<select id="af-gen-floors"><option value="auto">おまかせ（建物の階数）</option><option value="2">2階建て</option><option value="1">平屋</option></select></label>'
+    + '<label>2階のトイレ<select id="af-gen-toilet2"><option value="auto">おまかせ</option><option value="each">あり</option><option value="one">なし（1階だけ）</option></select></label>'
+    + '</div></details>');
   // 項目を区切りごとに並べ直す
   AF_SECTIONS.forEach(([key, title, ids], i) => {
     const h = el('div', 'fx-af-sec'); h.id = 'af-sec-' + key;
@@ -3129,16 +3154,48 @@ async function afGenFloorplan() {
   if (window.editedFloorplanData && !confirm('いまの間取りを、自動で作った間取りに置きかえますか？')) return;
   const b = $('af-fp-gen'); b.disabled = true; b.innerHTML = '<i class="ti ti-loader-2"></i> 作っています…';
   try {
-    const r = await api('genFloorplan', { body: { madori: md, size: afNum('af-size') } });
+    const r = await api('genFloorplan', { body: afGenReq(md) });
     window.editedFloorplanData = r.floorplanData; window.editedFloorplanThumb = null;
     if (!afNum('af-size')) $('af-size').value = r.size;
     window._applyFloorplanThumbnail();
-    const info = $('fp-thumb-info'); if (info) info.textContent = `${r.madori}・約${r.size}㎡（${r.rooms}）`;
+    const info = $('fp-thumb-info'); if (info) info.textContent = `${r.madori}${r.house ? (r.floors === 1 ? '・平屋' : '・2階建て') : ''}・約${r.size}㎡（${r.rooms}）`;
+    if (r.house && $('af-floors') && !afNum('af-floors')) { $('af-floors').value = r.floors === 1 ? 1 : 2; if ($('af-floor-no') && !afNum('af-floor-no')) $('af-floor-no').value = 1; }
+    const added = afAddFeatures(r.features);
     afDirty = true; afScore(); afDraftSave();
-    toast('間取りを作りました。保存するとVR内見できます', 'success');
+    toast('間取りを作りました。保存するとVR内見できます' + (added.length ? `（設備に「${added.join('・')}」も入れました）` : ''), 'success');
   } catch (e) { toast('作れませんでした: ' + e.message, 'error'); }
   b.disabled = false; b.innerHTML = '<i class="ti ti-wand"></i> 間取りを自動で作る';
 }
+function afGenReq(md) {
+  const v = id => (($(id) || {}).value || 'auto');
+  const fsel = v('af-gen-floors');
+  return { madori: md, size: afNum('af-size'), type: (($('af-type') || {}).value || ''),
+    floors: fsel === 'auto' ? (afNum('af-floors') === 1 ? 1 : 2) : +fsel,
+    loft: v('af-gen-loft'), bath: v('af-gen-bath'), kitchen: v('af-gen-kitchen'), washitsu: v('af-gen-wa'), toilet2: v('af-gen-toilet2') };
+}
+// 間取りからわかる設備（ロフト付き・バス・トイレ別など）を、設備の選択に足す
+function afAddFeatures(list) {
+  if (!Array.isArray(list) || typeof fxForm === 'undefined') return [];
+  const known = new Set([].concat((typeof fieldDefs !== 'undefined' && fieldDefs.features) || [], ['ロフト付き', '対面キッチン']));
+  fxForm.features = fxForm.features || [];
+  const added = list.filter(f => known.has(f) && !fxForm.features.includes(f) && !['駐車場', '南向き'].includes(f));
+  if (added.length) { fxForm.features = fxForm.features.concat(added); if (typeof renderFormExtras2 === 'function') renderFormExtras2(); }
+  return added;
+}
+// 間取りエディタの「間取りを自動で作る」: エディタからたのまれてサーバーで作り、エディタに返す
+window.addEventListener('message', async e => {
+  const m = e.data;
+  if (!m || m.type !== 'vr-editor-gen') return;
+  const fr = $('fe-iframe');
+  if (!fr || e.source !== fr.contentWindow) return;
+  const reply = x => { try { fr.contentWindow.postMessage(Object.assign({ type: 'vr-editor-gen-result' }, x), '*'); } catch (err) {} };
+  try {
+    const q = m.req || {};
+    const r = await api('genFloorplan', { body: { madori: String(q.madori || ''), size: +q.size || 0, type: String(q.type || ''), loft: q.loft, bath: q.bath, kitchen: q.kitchen, washitsu: q.washitsu, toilet2: q.toilet2, floors: q.type === '平屋' ? 1 : 2 } });
+    const added = $('add-form') ? afAddFeatures(r.features) : [];
+    reply({ data: r.floorplanData, info: `${r.madori}${r.house ? (r.floors === 1 ? '・平屋' : '・2階建て') : ''}・約${r.size}㎡ を作りました（${r.rooms}）` + (added.length ? ` 設備に「${added.join('・')}」も入れました` : '') });
+  } catch (err) { reply({ error: err.message || 'エラー' }); }
+});
 function afMark(ids, msg) {
   ids.forEach(id => { const f = afField(id) || ($(id) && $(id).closest('.field')); if (f) f.classList.add('fx-invalid'); });
   const first = $(ids[0]);

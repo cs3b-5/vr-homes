@@ -197,7 +197,7 @@
 </div>
 <div id="measureBar" class="bar"><span id="measureMsg" data-t="測りたい場所を2か所タップ">測りたい場所を2か所タップ</span><label><input type="checkbox" id="mFlat" checked> <span data-t="水平に測る">水平に測る</span></label><button id="mClear" data-t="消す">消す</button><button id="mDone" class="pri" data-t="終わる">終わる</button></div>
 <div id="tourBar" class="bar"><span id="tourCap"></span><button id="tPause" data-t="一時停止">一時停止</button><button id="tNext" data-t="次へ">次へ</button><button id="tEnd" class="pri" data-t="終わる">終わる</button></div>
-<div id="dollBar" class="bar"><span data-t="ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ">ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ</span><button id="dFurn" class="gray" data-t="家具">家具</button><button id="dWalk" class="pri" data-t="歩いて見る">歩いて見る</button></div>
+<div id="dollBar" class="bar"><span data-t="ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ">ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ</span><span id="dLevels" class="dlv"></span><button id="dFurn" class="gray" data-t="家具">家具</button><button id="dWalk" class="pri" data-t="歩いて見る">歩いて見る</button></div>
 <div id="tagCard"><h4 id="tagTitle"></h4><p id="tagText"></p><button class="pill" id="tagClose" style="border:0;cursor:pointer;background:#2563eb" data-t="閉じる">閉じる</button></div>
 <div id="furnPanel" class="panel">
   <h4><span data-t="家具を置いてみる">家具を置いてみる</span><button id="fClose" data-t="閉じる">閉じる</button></h4>
@@ -263,6 +263,11 @@ const WALL_T = 0.1;          // 壁の厚み (m)
 const EYE_HEIGHT = 1.55;     // 目の高さ (m)
 const WALK_SPEED = 1.8;      // 歩く速さ (m/秒)
 const BODY_RADIUS = 0.22;    // 体の半径 (m)
+const STEP_UP = 0.45;        // 歩いて上がれる段差 (m)。階段・はしごはこれより細かく上がっていく
+let FLOOR_H = 2.8;           // 階の高さ (床から上の階の床まで)。間取りの floorH で変えられる
+let levelCount = 1, curLevel = 0, footY = 0, eyeNow = EYE_HEIGHT, standOn = null;
+let levelRoots = [], stairList = [], ladderList = [];
+function levelBase(l) { return (l || 0) * FLOOR_H; }
 
 let allowEmptyPlan = false;
 const SAMPLE_PLAN = {
@@ -415,6 +420,36 @@ const ceilMat = stdMat("ceilMat", "#FFFFFF", { backFaceCulling: false });
 const floorMat = stdMat("floorMat", "#FFFFFF", { backFaceCulling: false });
 floorMat.diffuseTexture = makeFloorTexture();
 floorMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+// 水回りはタイル、和室は畳、玄関は土間の床にする
+function patternTex(name, draw) {
+  const t = new BABYLON.DynamicTexture(name, 256, scene, true);
+  draw(t.getContext(), 256); t.update();
+  t.wrapU = t.wrapV = BABYLON.Texture.WRAP_ADDRESSMODE;
+  return t;
+}
+const tileMat = stdMat("tileMat", "#FFFFFF", { backFaceCulling: false });
+tileMat.diffuseTexture = patternTex("tileTex", function (c, n) {
+  c.fillStyle = "#E7EAEE"; c.fillRect(0, 0, n, n); c.fillStyle = "#C9CED6";
+  for (let i = 0; i < 4; i++) { c.fillRect(i * n / 4, 0, 3, n); c.fillRect(0, i * n / 4, n, 3); }
+});
+const tatamiMat = stdMat("tatamiMat", "#FFFFFF", { backFaceCulling: false });
+tatamiMat.diffuseTexture = patternTex("tatamiTex", function (c, n) {
+  c.fillStyle = "#C9C58A"; c.fillRect(0, 0, n, n);
+  c.strokeStyle = "rgba(120,110,60,.25)"; for (let y = 0; y < n; y += 4) { c.beginPath(); c.moveTo(0, y); c.lineTo(n, y); c.stroke(); }
+  c.fillStyle = "#5B4A2E"; c.fillRect(0, 0, n, 7); c.fillRect(0, n / 2, n / 2, 7); c.fillRect(n / 2, 0, 7, n);
+});
+const dobaMat = stdMat("dobaMat", "#FFFFFF", { backFaceCulling: false });
+dobaMat.diffuseTexture = patternTex("dobaTex", function (c, n) {
+  c.fillStyle = "#9CA3AF"; c.fillRect(0, 0, n, n); c.fillStyle = "#8B929E";
+  for (let i = 0; i < 2; i++) { c.fillRect(i * n / 2, 0, 3, n); c.fillRect(0, i * n / 2, n, 3); }
+});
+function floorMatFor(room) {
+  const n = room.name || "", k = room.raw && room.raw.kind;
+  if (k === "wa" || /和室|畳/.test(n)) return tatamiMat;
+  if (["bath", "ub", "wash", "wc"].indexOf(k) >= 0 || /浴室|風呂|ユニットバス|トイレ|洗面|脱衣|WC/i.test(n)) return tileMat;
+  if (k === "entry" || /^玄関$|土間/.test(n)) return dobaMat;
+  return floorMat;
+}
 const furnMats = {};
 function furnitureMat(hex) {
   const key = /^#[0-9a-fA-F]{6}$/.test(hex || "") ? hex : (/^#[0-9a-fA-F]{3}$/.test(hex || "") ? "#" + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : "#888888");
@@ -427,6 +462,22 @@ function furnitureMat(hex) {
    部品の位置・大きさは、箱の中心を0、端を±0.5 とした割合で書く（下が y=-0.5、奥(頭側)が z=+0.5）。 */
 function furnKind(n) {
   n = String(n || "");
+  // 設備（間取りの自動作成・エディタで置くもの）
+  if (/toilet|トイレ|便器/i.test(n)) return "toilet";
+  if (/bathtub|浴槽|バスタブ/i.test(n)) return "bathtub";
+  if (/washpan|洗濯機置場|防水パン/i.test(n)) return "washpan";
+  if (/washstand|洗面/i.test(n)) return "washstand";
+  if (/cupboard|カップボード|食器棚/i.test(n)) return "cupboard";
+  if (/kitchen|キッチン/i.test(n)) return "kitchen";
+  if (/\bsink\b|シンク/i.test(n)) return "ksink";
+  if (/stove|コンロ/i.test(n)) return "kstove";
+  if (/counter|カウンター/i.test(n)) return "kcounter";
+  if (/shoebox|下駄箱|靴箱|シューズ/i.test(n)) return "shoebox";
+  if (/closet|クローゼット|押入/i.test(n)) return "closet";
+  if (/shower|シャワー/i.test(n)) return "shower";
+  if (/^ac\b|エアコン/i.test(n)) return "ac";
+  if (/piano|ピアノ/i.test(n)) return "piano";
+  if (/stairs|階段/i.test(n)) return "stairsf";
   if (/ベッド|bed/i.test(n)) return "bed";
   if (/ソファ|sofa|couch/i.test(n)) return "sofa";
   if (/ローテーブル|座卓/.test(n)) return "lowtable";
@@ -438,7 +489,7 @@ function furnKind(n) {
   if (/洗濯機|washer|washing/i.test(n)) return "washer";
   if (/テレビ|tv/i.test(n)) return "tv";
   if (/本棚|ラック|shelf|book/i.test(n)) return "shelf";
-  if (/タンス|たんす|クローゼット|ワードローブ|収納|chest|wardrobe/i.test(n)) return "chest";
+  if (/タンス|たんす|ワードローブ|収納|chest|wardrobe|dresser/i.test(n)) return "chest";
   if (/ラグ|カーペット|じゅうたん|rug|carpet/i.test(n)) return "rug";
   if (/植物|グリーン|plant/i.test(n)) return "plant";
   return "box";
@@ -523,6 +574,71 @@ function furnParts(kind) {
       ["c", 0, -0.06, 0, 0.08, 0.3, 0.08, "#4D7C0F"],           // 幹
       ["s", 0, 0.22, 0, 0.95, 0.56, 0.95, "main"],              // 葉
       ["s", 0.18, 0.05, 0.12, 0.5, 0.3, 0.5, "dark"]];
+    /* ── 設備 ── */
+    case "toilet": return [
+      L(0, 0.2, 0.36, 0.9, 0.6, 0.28, "main"),                  // タンク
+      L(0, 0.52, 0.36, 0.92, 0.04, 0.3, "light"),
+      ["c", 0, -0.22, -0.08, 0.86, 0.56, 0.64, "main"],         // 便器
+      ["c", 0, 0.07, -0.1, 0.92, 0.05, 0.7, "light"],           // ふた
+      L(0, -0.47, 0.05, 0.5, 0.06, 0.6, "dark")];
+    case "bathtub": return [
+      L(0, -0.45, 0, 1, 0.1, 1, "main"),                        // 底
+      L(0, 0, -0.46, 1, 1, 0.08, "main"), L(0, 0, 0.46, 1, 1, 0.08, "main"),
+      L(-0.47, 0, 0, 0.06, 1, 1, "main"), L(0.47, 0, 0, 0.06, 1, 1, "main"),
+      L(0, 0.18, 0, 0.88, 0.04, 0.84, "#7DD3FC"),               // お湯
+      L(0.38, 0.85, 0.5, 0.06, 0.5, 0.05, "#94A3B8"),           // 蛇口
+      L(-0.36, 2.0, 0.52, 0.02, 1.6, 0.03, "#94A3B8"),          // シャワー
+      L(-0.36, 2.85, 0.47, 0.06, 0.12, 0.1, "#CBD5E1")];
+    case "washstand": return [
+      L(0, -0.06, 0.02, 1, 0.88, 0.96, "main"),                 // 収納
+      L(0, -0.08, -0.465, 0.012, 0.75, 0.01, "dark"),
+      L(0, 0.44, 0, 1, 0.12, 1, "#F8FAFC"),                     // 天板
+      ["c", 0, 0.49, -0.04, 0.62, 0.04, 0.62, "#BAE6FD"],       // ボウル
+      L(0, 0.64, 0.34, 0.06, 0.28, 0.14, "#94A3B8"),            // 蛇口
+      L(0, 1.4, 0.44, 0.96, 0.9, 0.12, "#F1F5F9"),              // 鏡の収納
+      L(0, 1.4, 0.375, 0.86, 0.8, 0.01, "#CBD5E1")];
+    case "washpan": return [
+      L(0, 0, 0, 1, 1, 1, "main"), L(0, 0.3, 0, 0.84, 0.5, 0.84, "#E2E8F0"),
+      L(0.3, 10.5, 0.46, 0.08, 1.4, 0.08, "#94A3B8")];          // 壁の水せん
+    case "kitchen": case "ksink": case "kstove": case "kcounter": {
+      const o = [L(0, -0.04, 0.02, 1, 0.92, 0.96, "main"),      // 収納
+        L(0, -0.47, 0.06, 1, 0.06, 0.88, "dark"),               // 足もと
+        L(0, 0.15, -0.485, 1, 0.012, 0.012, "dark"),            // 引き出しの線
+        L(0, 0.46, 0, 1, 0.08, 1, "#D6D3D1")];                  // 天板
+      const sx = kind === "ksink" ? 0 : -0.22, gx = kind === "kstove" ? 0 : 0.26;
+      const sw = kind === "ksink" ? 0.7 : 0.28, gw = kind === "kstove" ? 0.75 : 0.26;
+      if (kind === "kitchen" || kind === "ksink") o.push(
+        L(sx, 0.505, -0.03, sw, 0.02, 0.62, "#94A3B8"), L(sx, 0.51, -0.03, sw * 0.86, 0.01, 0.52, "#475569"),
+        L(sx, 0.72, 0.36, 0.02, 0.45, 0.06, "#CBD5E1"));        // シンク・蛇口
+      if (kind === "kitchen" || kind === "kstove") o.push(
+        L(gx, 0.505, -0.02, gw, 0.02, 0.78, "#111827"),
+        ["c", gx - gw * 0.22, 0.52, -0.18, gw * 0.3, 0.01, 0.22, "#64748B"], ["c", gx + gw * 0.22, 0.52, -0.18, gw * 0.3, 0.01, 0.22, "#64748B"],
+        ["c", gx, 0.52, 0.2, gw * 0.3, 0.01, 0.22, "#64748B"]);   // コンロ
+      if (kind === "kitchen") o.push(L(gx, 1.95, 0.27, 0.3, 0.42, 0.46, "#E5E7EB"));   // 換気扇
+      return o;
+    }
+    case "cupboard": return [
+      L(0, -0.26, 0, 1, 0.48, 1, "main"), L(0, 0, 0, 1, 0.04, 1, "#D6D3D1"),
+      L(0, 0.32, 0.18, 1, 0.36, 0.64, "main"), L(0, 0.32, -0.145, 0.012, 0.34, 0.01, "dark"),
+      L(0, -0.26, -0.505, 0.012, 0.44, 0.01, "dark")];
+    case "shoebox": return [
+      L(0, 0, 0, 1, 1, 1, "main"), L(0, 0, -0.505, 0.012, 0.92, 0.01, "dark"),
+      L(0, 0.49, 0, 1.02, 0.03, 1.06, "dark"),
+      L(-0.06, 0.25, -0.52, 0.02, 0.18, 0.03, "#CBD5E1"), L(0.06, 0.25, -0.52, 0.02, 0.18, 0.03, "#CBD5E1")];
+    case "closet": {
+      const o = [L(0, 0, 0, 1, 1, 1, "main")];
+      [-0.25, 0, 0.25].forEach(function (x) { o.push(L(x, 0, -0.505, 0.008, 0.98, 0.01, "dark")); });
+      o.push(L(-0.04, 0.02, -0.52, 0.015, 0.1, 0.02, "#94A3B8"), L(0.04, 0.02, -0.52, 0.015, 0.1, 0.02, "#94A3B8"));
+      return o;
+    }
+    case "shower": return [L(0, -0.48, 0, 1, 0.04, 1, "#E2E8F0"), L(0, 0, -0.49, 1, 1, 0.02, "#BAE6FD"), L(0.3, 0.3, 0.46, 0.04, 0.5, 0.04, "#94A3B8")];
+    case "ac": return [L(0, 0, 0, 1, 1, 1, "#F8FAFC"), L(0, -0.33, -0.46, 0.92, 0.16, 0.1, "#CBD5E1")];
+    case "piano": return [L(0, 0.15, 0.12, 1, 0.7, 0.76, "main"), L(0, -0.06, -0.3, 0.96, 0.05, 0.4, "#F8FAFC"),
+      L(-0.46, -0.3, -0.3, 0.06, 0.4, 0.06, "main"), L(0.46, -0.3, -0.3, 0.06, 0.4, 0.06, "main")];
+    case "stairsf": {
+      const o = []; for (let i = 0; i < 5; i++) o.push(L(0, -0.5 + (i + 1) / 10, -0.4 + i * 0.2, 1, (i + 1) / 5, 0.2, i % 2 ? "main" : "light"));
+      return o;
+    }
     default: return [L(0, 0, 0, 1, 1, 1, "main")];
   }
 }
@@ -639,6 +755,8 @@ function num(v, fallback) { const n = Number(v); return isFinite(n) ? n : fallba
 function parseRooms(plan) {
   const out = [];
   (plan.rooms || []).forEach(function (r, ri) {
+    const level = Math.max(0, Math.min(5, Math.round(num(r.level, 0)) || 0));
+    const kind = ["stairs", "void", "loft"].indexOf(r.kind) >= 0 ? r.kind : (r.kind || "");
     let pts, edges;
     if (Array.isArray(r.vertices) && r.vertices.length >= 3) {
       pts = r.vertices.map(function (v) { return toWorld(num(v.x, 0), num(v.y, 0)); });
@@ -677,7 +795,9 @@ function parseRooms(plan) {
       const height = Math.min(num(o.height, type === "window" ? 1.0 : 2.0) || 2.0, WALL_H - sill);
       e.holes.push({ type: type, center: center, width: Math.max(0.2, num(o.width, 0.9)), sill: sill, top: sill + height, doorType: o.doorType || "swing_left", own: true });
     });
-    out.push({ name: r.name || ("部屋" + (ri + 1)), pts: pts, edges: edges, info: info });
+    const ceilH = Math.max(2.0, Math.min(6, num(r.ceilH, WALL_H) || WALL_H));
+    out.push({ name: r.name || ("部屋" + (ri + 1)), pts: pts, edges: edges, info: info, level: level, kind: kind,
+      base: levelBase(level), h: kind === "loft" ? 0 : ceilH, raw: r });
   });
   return out;
 }
@@ -688,7 +808,7 @@ function shareOpenings(rooms) {
   rooms.forEach(function (room) {
     room.edges.forEach(function (e) {
       e.holes.forEach(function (h) {
-        all.push({ edge: e, hole: h, x: e.a.x + e.ux * h.center, z: e.a.z + e.uz * h.center });
+        all.push({ edge: e, hole: h, room: room, x: e.a.x + e.ux * h.center, z: e.a.z + e.uz * h.center });
       });
     });
   });
@@ -696,6 +816,7 @@ function shareOpenings(rooms) {
     room.edges.forEach(function (e) {
       all.forEach(function (o) {
         if (o.edge === e) return;
+        if (o.room.level !== room.level || o.room.kind === "loft" || room.kind === "loft") return;   // 違う階・ロフトとは共有しない
         if (Math.abs(e.ux * o.edge.uz - e.uz * o.edge.ux) > 0.08) return;                 // 平行でない
         const rx = o.x - e.a.x, rz = o.z - e.a.z;
         if (Math.abs(rx * -e.uz + rz * e.ux) > WALL_T * 1.6) return;                       // 同じ線上でない
@@ -715,7 +836,8 @@ let currentSpawn = { x: 0, z: 0, rotY: 0 };
 let xrHelper = null;
 let fixedFurn = [], planFreeWalls = [];
 
-function buildWallEdge(e, solid, deco) {
+function buildWallEdge(e, solid, deco, y0, wallH) {
+  y0 = y0 || 0; wallH = wallH || WALL_H;
   const P = function (t) { return { x: e.a.x + e.ux * t, z: e.a.z + e.uz * t }; };
   const holes = e.holes.map(function (h) {
     return Object.assign({}, h, { l: Math.max(0, h.center - h.width / 2), r: Math.min(e.len, h.center + h.width / 2) });
@@ -726,25 +848,25 @@ function buildWallEdge(e, solid, deco) {
   holes.forEach(function (h) {
     if (h.l < cursor - 0.001) return;   // 重なった開口は先のものを優先
     // 開口の手前の壁
-    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), 0, WALL_H, WALL_T, cursor === 0 ? WALL_T / 2 : 0));
+    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), y0, y0 + wallH, WALL_T, cursor === 0 ? WALL_T / 2 : 0));
     // 開口の上と下
-    solid.push(boxBetween("wallTop", P(h.l), P(h.r), h.top, WALL_H, WALL_T));
-    solid.push(boxBetween("wallSill", P(h.l), P(h.r), 0, h.sill, WALL_T));
+    solid.push(boxBetween("wallTop", P(h.l), P(h.r), y0 + h.top, y0 + wallH, WALL_T));
+    solid.push(boxBetween("wallSill", P(h.l), P(h.r), y0, y0 + h.sill, WALL_T));
     cursor = h.r;
     used.push(h);
   });
-  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), 0, WALL_H, WALL_T, WALL_T / 2));
+  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), y0, y0 + wallH, WALL_T, WALL_T / 2));
 
   // 窓ガラスとドア
   used.forEach(function (h) {
     if (!h.own) return;
     if (h.type === "window") {
-      const glass = boxBetween("glass", P(h.l), P(h.r), h.sill, h.top, 0.02);
+      const glass = boxBetween("glass", P(h.l), P(h.r), y0 + h.sill, y0 + h.top, 0.02);
       if (glass) { glass.material = glassMat; glass.checkCollisions = true; deco.glass.push(glass); }
-      [[h.sill - 0.03, h.sill + 0.03], [h.top - 0.03, h.top + 0.03]].forEach(function (y) {
+      [[y0 + h.sill - 0.03, y0 + h.sill + 0.03], [y0 + h.top - 0.03, y0 + h.top + 0.03]].forEach(function (y) {
         deco.frame.push(boxBetween("frame", P(h.l), P(h.r), y[0], y[1], WALL_T + 0.04));
       });
-      deco.frame.push(boxBetween("frame", P(h.center - 0.02), P(h.center + 0.02), h.sill, h.top, 0.05));
+      deco.frame.push(boxBetween("frame", P(h.center - 0.02), P(h.center + 0.02), y0 + h.sill, y0 + h.top, 0.05));
     } else if (h.type === "door") {
       const dt = h.doorType;
       const w = h.r - h.l;
@@ -758,18 +880,18 @@ function buildWallEdge(e, solid, deco) {
         const s = right ? 1 : -1, off = WALL_T / 2 + 0.03;
         const p1 = { x: hinge.x + e.nx * off, z: hinge.z + e.nz * off };
         const end = P(hingeT + s * w);
-        leaf = boxBetween("door", p1, { x: end.x + e.nx * off, z: end.z + e.nz * off }, 0, h.top - 0.02, 0.035);
+        leaf = boxBetween("door", p1, { x: end.x + e.nx * off, z: end.z + e.nz * off }, y0, y0 + h.top - 0.02, 0.035);
       } else {
         // 開き戸: 90度開けた状態 (内開きは部屋側、外開きは反対側)
         const out = dt.indexOf("_out") > 0 ? -1 : 1;
-        leaf = boxBetween("door", hinge, { x: hinge.x + e.nx * out * w, z: hinge.z + e.nz * out * w }, 0, h.top - 0.02, 0.04);
+        leaf = boxBetween("door", hinge, { x: hinge.x + e.nx * out * w, z: hinge.z + e.nz * out * w }, y0, y0 + h.top - 0.02, 0.04);
       }
       if (leaf) deco.door.push(leaf);
     }
   });
 }
 
-function mergeInto(list, name, material, collide) {
+function mergeInto(list, name, material, collide, parent) {
   const meshes = list.filter(Boolean);
   if (meshes.length === 0) return null;
   const merged = meshes.length === 1 ? meshes[0] : BABYLON.Mesh.MergeMeshes(meshes, true, true);
@@ -777,41 +899,267 @@ function mergeInto(list, name, material, collide) {
   merged.name = name;
   merged.material = material;
   merged.checkCollisions = !!collide;
-  merged.parent = planRoot;
+  merged.parent = parent || planRoot;
   merged.freezeWorldMatrix();
   return merged;
 }
 
+/* ---------- 設備を部屋の名前から置く（設備の入っていない、前に作った間取り用） ---------- */
+function autoFixtures(rooms, furnBoxes) {
+  const put = function (room, kind, w, d, h, color, pref) {
+    // 部屋の四角の中で、ドア・窓のない壁ぎわに置く
+    const b = rectOf(room), W = b.x2 - b.x1, D = b.z2 - b.z1;
+    const sides = [
+      { k: "N", len: W, n: { x: 0, z: -1 }, at: function (t) { return { x: b.x1 + t, z: b.z2 - d / 2 - 0.02 }; }, rot: 0 },
+      { k: "S", len: W, n: { x: 0, z: 1 }, at: function (t) { return { x: b.x1 + t, z: b.z1 + d / 2 + 0.02 }; }, rot: 180 },
+      { k: "W", len: D, n: { x: 1, z: 0 }, at: function (t) { return { x: b.x1 + d / 2 + 0.02, z: b.z2 - t }; }, rot: 270 },
+      { k: "E", len: D, n: { x: -1, z: 0 }, at: function (t) { return { x: b.x2 - d / 2 - 0.02, z: b.z2 - t }; }, rot: 90 }];
+    const holes = [];
+    room.edges.forEach(function (e) { e.holes.forEach(function (hh) { holes.push({ x: e.a.x + e.ux * hh.center, z: e.a.z + e.uz * hh.center, r: hh.width / 2 + (hh.type === "window" ? 0.05 : 0.5), win: hh.type === "window" }); }); });
+    const order = (pref || "NSWE").split("").map(function (k) { return sides.find(function (sd) { return sd.k === k; }); });
+    for (let si = 0; si < order.length; si++) {
+      const sd = order[si];
+      if (w > sd.len - 0.1) continue;
+      for (let t = w / 2 + 0.05; t <= sd.len - w / 2 - 0.05 + 1e-6; t += 0.1) {
+        const c = sd.at(t);
+        const half = { x: sd.k === "N" || sd.k === "S" ? w / 2 : d / 2, z: sd.k === "N" || sd.k === "S" ? d / 2 : w / 2 };
+        const bad = holes.some(function (hh) {
+          if (hh.win && h < 1.0) return false;
+          return Math.abs(hh.x - c.x) < half.x + hh.r && Math.abs(hh.z - c.z) < half.z + hh.r;
+        }) || furnBoxes.some(function (f) { return (f.lv || 0) === room.level && Math.hypot(f.x - c.x, f.z - c.z) < f.r - BODY_RADIUS + Math.max(w, d) / 2 - 0.05; });
+        if (bad) continue;
+        const box = BABYLON.MeshBuilder.CreateBox("furniture_fx", unitBox, scene);
+        box.scaling.set(w, h, d); box.position.set(c.x, room.base + h / 2, c.z); box.rotation.y = sd.rot * Math.PI / 180;
+        box.isVisible = false; box._hid = true; box.checkCollisions = kind !== "washpan"; box.parent = levelRoots[room.level] || planRoot;
+        buildFurnModel(box, kind, color, "furniture_fx", null);
+        furnBoxes.push({ x: c.x, z: c.z, r: Math.max(w, d) / 2 + BODY_RADIUS, lv: room.level });
+        return true;
+      }
+    }
+    return false;
+  };
+  rooms.forEach(function (room) {
+    if (room.kind === "void" || room.kind === "stairs") return;
+    const n = room.name || "", b = rectOf(room), small = Math.min(b.x2 - b.x1, b.z2 - b.z1);
+    if (/ユニットバス|UB/i.test(n)) { put(room, "bathtub", Math.min(1.2, small - 0.15), 0.7, 0.55, "#E0F2FE"); put(room, "toilet", 0.42, 0.68, 0.75, "#F8FAFC", "EWSN"); put(room, "washstand", 0.5, 0.38, 0.8, "#F1F5F9", "SWEN"); return; }
+    if (/浴室|風呂|バス(?!ルーム)/.test(n) && small >= 0.9) put(room, "bathtub", Math.min(1.6, Math.max(b.x2 - b.x1, b.z2 - b.z1) - 0.15), Math.min(0.78, small - 0.2), 0.55, "#E0F2FE");
+    if (/トイレ|WC|便所/i.test(n)) put(room, "toilet", 0.42, 0.72, 0.8, "#F8FAFC");
+    if (/洗面|脱衣/.test(n)) { put(room, "washstand", 0.75, 0.5, 0.85, "#F1F5F9"); put(room, "washpan", 0.64, 0.64, 0.1, "#F8FAFC", "SNEW"); }
+    if (/キッチン|台所|^K$|LDK|DK/i.test(n) && small >= 1.0) put(room, "kitchen", Math.min(2.55, Math.max(b.x2 - b.x1, b.z2 - b.z1) - 0.6), 0.65, 0.85, "#E7E5E4");
+    if (/玄関/.test(n)) put(room, "shoebox", 0.6, 0.35, 0.9, "#C8A97E", "WENS");
+  });
+}
+
+/* ---------- 階段・ロフト ----------
+   階段: 部屋の種類 kind:"stairs"。stairs:{shape:"u"(折り返し)|"straight", up:"N|S|E|W"(上り始めの向き), turn:"L|R"(踊り場で曲がる向き)}
+         その階の床から、上の階の床まで上がる。上の階の同じ場所は kind:"void"（床のない穴）にする
+   ロフト: kind:"loft"。下の部屋の中に loftY(m) の高さの床を作り、手すりと、ladder:{side:"N|S|E|W", at:0〜1} のはしごをつける
+   歩くときは「足もとから STEP_UP 以内で一番高い床」に乗る（階段・はしごは坂として計算） */
+const stairMat = stdMat("stairMat", "#B98B5E");
+const FIXTURE_KINDS = ["toilet", "bathtub", "washstand", "kitchen", "ksink", "kstove", "washpan", "shoebox", "closet", "cupboard"];
+function dirVec(d) { return { N: { x: 0, z: 1 }, S: { x: 0, z: -1 }, E: { x: 1, z: 0 }, W: { x: -1, z: 0 } }[d] || { x: 0, z: 1 }; }
+function rectOf(room) {
+  const xs = room.pts.map(function (p) { return p.x; }), zs = room.pts.map(function (p) { return p.z; });
+  return { x1: Math.min.apply(null, xs), x2: Math.max.apply(null, xs), z1: Math.min.apply(null, zs), z2: Math.max.apply(null, zs) };
+}
+function buildStairs(room, G) {
+  const sp = room.raw.stairs || {};
+  const b = rectOf(room), d = dirVec(sp.up || "N"), rt = { x: d.z, z: -d.x };   // rt: 上る向きに対して右
+  const cx = (b.x1 + b.x2) / 2, cz = (b.z1 + b.z2) / 2;
+  const len = Math.abs(d.x) ? b.x2 - b.x1 : b.z2 - b.z1, wid = Math.abs(d.x) ? b.z2 - b.z1 : b.x2 - b.x1;
+  const shape = sp.shape === "straight" || wid < 1.2 ? "straight" : "u";
+  const st = { room: room, level: room.level, base: room.base, d: d, rt: rt, cx: cx, cz: cz, len: len, wid: wid, shape: shape, rise: FLOOR_H };
+  st.s1 = sp.turn === "R" ? -1 : 1;               // 1本目の段がある側（右なら +1）
+  st.land = shape === "u" ? Math.min(wid / 2, len * 0.45) : 0;
+  st.run = len - st.land;
+  st.path = shape === "u" ? st.run * 2 + wid / 2 : len;
+  stairList.push(st);
+  // 段（下から積み上げた箱）
+  const W2 = function (a, bb) { return { x: cx + d.x * (a - len / 2) + rt.x * bb, z: cz + d.z * (a - len / 2) + rt.z * bb }; };
+  const box = function (a0, a1, b0, b1, top) {
+    const m = BABYLON.MeshBuilder.CreateBox("stairs", { width: 1, height: 1, depth: 1 }, scene);
+    const p0 = W2(a0, b0), p1 = W2(a1, b1);
+    m.scaling.set(Math.abs(p1.x - p0.x) || 0.01, Math.max(0.02, top), Math.abs(p1.z - p0.z) || 0.01);
+    m.position.set((p0.x + p1.x) / 2, room.base + top / 2, (p0.z + p1.z) / 2);
+    G.step.push(m);
+  };
+  if (shape === "straight") {
+    const n = Math.max(4, Math.round(len / 0.24));
+    for (let k = 0; k < n; k++) box(k * len / n, (k + 1) * len / n, -wid / 2 + 0.02, wid / 2 - 0.02, st.rise * (k + 1) / (n + 1));
+  } else {
+    const fw = wid / 2, n = Math.max(3, Math.round(st.run / 0.22)), rate = st.rise / st.path;
+    for (let k = 0; k < n; k++) {   // 1本目
+      const a0 = k * st.run / n, a1 = (k + 1) * st.run / n;
+      box(a0, a1, st.s1 > 0 ? 0.03 : -fw + 0.02, st.s1 > 0 ? fw - 0.02 : -0.03, rate * a1);
+    }
+    for (let k = 0; k < 3; k++) {   // 踊り場（回り段）: 1本目の側から2本目の側へ
+      const sHi = fw - k * 2 * fw / 3, sLo = sHi - 2 * fw / 3;
+      const lo = st.s1 > 0 ? sLo : -sHi, hi = st.s1 > 0 ? sHi : -sLo;
+      box(st.run, len - 0.02, Math.max(-fw + 0.02, lo), Math.min(fw - 0.02, hi), rate * (st.run + fw * [0.15, 0.5, 1][k]));
+    }
+    for (let k = 0; k < n; k++) {   // 2本目（戻ってくる）
+      const a1 = st.run - k * st.run / n, a0 = st.run - (k + 1) * st.run / n;
+      box(a0, a1, st.s1 > 0 ? -fw + 0.02 : 0.03, st.s1 > 0 ? -0.03 : fw - 0.02, rate * (st.run + fw + (k + 1) * st.run / n));
+    }
+    // まん中の壁（1本目と2本目の間）
+    G.solid.push(boxBetween("wall", W2(0, 0), W2(st.run, 0), room.base, room.base + st.rise, 0.06));
+  }
+}
+// 階段のある場所の床の高さ（階段の外なら null）
+function stairY(st, x, z) {
+  const rx = x - st.cx, rz = z - st.cz;
+  const a = rx * st.d.x + rz * st.d.z + st.len / 2, bb = rx * st.rt.x + rz * st.rt.z;
+  if (a < -0.02 || a > st.len + 0.02 || Math.abs(bb) > st.wid / 2 + 0.02) return null;
+  const A = Math.max(0, Math.min(st.len, a));
+  if (st.shape === "straight") return st.base + st.rise * A / st.len;
+  const rate = st.rise / st.path, fw = st.wid / 2, side = bb * st.s1;
+  if (A < st.run) return st.base + (side >= 0 ? rate * A : rate * (st.run + fw + (st.run - A)));
+  const prog = Math.max(0, Math.min(1, (fw / 2 - side) / fw));   // 踊り場: 1本目の側 → 2本目の側
+  return st.base + rate * (st.run + prog * fw);
+}
+// 上の階の階段の穴: 落ちないように、廊下との間の通路以外は壁があるのでそのまま。床のない縁に細い手すりだけ
+function buildVoidRail(room, G) { /* 壁で囲まれているので何もしない（通路の所は階段の上がり口） */ }
+function buildLoft(lf, G) {
+  const y = lf.base + lf.loftY;
+  const top = flatPolygon("floor", lf.pts, y, true, floorMat);
+  top.parent = levelRoots[lf.level]; top.metadata = { level: lf.level, loft: true };
+  floorMeshes.push(top);
+  const under = flatPolygon("ceiling", lf.pts, y - 0.12, false, ceilMat);
+  under.parent = levelRoots[lf.level]; under.isPickable = false;
+  const host = lf.host;
+  const ld = lf.raw.ladder || {};
+  const ladEdge = { N: "North", S: "South", E: "East", W: "West" }[ld.side || "S"];
+  let ladder = null;
+  lf.edges.forEach(function (e) {
+    // 外側すぐの点が下の部屋の中なら、そこは手すりのいる縁
+    const mx = (e.a.x + e.b.x) / 2 - e.nx * 0.08, mz = (e.a.z + e.b.z) / 2 - e.nz * 0.08;
+    if (!host || !pointInPolygon(mx, mz, host.pts)) return;
+    G.rail.push(boxBetween("rail", e.a, e.b, y - 0.12, y, 0.06));   // 床の厚み
+    let gap = null;
+    if (e.key === ladEdge) { const at = Math.max(0.1, Math.min(0.9, num(ld.at, 0.8))) * e.len; gap = [at - 0.28, at + 0.28]; ladder = { e: e, at: at }; }
+    const P = function (t) { return { x: e.a.x + e.ux * t, z: e.a.z + e.uz * t }; };
+    const segs = gap ? [[0, gap[0]], [gap[1], e.len]] : [[0, e.len]];
+    segs.forEach(function (sg) {
+      if (sg[1] - sg[0] < 0.05) return;
+      G.rail.push(boxBetween("rail", P(sg[0]), P(sg[1]), y + 0.82, y + 0.87, 0.05));
+      for (let t = sg[0] + 0.06; t < sg[1] - 0.03; t += 0.14) G.rail.push(boxBetween("rail", P(t - 0.012), P(t + 0.012), y, y + 0.82, 0.025));
+      G.railCol.push(boxBetween("railCol", P(sg[0]), P(sg[1]), y, y + 0.9, 0.06));
+    });
+  });
+  if (ladder) {
+    const e = ladder.e, out = { x: -e.nx, z: -e.nz }, run = 0.55;
+    const top = { x: e.a.x + e.ux * ladder.at, z: e.a.z + e.uz * ladder.at };
+    const node = new BABYLON.TransformNode("ladder", scene);
+    node.parent = levelRoots[lf.level];
+    node.position.set(top.x + out.x * run / 2, lf.base + lf.loftY / 2, top.z + out.z * run / 2);
+    node.rotation.y = Math.atan2(out.x, out.z);
+    const Lr = Math.hypot(run, lf.loftY), th = Math.atan2(run, lf.loftY);
+    const parts = [];
+    [-0.22, 0.22].forEach(function (x) { const r = BABYLON.MeshBuilder.CreateBox("ladder", { width: 0.04, height: Lr + 0.3, depth: 0.05 }, scene); r.position.set(x, 0.15 * Math.cos(th), -0.15 * Math.sin(th)); r.rotation.x = -th; parts.push(r); });
+    for (let t = -Lr / 2 + 0.25; t < Lr / 2; t += 0.28) { const g = BABYLON.MeshBuilder.CreateBox("ladder", { width: 0.44, height: 0.03, depth: 0.05 }, scene); g.position.set(0, t * Math.cos(th), -t * Math.sin(th)); g.rotation.x = -th; parts.push(g); }
+    parts.forEach(function (m) { m.parent = node; m.material = stairMat; m.isPickable = false; });
+    ladderList.push({ level: lf.level, base: lf.base, top: lf.loftY, x0: top.x, z0: top.z, ox: out.x, oz: out.z, ux: e.ux, uz: e.uz, run: run, ceil: lf.ceil });
+  }
+}
+function ladderY(L, x, z) {
+  const rx = x - L.x0, rz = z - L.z0;
+  const s = rx * L.ox + rz * L.oz, t = rx * L.ux + rz * L.uz;
+  if (s < -0.02 || s > L.run + 0.15 || Math.abs(t) > 0.3) return null;
+  return L.base + L.top * Math.max(0, Math.min(1, 1 - s / L.run));
+}
+// その場所に立てる床（高さ・階・天井）の一覧
+function surfacesAt(x, z) {
+  const out = [];
+  roomAreas.forEach(function (r) {
+    if (r.kind === "void" || r.kind === "stairs" || !pointInPolygon(x, z, r.pts)) return;
+    if (r.kind === "loft") out.push({ y: r.base + r.loftY, lv: r.level, ceil: r.ceil, room: r });
+    else out.push({ y: r.base, lv: r.level, ceil: r.ceil, room: r });
+  });
+  stairList.forEach(function (st) { const y = stairY(st, x, z); if (y !== null) out.push({ y: y, lv: st.level, ceil: st.base + st.rise + WALL_H, room: st.room, stair: true }); });
+  ladderList.forEach(function (L) { const y = ladderY(L, x, z); if (y !== null) out.push({ y: y, lv: L.level, ceil: L.ceil, room: null, stair: true }); });
+  return out;
+}
+function groundAt(x, z, foot) {
+  const list = surfacesAt(x, z);
+  let best = null;
+  list.forEach(function (s) { if (s.y <= foot + STEP_UP && (!best || s.y > best.y)) best = s; });
+  if (best) {   // 頭の上にある床（ロフト・上の階）までを天井にする
+    list.forEach(function (s) { if (s.y > best.y + STEP_UP && s.y - 0.12 < best.ceil) best = Object.assign({}, best, { ceil: s.y - 0.12 }); });
+  }
+  return best;
+}
+
 function buildPlan(plan) {
   if (!plan || typeof plan !== "object") throw new Error("間取りデータの形式が違います");
-  const rooms = parseRooms(plan);
+  FLOOR_H = Math.max(2.5, Math.min(4, num(plan.floorH, 2.8) || 2.8));
+  const all = parseRooms(plan);
+  const rooms = all.filter(function (r) { return r.kind !== "loft"; });
+  const lofts = all.filter(function (r) { return r.kind === "loft"; });
   const freeWalls = (plan.walls || []).map(function (w) {
-    return { a: toWorld(num(w.x1, 0), num(w.y1, 0)), b: toWorld(num(w.x2, 0), num(w.y2, 0)) };
+    return { a: toWorld(num(w.x1, 0), num(w.y1, 0)), b: toWorld(num(w.x2, 0), num(w.y2, 0)), level: Math.max(0, Math.round(num(w.level, 0)) || 0) };
   });
   if (rooms.length === 0 && freeWalls.length === 0 && !allowEmptyPlan) throw new Error("間取りデータに部屋がありません");
   shareOpenings(rooms);
 
   if (planRoot) planRoot.dispose(false, false);
   planRoot = new BABYLON.TransformNode("planRoot", scene);
-  floorMeshes = [];
-  roomAreas = rooms.map(function (r) { return { name: r.name, pts: r.pts, area: r.info.area, cx: r.info.x, cz: r.info.z }; });
-
-  const solid = [], deco = { glass: [], frame: [], door: [] };
-  rooms.forEach(function (room) {
-    room.edges.forEach(function (e) { if (e.len >= 0.02) buildWallEdge(e, solid, deco); });
-    const floor = flatPolygon("floor", room.pts, 0, true, floorMat);
-    floor.parent = planRoot;
-    floorMeshes.push(floor);
-    const ceil = flatPolygon("ceiling", room.pts, WALL_H, false, ceilMat);
-    ceil.parent = planRoot;
-    ceil.isPickable = false;
+  floorMeshes = []; stairList = []; ladderList = [];
+  levelCount = 1;
+  all.forEach(function (r) { levelCount = Math.max(levelCount, r.level + 1); });
+  levelRoots = [];
+  for (let l = 0; l < levelCount; l++) { const n = new BABYLON.TransformNode("level" + l, scene); n.parent = planRoot; levelRoots.push(n); }
+  // ロフトは、下にある部屋の天井の高さを使う
+  lofts.forEach(function (lf) {
+    const host = rooms.find(function (r) { return r.level === lf.level && r.kind !== "void" && pointInPolygon(lf.info.x, lf.info.z, r.pts); });
+    lf.loftY = Math.max(1.4, Math.min(3, num(lf.raw.loftY, 2.1) || 2.1));
+    lf.host = host || null;
+    if (host && host.h < lf.loftY + 1.0) host.h = lf.loftY + 1.4;   // 天井が低すぎるときは上げる
+    lf.ceil = lf.base + (host ? host.h : lf.loftY + 1.4);
   });
-  freeWalls.forEach(function (w) { solid.push(boxBetween("freeWall", w.a, w.b, 0, WALL_H, 0.05)); });
+  roomAreas = all.map(function (r) {
+    return { name: r.name, pts: r.pts, area: r.info.area, cx: r.info.x, cz: r.info.z, level: r.level, kind: r.kind,
+      base: r.base, h: r.h, loftY: r.loftY || 0, ceil: r.kind === "loft" ? r.ceil : r.base + r.h };
+  });
 
-  mergeInto(solid, "walls", wallMat, true);
-  mergeInto(deco.frame, "frames", frameMat, false);
-  mergeInto(deco.door, "doors", doorMat, false);
-  deco.glass.forEach(function (g) { g.parent = planRoot; g.isPickable = false; });
+  const L = [];   // 階ごとの部品
+  for (let l = 0; l < levelCount; l++) L.push({ solid: [], band: [], deco: { glass: [], frame: [], door: [] }, step: [], rail: [], railCol: [] });
+  rooms.forEach(function (room) {
+    const G = L[room.level];
+    room.edges.forEach(function (e) { if (e.len >= 0.02) buildWallEdge(e, G.solid, G.deco, room.base, room.h); });
+    // 上の階があるときは、天井から上の階の床までの壁も（ぶつからない）
+    if (room.level < levelCount - 1 && room.h < FLOOR_H) room.edges.forEach(function (e) {
+      if (e.len >= 0.02) G.band.push(boxBetween("wall", e.a, e.b, room.base + room.h, room.base + FLOOR_H, WALL_T, WALL_T / 2));
+    });
+    if (room.kind !== "void" && room.kind !== "stairs") {
+      const floor = flatPolygon("floor", room.pts, room.base, true, floorMatFor(room));
+      floor.parent = levelRoots[room.level];
+      floor.metadata = { level: room.level };
+      floorMeshes.push(floor);
+    }
+    if (room.kind !== "stairs") {
+      const ceil = flatPolygon("ceiling", room.pts, room.base + room.h, false, ceilMat);
+      ceil.parent = levelRoots[room.level];
+      ceil.isPickable = false;
+    }
+    if (room.kind === "stairs") buildStairs(room, G);
+    if (room.kind === "void") buildVoidRail(room, G);
+  });
+  lofts.forEach(function (lf) { buildLoft(lf, L[lf.level]); });
+  freeWalls.forEach(function (w) { const lv = Math.min(w.level, levelCount - 1); L[lv].solid.push(boxBetween("freeWall", w.a, w.b, levelBase(lv), levelBase(lv) + WALL_H, 0.05)); });
+
+  L.forEach(function (G, l) {
+    const par = levelRoots[l];
+    mergeInto(G.solid, "walls", wallMat, true, par);
+    mergeInto(G.band, "walls", wallMat, false, par);
+    mergeInto(G.deco.frame, "frames", frameMat, false, par);
+    mergeInto(G.deco.door, "doors", doorMat, false, par);
+    G.deco.glass.forEach(function (g) { g.parent = par; g.isPickable = false; });
+    const st = mergeInto(G.step, "stairs", stairMat, false, par);
+    if (st) floorMeshes.push(st);
+    mergeInto(G.rail, "rail", frameMat, false, par);
+    const rc = mergeInto(G.railCol, "railCol", wallMat, true, par);
+    if (rc) { rc.isVisible = false; rc.isPickable = false; rc._hid = true; }
+  });
 
   // 家具
   const furnBoxes = [];
@@ -819,29 +1167,35 @@ function buildPlan(plan) {
     const w = num(f.w, 0), d = num(f.d, 0), h = num(f.h, 0.8) || 0.8;
     if (w <= 0 || d <= 0) return;
     const p = toWorld(num(f.cx, 0), num(f.cy, 0));
+    const lv = Math.max(0, Math.min(levelCount - 1, Math.round(num(f.level, 0)) || 0));
+    const kind = furnKind((f.type || "") + " " + (f.name || ""));
+    const y0 = levelBase(lv) + (kind === "ac" ? 2.05 - h / 2 : 0);   // エアコンは壁の上のほう
     // ぶつかり判定用の見えない箱 ＋ 形の部品
     const box = BABYLON.MeshBuilder.CreateBox("furniture" + i, unitBox, scene);
     box.scaling.set(w, h, d);
-    box.position.set(p.x, h / 2, p.z);
+    box.position.set(p.x, y0 + h / 2, p.z);
     box.rotation.y = num(f.rotation, 0) * Math.PI / 180;
-    box.isVisible = false;
-    box.checkCollisions = true;
-    box.parent = planRoot;
-    buildFurnModel(box, furnKind((f.type || "") + " " + (f.name || "")), f.color, "furniture" + i, null);
-    furnBoxes.push({ x: p.x, z: p.z, r: Math.max(w, d) / 2 + BODY_RADIUS });
+    box.isVisible = false; box._hid = true;
+    box.checkCollisions = kind !== "ac" && kind !== "washpan";
+    box.parent = levelRoots[lv] || planRoot;
+    buildFurnModel(box, kind, f.color, "furniture" + i, null);
+    furnBoxes.push({ x: p.x, z: p.z, r: Math.max(w, d) / 2 + BODY_RADIUS, lv: lv });
   });
+  if (!(plan.furnitures || plan.furniture || []).some(function (f) { return FIXTURE_KINDS.indexOf(furnKind((f.type || "") + " " + (f.name || ""))) >= 0; }))
+    autoFixtures(rooms, furnBoxes);
 
   // 開始位置: 一番広い部屋の中で、家具と重ならない場所
   let spawn = { x: 0, z: 0 };
-  if (rooms.length > 0) {
-    const big = rooms.slice().sort(function (p, q) { return q.info.area - p.info.area; })[0];
+  const standable = rooms.filter(function (r) { return r.level === 0 && r.kind !== "void" && r.kind !== "stairs"; });
+  if (standable.length > 0) {
+    const big = standable.slice().sort(function (p, q) { return q.info.area - p.info.area; })[0];
     const cands = [{ x: big.info.x, z: big.info.z }];
     const xs = big.pts.map(function (p) { return p.x; }), zs = big.pts.map(function (p) { return p.z; });
     const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), z0 = Math.min.apply(null, zs), z1 = Math.max.apply(null, zs);
     for (let i = 1; i < 6; i++) for (let j = 1; j < 6; j++) cands.push({ x: x0 + (x1 - x0) * i / 6, z: z0 + (z1 - z0) * j / 6 });
     const free = cands.filter(function (c) {
       if (!pointInPolygon(c.x, c.z, big.pts)) return false;
-      return furnBoxes.every(function (f) { return Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
+      return furnBoxes.every(function (f) { return f.lv || Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
     });
     free.sort(function (p, q) { return Math.hypot(p.x - big.info.x, p.z - big.info.z) - Math.hypot(q.x - big.info.x, q.z - big.info.z); });
     spawn = free[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, big.pts); }) || cands[0];
@@ -857,11 +1211,12 @@ function buildPlan(plan) {
   let bestDist = -1;
   for (let i = 0; i < 16; i++) {
     const a = i * Math.PI / 8;
-    const ray = new BABYLON.Ray(new BABYLON.Vector3(currentSpawn.x, 1.2, currentSpawn.z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
+    const ray = new BABYLON.Ray(new BABYLON.Vector3(currentSpawn.x, 1.2, currentSpawn.z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);   // 1階で始める
     const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls" || m.name === "glass" || m.name.indexOf("furniture") === 0; });
     const d = hit && hit.hit ? hit.distance : 60;
     if (d > bestDist + 0.01) { bestDist = d; currentSpawn.rotY = a; }
   }
+  footY = 0; curLevel = 0; eyeNow = EYE_HEIGHT; standOn = null;
   camera.position.set(currentSpawn.x, EYE_HEIGHT, currentSpawn.z);
   yaw = currentSpawn.rotY; pitch = 0;
   camera.rotation.set(pitch, yaw, 0);
@@ -979,17 +1334,40 @@ scene.onBeforeRenderObservable.add(function () {
 
   camera.rotation.set(pitch, yaw, 0);
   camera.cameraDirection.set(vel.x * dt, 0, vel.z * dt);
-  camera.position.y = EYE_HEIGHT;
+  updateFoot(dt);
 
 });
+// 足もとの床（階段・ロフト・上の階）に合わせて目の高さを決める
+function updateFoot(dt) {
+  const g = groundAt(camera.position.x, camera.position.z, footY);
+  let target = footY;
+  if (g) { target = g.y; standOn = g; if (!g.stair || g.room) curLevel = g.lv; }
+  else standOn = null;
+  if (g && g.stair && !g.room) curLevel = g.lv;
+  const k = 1 - Math.exp(-dt * (target < footY - 0.6 ? 6 : 14));
+  footY += (target - footY) * k;
+  if (Math.abs(target - footY) < 0.002) footY = target;
+  const eyeT = g ? Math.max(0.85, Math.min(EYE_HEIGHT, g.ceil - footY - 0.14)) : EYE_HEIGHT;   // ロフトではかがむ
+  eyeNow += (eyeT - eyeNow) * (1 - Math.exp(-dt * 8));
+  camera.ellipsoid.y = (eyeNow - 0.1) / 2;
+  camera.position.y = footY + eyeNow;
+}
+function currentRoomAt(x, z, lv) {
+  const list = roomAreas.filter(function (r) { return r.level === lv && r.kind !== "void" && pointInPolygon(x, z, r.pts); });
+  if (standOn && standOn.room && list.indexOf(standOn.room) >= 0 && standOn.room.kind === "loft") return standOn.room;
+  return list.find(function (r) { return r.kind !== "loft"; }) || list[0] || null;
+}
+function xrLevel(cam) { return Math.max(0, Math.min(levelCount - 1, Math.floor((cam.position.y - 0.9) / FLOOR_H + 0.15))); }
 // 今いる部屋の名前
 scene.onBeforeRenderObservable.add(function () {
   roomTimer += Math.min(engine.getDeltaTime() / 1000, 0.1);
   if (roomTimer > 0.25) {
     roomTimer = 0;
-    const cp = (typeof inXR !== "undefined" && inXR && scene.activeCamera) ? scene.activeCamera.position : camera.position;
-    currentRoom = roomAreas.find(function (r) { return pointInPolygon(cp.x, cp.z, r.pts); }) || null;
-    const name = currentRoom ? currentRoom.name : "";
+    const xr = typeof inXR !== "undefined" && inXR && scene.activeCamera;
+    const cp = xr ? scene.activeCamera.position : camera.position;
+    if (xr) curLevel = xrLevel(scene.activeCamera);
+    currentRoom = currentRoomAt(cp.x, cp.z, curLevel);
+    const name = currentRoom ? (levelCount > 1 ? (curLevel + 1) + "F " : "") + currentRoom.name : "";
     if (roomNameEl.textContent !== name) roomNameEl.textContent = name;
   }
 });
@@ -1122,7 +1500,7 @@ function setViewMode(mode) {
   const real = mode === "real" && !!splatRoot;
   if (splatRoot) splatRoot.setEnabled(real || alignMode);
   // 実写のときは間取りの見た目を隠す(当たり判定はそのまま残る)
-  planMeshes().forEach(function (m) { m.isVisible = !real; });
+  planMeshes().forEach(function (m) { if (!m._hid) m.isVisible = !real; });   // 当たり判定だけの見えない箱はそのまま
   scene.clearColor = real ? new BABYLON.Color4(0.08, 0.09, 0.12, 1) : new BABYLON.Color4(0.72, 0.85, 0.96, 1);
   const btn = document.getElementById("modeBtn");
   btn.textContent = real ? T("🏠 間取りで見る") : T("📷 実写で見る");
@@ -1305,17 +1683,19 @@ scene.onAfterRenderObservable.add(function () {
     L.el.style.left = p.x + "px"; L.el.style.top = p.y + "px";
   }
 });
-const PICK_SOLID = function (m) { return m.isEnabled() && (m.name === "walls" || m.name === "floor" || m.name === "glass" || m.name === "doors" || m.name.indexOf("furniture") === 0); };
+const PICK_SOLID = function (m) { return m.isEnabled() && (m.name === "walls" || m.name === "floor" || m.name === "glass" || m.name === "doors" || m.name === "stairs" || m.name.indexOf("furniture") === 0); };
 function pickAt(e, pred) {
   const r = canvas.getBoundingClientRect();
   return scene.pick(e.clientX - r.left, e.clientY - r.top, pred, false, scene.activeCamera);
 }
-// 画面上の点から床(y=0)の位置を求める
-function floorPointAt(e) {
+// 画面上の点から床の位置を求める（今見ている階の床の高さ）
+function viewLevel() { return dollMode ? dollLevel : curLevel; }
+function floorPointAt(e, y) {
+  if (y === undefined) y = levelBase(viewLevel());
   const r = canvas.getBoundingClientRect();
   const ray = scene.createPickingRay(e.clientX - r.left, e.clientY - r.top, BABYLON.Matrix.Identity(), scene.activeCamera);
   if (Math.abs(ray.direction.y) < 1e-4) return null;
-  const t = -ray.origin.y / ray.direction.y;
+  const t = (y - ray.origin.y) / ray.direction.y;
   if (t <= 0) return null;
   return { x: ray.origin.x + ray.direction.x * t, z: ray.origin.z + ray.direction.z * t };
 }
@@ -1332,7 +1712,10 @@ function planBounds() {
   if (!isFinite(x1)) return { x1: -3, x2: 3, z1: -3, z2: 3 };
   return { x1: x1, x2: x2, z1: z1, z2: z2 };
 }
-function roomAt(x, z) { return roomAreas.find(function (r) { return pointInPolygon(x, z, r.pts); }) || null; }
+function roomAt(x, z, lv) {
+  if (lv === undefined) lv = viewLevel();
+  return roomAreas.find(function (r) { return r.level === lv && r.kind !== "void" && r.kind !== "loft" && pointInPolygon(x, z, r.pts); }) || null;
+}
 function areaText(r) {
   const a = r.area || 0;
   if (LANG === "en") return a.toFixed(1) + " m² (" + (a / 1.62).toFixed(1) + " tatami)";
@@ -1346,7 +1729,7 @@ function freeSpot(room) {
   for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) cands.push({ x: x0 + (x1 - x0) * i / 8, z: z0 + (z1 - z0) * j / 8 });
   const ok = cands.filter(function (c) {
     if (!pointInPolygon(c.x, c.z, room.pts)) return false;
-    return fixedFurn.every(function (f) { return Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
+    return fixedFurn.every(function (f) { return (f.lv || 0) !== (room.level || 0) || Math.hypot(c.x - f.x, c.z - f.z) > f.r; });
   });
   ok.sort(function (p, q) { return Math.hypot(p.x - room.cx, p.z - room.cz) - Math.hypot(q.x - room.cx, q.z - room.cz); });
   return ok[0] || cands.find(function (c) { return pointInPolygon(c.x, c.z, room.pts); }) || cands[0];
@@ -1356,7 +1739,7 @@ function bestYawFrom(x, z) {
   let best = 0, bestD = -1;
   for (let i = 0; i < 16; i++) {
     const a = i * Math.PI / 8;
-    const ray = new BABYLON.Ray(new BABYLON.Vector3(x, 1.2, z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
+    const ray = new BABYLON.Ray(new BABYLON.Vector3(x, footY + 1.2, z), new BABYLON.Vector3(Math.sin(a), 0, Math.cos(a)), 60);
     const hit = scene.pickWithRay(ray, function (m) { return m.name === "walls"; });
     const d = hit && hit.hit ? hit.distance : 60;
     if (d > bestD + 0.01) { bestD = d; best = a; }
@@ -1365,9 +1748,14 @@ function bestYawFrom(x, z) {
 }
 const fadeEl = document.getElementById("fade");
 let fading = false;
-function goTo(x, z, newYaw, instant) {
+function goTo(x, z, newYaw, instant, lv) {
+  if (lv === undefined || lv === null) lv = viewLevel();
   const apply = function () {
-    camera.position.set(x, EYE_HEIGHT, z);
+    curLevel = lv; footY = levelBase(lv);
+    const g = groundAt(x, z, footY + 0.05);
+    if (g) footY = g.y;
+    eyeNow = EYE_HEIGHT;
+    camera.position.set(x, footY + EYE_HEIGHT, z);
     if (newYaw !== undefined && newYaw !== null) yaw = newYaw;
     pitch = 0; vel.x = 0; vel.z = 0;
     camera.rotation.set(pitch, yaw, 0);
@@ -1534,36 +1922,61 @@ function drawMinimap() {
   mmMap = { s: s, ox: ox, oy: oy, b: b };
   mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   mctx.clearRect(0, 0, W, H);
-  paintMinimap(mctx, X, Y, s, { x: camera.position.x, z: camera.position.z, yaw: yaw });
+  paintMinimap(mctx, X, Y, s, { x: camera.position.x, z: camera.position.z, yaw: yaw, lv: viewLevel(), myLv: curLevel });
 }
 // ミニマップの中身を描く（画面のミニマップと、VRゴーグルの中のミニマップで共通）
 function paintMinimap(mctx, X, Y, s, me) {
-  const k = me.k || 1;
+  const k = me.k || 1, lv = me.lv === undefined ? viewLevel() : me.lv;
+  const trace = function (r) { mctx.beginPath(); r.pts.forEach(function (p, i) { if (i) mctx.lineTo(X(p.x), Y(p.z)); else mctx.moveTo(X(p.x), Y(p.z)); }); mctx.closePath(); };
+  // 下の階はうすく
+  if (lv > 0) roomAreas.forEach(function (r) { if (r.level !== lv - 1 || r.kind === "loft") return; trace(r); mctx.fillStyle = "rgba(255,255,255,.25)"; mctx.fill(); });
   roomAreas.forEach(function (r) {
-    mctx.beginPath();
-    r.pts.forEach(function (p, i) { if (i) mctx.lineTo(X(p.x), Y(p.z)); else mctx.moveTo(X(p.x), Y(p.z)); });
-    mctx.closePath();
-    mctx.fillStyle = r === currentRoom ? "rgba(147,197,253,.95)" : "rgba(255,255,255,.88)";
+    if (r.level !== lv || r.kind === "loft") return;
+    trace(r);
+    mctx.fillStyle = r === currentRoom ? "rgba(147,197,253,.95)" : r.kind === "void" ? "rgba(148,163,184,.55)" : r.kind === "stairs" ? "rgba(253,230,138,.95)" : "rgba(255,255,255,.88)";
     mctx.fill();
     mctx.lineWidth = 1.5 * k; mctx.strokeStyle = "#334155"; mctx.stroke();
+    if (r.kind === "stairs" || r.kind === "void") {   // 階段のしるし
+      mctx.save(); trace(r); mctx.clip(); mctx.strokeStyle = "rgba(146,64,14,.55)"; mctx.lineWidth = 1 * k;
+      const b = rectOf(r);
+      for (let x = b.x1; x < b.x2 + (b.z2 - b.z1); x += 0.2) { mctx.beginPath(); mctx.moveTo(X(x), Y(b.z1)); mctx.lineTo(X(x - (b.z2 - b.z1)), Y(b.z2)); mctx.stroke(); }
+      mctx.restore();
+    }
+  });
+  roomAreas.forEach(function (r) {   // ロフトは点線
+    if (r.level !== lv || r.kind !== "loft") return;
+    trace(r); mctx.save(); mctx.setLineDash([4 * k, 3 * k]); mctx.lineWidth = 1.5 * k;
+    mctx.strokeStyle = "#7C3AED"; mctx.stroke();
+    if (r === currentRoom) { mctx.fillStyle = "rgba(196,181,253,.6)"; mctx.fill(); }
+    mctx.restore();
   });
   mctx.strokeStyle = "#334155"; mctx.lineWidth = 1.5 * k;
-  planFreeWalls.forEach(function (w) { mctx.beginPath(); mctx.moveTo(X(w.a.x), Y(w.a.z)); mctx.lineTo(X(w.b.x), Y(w.b.z)); mctx.stroke(); });
+  planFreeWalls.forEach(function (w) { if ((w.level || 0) !== lv) return; mctx.beginPath(); mctx.moveTo(X(w.a.x), Y(w.a.z)); mctx.lineTo(X(w.b.x), Y(w.b.z)); mctx.stroke(); });
   // 置いた家具
   myFurn.forEach(function (f) {
+    if ((f.lv || 0) !== lv) return;
     mctx.save(); mctx.translate(X(f.x), Y(f.z)); mctx.rotate(f.rot * Math.PI / 180);
     mctx.fillStyle = furnFits(f) ? "rgba(34,197,94,.75)" : "rgba(239,68,68,.8)";
     mctx.fillRect(-f.w * s / 2, -f.d * s / 2, f.w * s, f.d * s); mctx.restore();
   });
   // 案内タグ
-  planTags.forEach(function (t) { mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2 * k, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
+  planTags.forEach(function (t) { if (t.level !== lv) return; mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2 * k, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
   // 一緒に内見している人
   if (live) Object.keys(avatars).forEach(function (uid) {
     const a = avatars[uid];
+    if (Math.round((a.y || 0) / FLOOR_H) !== lv) return;
     mctx.beginPath(); mctx.arc(X(a.x), Y(a.z), 4.5 * k, 0, Math.PI * 2); mctx.fillStyle = a.color; mctx.fill();
     mctx.lineWidth = 1.5 * k; mctx.strokeStyle = "#fff"; mctx.stroke();
   });
+  // 何階か
+  if (levelCount > 1) {
+    mctx.save(); mctx.font = "bold " + Math.round(12 * k) + "px sans-serif"; mctx.textAlign = "left"; mctx.textBaseline = "top";
+    const tx = (lv + 1) + "F", tw = mctx.measureText(tx).width + 10 * k;
+    mctx.fillStyle = "rgba(37,99,235,.92)"; mctx.fillRect(4 * k, 4 * k, tw, 18 * k);
+    mctx.fillStyle = "#fff"; mctx.fillText(tx, 9 * k, 7 * k); mctx.restore();
+  }
   // 自分 (向きつきの矢印)
+  if (me.lv !== undefined && me.myLv !== undefined && me.myLv !== lv) return;
   const cx = X(me.x), cy = Y(me.z);
   mctx.save(); mctx.translate(cx, cy); mctx.rotate(me.yaw); if (me.k) mctx.scale(me.k, me.k);
   mctx.beginPath(); mctx.moveTo(0, -8); mctx.lineTo(6, 6); mctx.lineTo(0, 3); mctx.lineTo(-6, 6); mctx.closePath();
@@ -1573,7 +1986,7 @@ function paintMinimap(mctx, X, Y, s, me) {
   if (k > 1) {
     mctx.fillStyle = "#0f172a"; mctx.font = "bold " + Math.round(11 * k) + "px sans-serif"; mctx.textAlign = "center"; mctx.textBaseline = "middle";
     roomAreas.forEach(function (r) {
-      if (!r.name || r.area < 1.5) return;
+      if (!r.name || r.area < 1.5 || r.level !== lv || r.kind === "loft") return;
       mctx.fillText(r.name, X(r.cx), Y(r.cz));
     });
   }
@@ -1589,14 +2002,31 @@ mm.addEventListener("pointerdown", function (e) {
   if (!roomAt(x, z)) return;
   if (tour) endTour(false);
   if (live && live.follow) setFollow(false);
-  if (dollMode) exitDoll({ x: x, z: z }); else goTo(x, z);
+  if (dollMode) exitDoll({ x: x, z: z }); else goTo(x, z, undefined, false, curLevel);
 });
 
 /* ---------- 全体表示 (ドールハウス) ---------- */
-let dollMode = false, dollCam = null, meMarker = null, meLabel = null;
+let dollMode = false, dollCam = null, meMarker = null, meLabel = null, dollLevel = 0;
+function setDollLevel(l) {
+  dollLevel = Math.max(0, Math.min(levelCount - 1, l));
+  levelRoots.forEach(function (n, i) { n.setEnabled(!dollMode || i <= dollLevel); });
+  myFurn.forEach(function (f) { if (f.mesh) f.mesh.setEnabled(!dollMode || (f.lv || 0) <= dollLevel); });
+  if (dollCam) dollCam.target.y = levelBase(dollLevel) + 0.4;
+  document.querySelectorAll("#dLevels button").forEach(function (b) { b.classList.toggle("pri", +b.dataset.l === dollLevel); b.classList.toggle("gray", +b.dataset.l !== dollLevel); });
+  if (meMarker) meMarker.setEnabled(dollMode && curLevel <= dollLevel);
+  mmBounds = null; drawMinimap();
+}
 function enterDoll() {
   if (tour) endTour(false);
   dollMode = true;
+  dollLevel = curLevel;
+  const lb = document.getElementById("dLevels");
+  lb.innerHTML = "";
+  if (levelCount > 1) for (let l = 0; l < levelCount; l++) {
+    const b = document.createElement("button"); b.dataset.l = l; b.textContent = (l + 1) + "F";
+    b.addEventListener("click", function () { setDollLevel(+this.dataset.l); });
+    lb.appendChild(b);
+  }
   setToolOn("doll", true);
   const b = planBounds(), c = { x: (b.x1 + b.x2) / 2, z: (b.z1 + b.z2) / 2 };
   const size = Math.max(b.x2 - b.x1, b.z2 - b.z1, 4);
@@ -1607,7 +2037,7 @@ function enterDoll() {
   dollCam.attachControl(canvas, true);
   scene.activeCamera = dollCam;
   // 天井を外して上から見えるようにする。実写は外から見ると天井でふさがるので間取りで見せる
-  planMeshes().forEach(function (m) { m.isVisible = m.name !== "ceiling"; });
+  planMeshes().forEach(function (m) { if (!m._hid) m.isVisible = m.name !== "ceiling"; });
   if (splatRoot) splatRoot.setEnabled(false);
   scene.clearColor = new BABYLON.Color4(0.86, 0.9, 0.95, 1);
   if (!meMarker) {
@@ -1615,8 +2045,9 @@ function enterDoll() {
     meMarker.material = emissiveMat("meMat", "#2563EB");
     meMarker.rotation.x = Math.PI; meMarker.isPickable = false;
   }
-  meMarker.position.set(camera.position.x, 1.9, camera.position.z);
+  meMarker.position.set(camera.position.x, footY + 1.9, camera.position.z);
   meMarker.setEnabled(true);
+  setDollLevel(dollLevel);
   meLabel = addLabel("alabel", T("あなた"), function () { return meMarker.position.add(new BABYLON.Vector3(0, 0.45, 0)); });
   document.getElementById("joystick").style.visibility = "hidden";
   document.getElementById("dollBar").classList.add("show");
@@ -1628,12 +2059,13 @@ function exitDoll(to) {
   setToolOn("doll", false);
   dollCam.detachControl(); scene.activeCamera = camera; dollCam.dispose(); dollCam = null;
   if (meMarker) meMarker.setEnabled(false);
+  setDollLevel(dollLevel);   // 全部の階を表示にもどす
   removeLabel(meLabel); meLabel = null;
   setViewMode(viewMode);
   document.getElementById("joystick").style.visibility = "";
   document.getElementById("dollBar").classList.remove("show");
   roomNameEl.style.visibility = "";
-  if (to) goTo(to.x, to.z, bestYawFrom(to.x, to.z), true);
+  if (to) { goTo(to.x, to.z, null, true, dollLevel); yaw = bestYawFrom(to.x, to.z); }
 }
 document.getElementById("dWalk").addEventListener("click", function () { exitDoll(); });
 document.getElementById("dFurn").addEventListener("click", function () { const on = !furnMode; closePanels("furn"); setFurn(on); });
@@ -1646,8 +2078,9 @@ function buildTags(list) {
   (list || []).forEach(function (t) {
     if (!t || !(t.title || t.text)) return;
     const p = toWorld(num(t.x, 0), num(t.y, 0));
-    const pos = new BABYLON.Vector3(p.x, Math.max(0.1, Math.min(2.3, num(t.h, 1.2))), p.z);
-    const tag = { title: String(t.title || ""), text: String(t.text || ""), pos: pos, visible: false };
+    const lv = Math.max(0, Math.min(levelCount - 1, Math.round(num(t.level, 0)) || 0));
+    const pos = new BABYLON.Vector3(p.x, levelBase(lv) + Math.max(0.1, Math.min(3.4, num(t.h, 1.2))), p.z);
+    const tag = { title: String(t.title || ""), text: String(t.text || ""), pos: pos, visible: false, level: lv };
     tag.label = addLabel("tagb", "<i>i</i><span>" + esc(tag.title || "…") + "</span>", function () { return tag.pos; }, function () { return tag.visible && !alignMode; });
     tag.label.el.addEventListener("click", function () { openTag(tag); });
     planTags.push(tag);
@@ -1666,7 +2099,7 @@ setInterval(function () {
   const from = cam.globalPosition || cam.position;
   planTags.forEach(function (t) {
     const d = BABYLON.Vector3.Distance(from, t.pos);
-    if (dollMode) { t.visible = true; return; }
+    if (dollMode) { t.visible = t.level === dollLevel; return; }
     if (d > 9) { t.visible = false; return; }
     const dir = t.pos.subtract(from).normalize();
     const hit = scene.pickWithRay(new BABYLON.Ray(from, dir, Math.max(0.01, d - 0.12)), function (m) { return m.name === "walls"; }, true);
@@ -1678,7 +2111,9 @@ setInterval(function () {
 let tour = null;
 const tourCap = document.getElementById("tourCap");
 function startTour() {
-  const stops = roomAreas.filter(function (r) { return r.area > 0.8; }).map(function (r) { const s = freeSpot(r); return { x: s.x, z: s.z, room: r }; });
+  const stops = roomAreas.filter(function (r) { return r.area > 0.8 && r.kind !== "void" && r.kind !== "loft" && r.kind !== "stairs"; })
+    .sort(function (p, q) { return p.level - q.level; })
+    .map(function (r) { const s = freeSpot(r); return { x: s.x, z: s.z, room: r }; });
   if (!stops.length) return;
   tour = { stops: stops, i: -1, t: 0, paused: false };
   stats.tour = true;
@@ -1693,9 +2128,9 @@ function nextStop() {
   if (tour.i >= tour.stops.length) { endTour(true); return; }
   const s = tour.stops[tour.i];
   tour.t = 0;
-  const tags = planTags.filter(function (t) { return pointInPolygon(t.pos.x, t.pos.z, s.room.pts); }).map(function (t) { return "ℹ " + esc(t.title); });
-  tourCap.innerHTML = "<b>" + (tour.i + 1) + "/" + tour.stops.length + "　" + esc(s.room.name) + "</b> " + areaText(s.room) + (tags.length ? "<small>" + tags.join("　") + "</small>" : "");
-  goTo(s.x, s.z, bestYawFrom(s.x, s.z));
+  const tags = planTags.filter(function (t) { return t.level === s.room.level && pointInPolygon(t.pos.x, t.pos.z, s.room.pts); }).map(function (t) { return "ℹ " + esc(t.title); });
+  tourCap.innerHTML = "<b>" + (tour.i + 1) + "/" + tour.stops.length + "　" + (levelCount > 1 ? (s.room.level + 1) + "F " : "") + esc(s.room.name) + "</b> " + areaText(s.room) + (tags.length ? "<small>" + tags.join("　") + "</small>" : "");
+  goTo(s.x, s.z, null, false, s.room.level).then(function () { if (tour) yaw = bestYawFrom(s.x, s.z); });
 }
 function tourStep(dt) {
   if (!tour || tour.paused || fading) return;
@@ -1767,7 +2202,7 @@ function furnCorners(f) {
 }
 function furnFits(f) {
   const cs = furnCorners(f);
-  const room = roomAt(f.x, f.z);
+  const room = roomAt(f.x, f.z, f.lv || 0);
   if (!room) return false;
   // 全部の角が同じ部屋の中にあれば収まっている
   return cs.every(function (p) { return pointInPolygon(p.x, p.z, room.pts); });
@@ -1791,7 +2226,7 @@ function furnRebuild(f) {   // 形・色が変わったら部品を作り直す
 }
 function updateFurnMesh(f) {
   f.mesh.scaling.set(f.w, f.h, f.d);
-  f.mesh.position.set(f.x, f.h / 2 + 0.002, f.z);
+  f.mesh.position.set(f.x, levelBase(f.lv || 0) + f.h / 2 + 0.002, f.z);
   f.mesh.rotation.y = f.rot * Math.PI / 180;
   const fit = furnFits(f), sel = f === selFurn;
   if (f._fit !== fit) { (f.parts || []).forEach(function (pm) { pm.material = fit ? pm._mat : furnNgMat; }); f._fit = fit; }
@@ -1816,7 +2251,7 @@ function addFurn(c) {
     at = (p && roomAt(p.x, p.z)) ? p : { x: dollCam.target.x, z: dollCam.target.z };
   }
   const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c,
-    x: at.x, z: at.z,
+    x: at.x, z: at.z, lv: viewLevel(),
     rot: Math.round((yaw * 180 / Math.PI) / 90) * 90 % 360 };
   myFurn.push(f); makeFurnMesh(f); selectFurn(f);
   stats.furniture++;
@@ -1827,7 +2262,7 @@ function selectFurn(f) {
   selFurn = f;
   if (prev && prev.mesh) { removeLabel(prev.label); prev.label = null; updateFurnMesh(prev); }
   if (f) {
-    f.label = addLabel("flabel", "", function () { return f.mesh ? new BABYLON.Vector3(f.x, f.h + 0.25, f.z) : null; });
+    f.label = addLabel("flabel", "", function () { return f.mesh ? new BABYLON.Vector3(f.x, levelBase(f.lv || 0) + f.h + 0.25, f.z) : null; });
     updateFurnMesh(f);
   }
   renderFurnPanel();
@@ -1873,13 +2308,13 @@ function tryStartFurnDrag(e) {
   if (!hit || !hit.hit) return false;
   const f = hit.pickedMesh.metadata.f;
   if (selFurn !== f) selectFurn(f);
-  const p = floorPointAt(e) || { x: f.x, z: f.z };
+  const p = floorPointAt(e, levelBase(f.lv || 0)) || { x: f.x, z: f.z };
   furnDrag = { id: e.pointerId, f: f, dx: f.x - p.x, dz: f.z - p.z, moved: false };
   canvas.setPointerCapture(e.pointerId);
   return true;
 }
 function moveFurnDrag(e) {
-  const p = floorPointAt(e);
+  const p = floorPointAt(e, levelBase(furnDrag.f.lv || 0));
   if (!p) return;
   const f = furnDrag.f;
   f.x = p.x + furnDrag.dx; f.z = p.z + furnDrag.dz;
@@ -1899,7 +2334,7 @@ let furnStore = "local", furnInit = null;
 function furnKey() { return "vr_myfurn_" + (propKey || "sample"); }
 function furnStorage() { return furnStore === "session" ? sessionStorage : localStorage; }
 function saveMyFurniture() {
-  const list = myFurn.map(function (f) { return { n: f.n, w: +(+f.w).toFixed(3), d: +(+f.d).toFixed(3), h: +(+f.h).toFixed(3), c: f.c, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rot: f.rot }; });
+  const list = myFurn.map(function (f) { const o = { n: f.n, w: +(+f.w).toFixed(3), d: +(+f.d).toFixed(3), h: +(+f.h).toFixed(3), c: f.c, x: +f.x.toFixed(3), z: +f.z.toFixed(3), rot: f.rot }; if (f.lv) o.lv = f.lv; return o; });
   if (furnStore === "parent") { furnInit = list; postToParent({ type: "vr-furn-save", propKey: propKey, items: list }); return; }
   try { furnStorage().setItem(furnKey(), JSON.stringify(list)); } catch (e) {}
 }
@@ -1910,7 +2345,7 @@ function loadMyFurniture() {
   if (furnStore === "parent") list = furnInit || [];
   else { try { list = JSON.parse(furnStorage().getItem(furnKey()) || "[]"); } catch (e) { list = []; } }
   (Array.isArray(list) ? list : []).slice(0, 60).forEach(function (o) {
-    const f = { id: furnSeq++, n: String(o.n || ""), w: +o.w || 1, d: +o.d || 1, h: +o.h || 0.8, c: o.c, x: +o.x || 0, z: +o.z || 0, rot: +o.rot || 0 };
+    const f = { id: furnSeq++, n: String(o.n || ""), w: +o.w || 1, d: +o.d || 1, h: +o.h || 0.8, c: o.c, x: +o.x || 0, z: +o.z || 0, rot: +o.rot || 0, lv: Math.max(0, Math.min(levelCount - 1, Math.round(+o.lv || 0))) };
     myFurn.push(f); makeFurnMesh(f);
   });
 }
@@ -2038,7 +2473,8 @@ setInterval(function () {
     const c = scene.activeCamera, d = c.getDirection(BABYLON.Axis.Z);
     px = c.position.x; pz = c.position.z; py = Math.atan2(d.x, d.z); pp = -Math.asin(Math.max(-1, Math.min(1, d.y)));
   }
-  postToParent({ type: "vr-live-pose", pose: { x: +px.toFixed(2), z: +pz.toFixed(2), yaw: +py.toFixed(3), pitch: +pp.toFixed(3), mode: viewMode, room: currentRoom ? currentRoom.name : "" } });
+  const pyy = (typeof inXR !== "undefined" && inXR && scene.activeCamera) ? Math.max(0, scene.activeCamera.position.y - EYE_HEIGHT) : footY;
+  postToParent({ type: "vr-live-pose", pose: { x: +px.toFixed(2), z: +pz.toFixed(2), y: +pyy.toFixed(2), yaw: +py.toFixed(3), pitch: +pp.toFixed(3), mode: viewMode, room: currentRoom ? currentRoom.name : "" } });
 }, 400);
 function makeAvatar(uid, name) {
   const color = colorFor(uid);
@@ -2051,8 +2487,8 @@ function makeAvatar(uid, name) {
   head.position.y = 1.5; head.material = mat; head.parent = root; head.isPickable = false;
   const nose = BABYLON.MeshBuilder.CreateBox("avNose", { width: 0.12, height: 0.06, depth: 0.14 }, scene);
   nose.position.set(0, 1.5, 0.16); nose.material = emissiveMat("avNoseMat", "#FFFFFF"); nose.parent = root; nose.isPickable = false;
-  const a = { root: root, color: color, name: name, x: 0, z: 0, yaw: 0, tx: 0, tz: 0, tyaw: 0, init: false };
-  a.label = addLabel("alabel", esc(name), function () { return new BABYLON.Vector3(a.x, 1.95, a.z); }, function () { return root.isEnabled(); });
+  const a = { root: root, color: color, name: name, x: 0, z: 0, y: 0, yaw: 0, tx: 0, tz: 0, ty: 0, tyaw: 0, init: false };
+  a.label = addLabel("alabel", esc(name), function () { return new BABYLON.Vector3(a.x, a.y + 1.95, a.z); }, function () { return root.isEnabled(); });
   avatars[uid] = a;
   return a;
 }
@@ -2064,9 +2500,9 @@ scene.onBeforeRenderObservable.add(function () {
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.1), k = 1 - Math.exp(-dt * 6);
   Object.keys(avatars).forEach(function (uid) {
     const a = avatars[uid];
-    a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k;
+    a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k; a.y += (a.ty - a.y) * k;
     let dy = a.tyaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); a.yaw += dy * k;
-    a.root.position.set(a.x, 0, a.z); a.root.rotation.y = a.yaw;
+    a.root.position.set(a.x, a.y, a.z); a.root.rotation.y = a.yaw;
     // ついて行っている相手は自分と重なるので隠す
     const hide = live && live.follow && live.state && uid === live.state.host;
     a.root.setEnabled(!hide);
@@ -2098,8 +2534,8 @@ function onLiveState(msg) {
     if (m.me || m.uid === live.uid) return;
     seen[m.uid] = true;
     const a = avatars[m.uid] || makeAvatar(m.uid, m.name + (m.uid === st.host ? "（" + T("案内役") + "）" : ""));
-    a.tx = m.x; a.tz = m.z; a.tyaw = m.yaw;
-    if (!a.init) { a.x = m.x; a.z = m.z; a.yaw = m.yaw; a.init = true; }
+    a.tx = m.x; a.tz = m.z; a.ty = +m.y || 0; a.tyaw = m.yaw;
+    if (!a.init) { a.x = m.x; a.z = m.z; a.y = a.ty; a.yaw = m.yaw; a.init = true; }
   });
   Object.keys(avatars).forEach(function (uid) { if (!seen[uid]) removeAvatar(uid); });
   document.getElementById("liveMembers").innerHTML = (st.members || []).map(function (m) {
@@ -2377,7 +2813,7 @@ function xrMapUpdate() {
   const cam = xrCam(), p = cam ? cam.position : camera.position;
   const d = cam ? cam.getDirection(BABYLON.Axis.Z) : new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
   ctx.lineWidth = 3;
-  paintMinimap(ctx, X, Y, s, { x: p.x, z: p.z, yaw: Math.atan2(d.x, d.z), k: 2.4 });
+  paintMinimap(ctx, X, Y, s, { x: p.x, z: p.z, yaw: Math.atan2(d.x, d.z), k: 2.4, lv: cam ? xrLevel(cam) : curLevel });
   mp.dt.update();
 }
 setInterval(function () { if (inXR) xrMapUpdate(); }, 200);
@@ -2401,11 +2837,11 @@ function xrMenuRefresh() {
   xrMenu.status.text = (xrStatus || room) + people;
 }
 function xrNextRoom() {
-  const stops = roomAreas.filter(function (r) { return r.area > 0.8; });
+  const stops = roomAreas.filter(function (r) { return r.area > 0.8 && r.kind !== "void" && r.kind !== "loft" && r.kind !== "stairs"; }).sort(function (p, q) { return p.level - q.level; });
   if (!stops.length) return;
   xrTourIdx = (xrTourIdx + 1) % stops.length;
   const r = stops[xrTourIdx], s = freeSpot(r), cam = xrCam();
-  if (cam) { cam.position.x = s.x; cam.position.z = s.z; }
+  if (cam) { const dy = levelBase(r.level) - levelBase(xrLevel(cam)); cam.position.x = s.x; cam.position.z = s.z; cam.position.y += dy; }
   stats.tour = true;
   xrStatus = (xrTourIdx + 1) + "/" + stops.length + "  " + r.name + "  " + areaText(r);
 }
@@ -2426,6 +2862,7 @@ function onXRSelect(pointInfo) {
     const c = CATALOG[xrFurnIdx], cam = xrCam();
     const dir = cam ? cam.getDirection(BABYLON.Axis.Z) : new BABYLON.Vector3(0, 0, 1);
     const f = { id: furnSeq++, n: c.n, w: c.w, d: c.d, h: c.h, c: c.c, x: hit.pickedPoint.x, z: hit.pickedPoint.z,
+      lv: Math.max(0, Math.min(levelCount - 1, Math.round(hit.pickedPoint.y / FLOOR_H))),
       rot: Math.round((Math.atan2(dir.x, dir.z) * 180 / Math.PI) / 90) * 90 % 360 };
     if (f.rot < 0) f.rot += 360;
     myFurn.push(f); makeFurnMesh(f); xrLastFurn = f; stats.furniture++; saveMyFurniture();
@@ -2557,7 +2994,7 @@ async function startHero(plan) {
   ar.idleRotationSpeed = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 0.16;
   ar.idleRotationWaitTime = 1500; ar.idleRotationSpinupTime = 1200;
   scene.activeCamera = heroCam;
-  planMeshes().forEach(function (m) { m.isVisible = m.name !== "ceiling"; });
+  planMeshes().forEach(function (m) { if (!m._hid) m.isVisible = m.name !== "ceiling"; });
   scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
   canvas.style.touchAction = isTouch ? "pan-y" : "none";
   let down = null;
