@@ -836,8 +836,9 @@ let currentSpawn = { x: 0, z: 0, rotY: 0 };
 let xrHelper = null;
 let fixedFurn = [], planFreeWalls = [];
 
-function buildWallEdge(e, solid, deco, y0, wallH) {
+function buildWallEdge(e, solid, deco, y0, wallH, thick, endExt) {
   y0 = y0 || 0; wallH = wallH || WALL_H;
+  const TT = thick || WALL_T, EE = endExt === undefined ? WALL_T / 2 : endExt;
   const P = function (t) { return { x: e.a.x + e.ux * t, z: e.a.z + e.uz * t }; };
   const holes = e.holes.map(function (h) {
     return Object.assign({}, h, { l: Math.max(0, h.center - h.width / 2), r: Math.min(e.len, h.center + h.width / 2) });
@@ -848,14 +849,14 @@ function buildWallEdge(e, solid, deco, y0, wallH) {
   holes.forEach(function (h) {
     if (h.l < cursor - 0.001) return;   // 重なった開口は先のものを優先
     // 開口の手前の壁
-    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), y0, y0 + wallH, WALL_T, cursor === 0 ? WALL_T / 2 : 0));
+    if (h.l - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(h.l), y0, y0 + wallH, TT, cursor === 0 ? EE : 0));
     // 開口の上と下
-    solid.push(boxBetween("wallTop", P(h.l), P(h.r), y0 + h.top, y0 + wallH, WALL_T));
-    solid.push(boxBetween("wallSill", P(h.l), P(h.r), y0, y0 + h.sill, WALL_T));
+    solid.push(boxBetween("wallTop", P(h.l), P(h.r), y0 + h.top, y0 + wallH, TT));
+    solid.push(boxBetween("wallSill", P(h.l), P(h.r), y0, y0 + h.sill, TT));
     cursor = h.r;
     used.push(h);
   });
-  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), y0, y0 + wallH, WALL_T, WALL_T / 2));
+  if (e.len - cursor > 0.005) solid.push(boxBetween("wall", P(cursor), P(e.len), y0, y0 + wallH, TT, EE));
 
   // 窓ガラスとドア
   used.forEach(function (h) {
@@ -2069,6 +2070,8 @@ function exitDoll(to) {
 }
 document.getElementById("dWalk").addEventListener("click", function () { exitDoll(); });
 document.getElementById("dFurn").addEventListener("click", function () { const on = !furnMode; closePanels("furn"); setFurn(on); });
+
+
 
 /* ---------- 案内タグ ---------- */
 const tagCard = document.getElementById("tagCard");

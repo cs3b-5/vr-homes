@@ -304,14 +304,31 @@ function addCheckSection(prop) {
   renderCheckSection(prop);
 }
 
+window.fxLiveMenu = function (id) {
+  const b = openModal('fx-livem', `<i class="ti ti-users"></i> ${t('一緒に内見')}`, `
+    <p class="fx-mini" style="margin:0 0 12px">${t('担当者や家族と、同じ部屋を同時にVRで見ながらチャットできます。')}</p>
+    <div class="fx-live-ch">
+      <button class="btn btn-p" id="fx-lm-start"><i class="ti ti-player-play"></i> ${t('自分ではじめる')}<small>${t('参加コードができるので、相手に伝えます')}</small></button>
+      <button class="btn" id="fx-lm-join"><i class="ti ti-key"></i> ${t('コードで参加する')}<small>${t('相手から聞いた6けたのコードを入れます')}</small></button>
+    </div>`, { width: 440 });
+  b.querySelector('#fx-lm-start').onclick = () => { closeModal('fx-livem'); fxStartLive(id); };
+  b.querySelector('#fx-lm-join').onclick = () => { closeModal('fx-livem'); fxJoinByCode(); };
+};
 function decorateDetail(prop) {
   const side = document.querySelector('#pd-overlay .pd-side');
   if (!side) return;
+  // ボタンの並び: VRで内見 → 内見を予約（大きく）→ お気に入り・問い合わせ → 小さなボタン（一緒に内見・比較・共有・印刷）
   let box = $('fx-pd-actions');
   if (!box) {
     box = document.createElement('div'); box.id = 'fx-pd-actions';
+    const vb = $('pd-vr-btn');
+    side.insertBefore(box, vb ? vb.nextSibling : null);
+  }
+  let more = $('fx-pd-more');
+  if (!more) {
+    more = document.createElement('div'); more.id = 'fx-pd-more';
     const contact = side.querySelector('button[onclick^="openContactForm"]');
-    side.insertBefore(box, contact ? contact.nextSibling : null);
+    side.insertBefore(more, contact ? contact.nextSibling : null);
   }
   const hasVR = !!(prop.floorplanData || prop.splatURL || (prop.panoramas && prop.panoramas.length));
   const vrBtn = $('pd-vr-btn'); if (vrBtn) vrBtn.style.display = hasVR ? 'flex' : 'none';
@@ -323,14 +340,13 @@ function decorateDetail(prop) {
   const vs = prop.viewStats || {};
   box.innerHTML = `
     ${closed ? `<div class="fx-closed-note"><i class="ti ti-info-circle"></i> ${t(prop.status === 'hidden' ? 'この物件は非公開です（編集できる人にだけ表示）' : 'この物件は成約済みです')}</div>` : `<button class="btn btn-p fx-wide" onclick="fxOpenReserve(${prop.id})"><i class="ti ti-calendar-event"></i> ${t('内見を予約する')}</button>`}
-    ${hasVR ? `<div class="fx-row"><button class="btn fx-grow" onclick="fxStartLive(${prop.id})" title="${t('担当者や家族と同じ部屋を一緒に見られます')}"><i class="ti ti-users"></i> ${t('一緒に内見')}</button>
-      <button class="btn fx-grow" onclick="fxJoinByCode()"><i class="ti ti-key"></i> ${t('コードで参加')}</button></div>` : ''}
-    <div class="fx-row">
-      <button class="btn fx-grow ${inCmp ? 'fx-on' : ''}" onclick="fxToggleCompare(${prop.id});renderPropDetail(PROPS.find(p=>p.id===${prop.id}))"><i class="ti ti-arrows-left-right"></i> ${inCmp ? t('比較中') : t('比較')}</button>
-      <button class="btn fx-grow" onclick="fxShare(${prop.id})"><i class="ti ti-share"></i> ${t('共有')}</button>
-      <button class="btn fx-grow" onclick="fxPrint()"><i class="ti ti-printer"></i> ${t('印刷')}</button>
-    </div>
     ${canEdit(prop) && vs.views ? `<div class="fx-mini"><i class="ti ti-chart-bar"></i> ${t('VR内見')} ${vs.views}${t('回')}・${t('平均')}${Math.round(vs.seconds / vs.views)}${t('秒')}</div>` : ''}`;
+  more.innerHTML = `<div class="fx-mini-acts">
+      ${hasVR ? `<button class="fx-ma" onclick="fxLiveMenu(${prop.id})" title="${t('担当者や家族と同じ部屋を一緒に見られます')}"><i class="ti ti-users"></i><span>${t('一緒に内見')}</span></button>` : ''}
+      <button class="fx-ma ${inCmp ? 'fx-on' : ''}" onclick="fxToggleCompare(${prop.id});renderPropDetail(PROPS.find(p=>p.id===${prop.id}))"><i class="ti ti-arrows-left-right"></i><span>${inCmp ? t('比較中') : t('比較')}</span></button>
+      <button class="fx-ma" onclick="fxShare(${prop.id})"><i class="ti ti-share"></i><span>${t('共有')}</span></button>
+      <button class="fx-ma" onclick="fxPrint()"><i class="ti ti-printer"></i><span>${t('印刷')}</span></button>
+    </div>`;
   addPoiSection(prop); addCheckSection(prop);
   addFloorplanImage(prop);
   // 初期費用の計算
@@ -861,7 +877,7 @@ function t(s) { return fxLang === 'en' && EN[s] ? EN[s] : s; }
 window.fxT = t;
 const EN = {
   // 共通・ナビ
-  'トップ': 'Home', 'マップ': 'Map', 'マイページ': 'My page', 'お問い合わせ': 'Contact', '管理者': 'Admin', 'マスター': 'Master',
+  'トップ': 'Home', 'マップ': 'Map', 'マイページ': 'My page', 'お問い合わせ': 'Contact', 'ヘルプ': 'Help', '管理者': 'Admin', 'マスター': 'Master',
   '物件を探す': 'Find homes', 'マップで探す': 'Search on map', 'ログアウト': 'Log out', 'ログイン': 'Log in', '新規登録': 'Sign up',
   '← 一覧': '← List', '閉じる': 'Close', '検索': 'Search', 'リセット': 'Reset', '詳細条件': 'More filters', 'この条件で検索': 'Search with these filters',
   'メールアドレス': 'Email', 'パスワード': 'Password', 'パスワードをお忘れですか？': 'Forgot password?', 'アカウントをお持ちでない方は': "Don't have an account?",
@@ -947,6 +963,18 @@ const EN_RE = [
   [/^(\d+)階 \/ (\d+)階建て$/, (m, a, b) => `Floor ${a} of ${b}`],
   [/^(\d+)戸$/, (m, a) => `${a} units`]
 ];
+Object.assign(EN, { '間取り図を見くらべて、住みたい部屋を選べます。気になる間取りを押すと、くわしい情報とVR内見に進めます。': 'Compare floor plans and pick a home. Tap a plan for details and the VR tour.',
+  '部屋の数': 'Rooms', '1部屋（1R・1K・1DK・1LDK）': '1 room (1R–1LDK)', '2部屋': '2 rooms', '3部屋': '3 rooms', '4部屋以上': '4+ rooms', '広さ': 'Size', '家賃': 'Rent', 'こだわらない': 'Any',
+  '25㎡まで': 'Up to 25㎡', '40㎡まで': 'Up to 40㎡', '60㎡まで': 'Up to 60㎡', '80㎡まで': 'Up to 80㎡', '80㎡以上': '80㎡+', '5万円まで': 'Up to ¥50k', '8万円まで': 'Up to ¥80k', '10万円まで': 'Up to ¥100k', '15万円まで': 'Up to ¥150k', '15万円以上': '¥150k+',
+  '並べ方': 'Sort', '家賃の安い順': 'Cheapest', '広い順': 'Largest', '件の間取り': 'plans', '月': 'mo', '徒歩': 'walk ', '分': ' min', '駅': 'Station', '管理費': 'Fee', '間取り': 'Layout', '階の間取り': 'F plan' });
+Object.assign(EN, { '間取りから探す': 'Browse by floor plan', '掲載中の物件の間取りを、間取りだけで見くらべられます。気になる間取りはそのままVRで歩けます。': 'Compare the floor plans of listed homes. Walk through any of them in VR.',
+  '間取り数': 'Plans', '件': '', '建物': 'Building', 'すべて': 'All', 'マンション・アパート': 'Apartment', '階数': 'Floors', '平屋・1階': 'Single-story', '2階建て': '2 floors', '3階建て': '3 floors', '玄関の位置': 'Entrance', '部屋数': 'Rooms', '部屋': ' rooms', '5部屋以上': '5+ rooms',
+  '床面積': 'Floor area', '間口（横）': 'Width', '奥行（縦）': 'Depth', '条件をクリア': 'Clear', '該当': 'Matches', '新しい順': 'Newest', '床面積の広い順': 'Largest', '床面積の狭い順': 'Smallest', 'もっと見る': 'Show more', '絞り込み条件': 'Filters',
+  '北': 'N', '北東': 'NE', '東': 'E', '南東': 'SE', '南': 'S', '南西': 'SW', '西': 'W', '北西': 'NW', '中央': 'Center', '間口': 'Width', '奥行': 'Depth', '坪': ' tsubo', '平屋': 'Single-story', '階建': ' floors', '階建て': ' floors', 'の間取り': ' plan',
+  '間口×奥行': 'Width × depth', '帖': ' jo', 'VRで歩く': 'Walk in VR', '物件の詳細': 'Details', 'この間取りで物件を作る': 'New listing with this plan', '間取り診断': 'Plan check', '間取りデータから自動でチェックしました': 'Checked automatically from the plan', '点': 'pts',
+  '収納': 'Storage', '日当たり': 'Sunlight', '家事動線': 'Chores', '水回り': 'Wet areas', '広さのバランス': 'Room balance', '暮らしやすさ': 'Livability',
+  '※ 間取りの形と窓・設備の位置から計算した目安です。実際の住み心地は内見で確かめてください。': '* An estimate from the plan shape, windows and fixtures. Check the real home on a viewing.',
+  '条件に合う間取りがありません。条件をへらしてみてください': 'No plans match. Try fewer filters.', '物件を読み込み中…': 'Loading…', '読み込んでいます…': 'Loading…', 'メゾネット': 'Maisonette' });
 Object.assign(EN, { 'VR対応': 'VR', '実写VR': 'Real VR', '所在階': 'Floor', 'ここ': 'Here', 'マンション': 'Apartment', 'アパート': 'Low-rise apt.', '一戸建て': 'House', 'タワーマンション': 'Tower apt.',
   '仲介': 'Brokerage', '普通借家 2年': 'Standard lease, 2 yrs', '保証会社利用可': 'Guarantor company OK', '保証会社利用必須': 'Guarantor company required', '翌月上旬': 'Early next month', '翌月下旬': 'Late next month', '相談': 'Negotiable', '即入居可': 'Move in now', 'なし': 'None', 'オートロック': "Auto-lock", 'バス・トイレ別': "Separate bath", 'エアコン': "A/C", 'インターネット無料': "Free internet", '浴室乾燥機': "Bath dryer", '宅配ボックス': "Parcel box", '南向き': "South-facing", 'ペット可': "Pets OK", '独立洗面台': "Separate vanity", '室内洗濯機置場': "Indoor washer space", 'システムキッチン': "System kitchen", '食洗機': "Dishwasher", 'IHコンロ': "IH stove", 'ウォークインクローゼット': "Walk-in closet", '駐車場': "Parking", '駐輪場': "Bike parking", 'DIY可': "DIY OK", '家具・家電付き': "Furnished", 'リノベーション済み': "Renovated", 'フリーレント': "Free rent", '保証人不要': "No guarantor", '二人暮らし可': "Couples OK", '子供可': "Kids OK", '学生向け': "For students", '女性限定': "Women only", '敷金なし': "No deposit", '礼金なし': "No key money", 'ロフト付き': "Loft", '対面キッチン': "Open kitchen", '一戸建て': "House" });
 const ORIG = new WeakMap(), ORIG_ATTR = new WeakMap();
@@ -1537,7 +1565,9 @@ window.renderAdminPropTable = function () {
     b.after(d);
   });
   const head = document.querySelector('#admin-props .admin-table-head');
-  if (head && !$('fx-thumb-btn') && isAdmin()) {
+  const needThumb = PROPS.some(p => canEdit(p) && (p.photoURLs || [])[0] && !(p.thumbURL && p.thumbOf === p.photoURLs[0]));
+  if ($('fx-thumb-btn') && !needThumb) $('fx-thumb-btn').remove();
+  if (head && !$('fx-thumb-btn') && isAdmin() && needThumb) {   // 古い物件でサムネイルがまだないときだけ出す
     const tb = document.createElement('button');
     tb.id = 'fx-thumb-btn'; tb.className = 'btn btn-sm'; tb.style.margin = '0 0 8px';
     tb.innerHTML = '<i class="ti ti-photo-down"></i> 一覧用の小さい写真を作る';
@@ -2090,7 +2120,7 @@ html.fx-guest .fx-bell{display:none}
   body>*:not(#pd-overlay){display:none!important}
   #pd-overlay{position:static!important;display:block!important;background:none!important;padding:0!important;overflow:visible!important;backdrop-filter:none!important}
   #pd-overlay .pd-modal{box-shadow:none!important;max-width:none!important;width:100%!important;margin:0!important;max-height:none!important;overflow:visible!important;border-radius:0!important}
-  .pd-close,.pd-slide-btn,.pd-dots,#pd-vr-btn,#fx-pd-actions,#pd-admin-actions,.pd-side>button,.fx-sim-in,.fx-sim summary{display:none!important}
+  .pd-close,.pd-slide-btn,.pd-dots,#pd-vr-btn,#fx-pd-actions,#fx-pd-more,#pd-admin-actions,.pd-side>button,.fx-sim-in,.fx-sim summary{display:none!important}
   .pd-body{display:block!important;max-height:none!important}
   .pd-main,.pd-side{max-height:none!important;overflow:visible!important}
   .pd-side{border:0!important;background:none!important}
@@ -2915,6 +2945,7 @@ function fpSvg(mini, opts) {
     if (r.p) { const pts = []; for (let i = 0; i + 1 < r.p.length; i += 2) pts.push([+r.p[i], +r.p[i + 1]]); return { n: r.n, pts, l: +r.l || 0, k: r.k }; }
     const [x, y, w, h] = (r.r || []).map(Number); return { n: r.n, pts: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], l: +r.l || 0, k: r.k };
   }).filter(s => s.pts.length >= 3 && s.pts.every(p => isFinite(p[0]) && isFinite(p[1])));
+  if (opts.level != null) shapes = shapes.filter(s => s.l === opts.level);
   if (!shapes.length) return '';
   let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
   shapes.forEach(s => s.pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }));
@@ -2980,6 +3011,304 @@ window.renderPropDetail = function (prop) {
   } catch (e) {}
   return r;
 };
+
+
+/* ══════════════ 34. 間取りプラン集・間取り診断 ══════════════
+   ・掲載中の物件の間取りを「間取り」だけで探せる一覧（階数・玄関の向き・部屋数・広さ・間口・奥行で絞り込み）
+   ・間取りを自動でチェックする「間取り診断」（収納・日当たり・家事動線・水回り・広さのバランス・暮らしやすさ） */
+const PX_M = 50, TSUBO = 3.30579, JO = 1.62;
+const isRoomName = n => /洋室|和室|寝室|子供|子ども|書斎|個室|^DEN|ベッド/i.test(n || '');
+function miniShapes(mini) {
+  return (mini || []).map(r => {
+    let pts;
+    if (r.p) { pts = []; for (let i = 0; i + 1 < r.p.length; i += 2) pts.push([+r.p[i] / PX_M, +r.p[i + 1] / PX_M]); }
+    else { const [x, y, w, h] = (r.r || []).map(v => +v / PX_M); pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]; }
+    let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+    let cx = 0, cy = 0; pts.forEach(p => { cx += p[0]; cy += p[1]; }); cx /= pts.length; cy /= pts.length;
+    return { n: r.n || '', pts, l: +r.l || 0, k: r.k || '', area: Math.abs(a) / 2, cx, cy };
+  }).filter(s => s.pts.length >= 3 && s.pts.every(p => isFinite(p[0]) && isFinite(p[1])));
+}
+const DIR8 = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
+// 図の上の向き(dx,dy: 右・下が正) → 方角（北の向き north°を考えて）
+function compassOf(dx, dy, north) {
+  const th = (north || 0) * Math.PI / 180, n = [Math.sin(th), -Math.cos(th)], e = [Math.cos(th), Math.sin(th)];
+  const dn = dx * n[0] + dy * n[1], de = dx * e[0] + dy * e[1];
+  let ang = Math.atan2(de, dn) * 180 / Math.PI; if (ang < 0) ang += 360;
+  return DIR8[Math.round(ang / 45) % 8];
+}
+function planStats(p) {
+  if (p._planStats && p._planStats.src === p.fpMini) return p._planStats;
+  const sh = miniShapes(p.fpMini);
+  if (!sh.length) return null;
+  const solid = sh.filter(s => s.k !== 'loft' && s.k !== 'void');
+  const floors = Math.max(...sh.map(s => s.l)) + 1;
+  const g = solid.filter(s => s.l === 0);
+  const xs = g.flatMap(s => s.pts.map(q => q[0])), ys = g.flatMap(s => s.pts.map(q => q[1]));
+  const x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys);
+  const floorA = solid.reduce((t, s) => t + s.area, 0);
+  const md = String(p.madori || '').match(/^(\d)/);
+  const rooms = md ? +md[1] : sh.filter(s => isRoomName(s.n)).length;
+  const ent = g.find(s => /玄関/.test(s.n));
+  let entry = '';
+  if (ent) {
+    const W = x2 - x1, H = y2 - y1, dx = (ent.cx - (x1 + x2) / 2) / (W || 1), dy = (ent.cy - (y1 + y2) / 2) / (H || 1);
+    entry = Math.abs(dx) < 0.17 && Math.abs(dy) < 0.17 ? '中央' : compassOf(Math.abs(dx) < 0.17 ? 0 : dx, Math.abs(dy) < 0.17 ? 0 : dy, p.fpNorth || 0);
+  }
+  const house = /一戸建て|テラスハウス|ヴィラ/.test(p.type || '') || floors > 1;
+  p._planStats = { src: p.fpMini, floors, width: x2 - x1, depth: y2 - y1, floorA, rooms, entry, house };
+  return p._planStats;
+}
+let plF = { rooms: [], area: '', rent: '', kind: '', sort: 'new', lv: {} };
+const PL_AREA = [['', 'こだわらない'], ['25', '25㎡まで'], ['40', '40㎡まで'], ['60', '60㎡まで'], ['80', '80㎡まで'], ['80+', '80㎡以上']];
+const PL_RENT = [['', 'こだわらない'], ['5', '5万円まで'], ['8', '8万円まで'], ['10', '10万円まで'], ['15', '15万円まで'], ['15+', '15万円以上']];
+const inBucket = (v, b) => !b || (b.endsWith('+') ? v >= parseFloat(b) - 0.001 : v <= parseFloat(b) + 0.001);
+const plArea = (p, st) => +p.size || st.floorA;
+function planList() {
+  return PROPS.filter(p => p.fpMini && p.fpMini.length && p.status !== 'hidden' && !p.modHidden).map(p => ({ p, st: planStats(p) })).filter(x => x.st);
+}
+function planFiltered() {
+  const list = planList().filter(({ p, st }) => {
+    if (plF.rooms.length && !plF.rooms.includes(Math.min(4, Math.max(1, st.rooms)))) return false;
+    if (!inBucket(plArea(p, st), plF.area)) return false;
+    if (!inBucket((+p.price || 0) / 10000, plF.rent)) return false;
+    if (plF.kind === 'house' && !st.house) return false;
+    if (plF.kind === 'apt' && st.house) return false;
+    return true;
+  });
+  const by = { new: (a, b) => String(b.p.created || '').localeCompare(String(a.p.created || '')) || b.p.id - a.p.id,
+    big: (a, b) => plArea(b.p, b.st) - plArea(a.p, a.st), cheap: (a, b) => (+a.p.price || 0) - (+b.p.price || 0) }[plF.sort] || ((a, b) => 0);
+  return list.sort(by);
+}
+function plChip(group, val, label, on) { return `<button type="button" class="pl-chip ${on ? 'on' : ''}" data-g="${group}" data-v="${val}" aria-pressed="${on}">${label}</button>`; }
+function renderPlans() {
+  const box = $('pl-root'); if (!box) return;
+  const all = planList();
+  const nOn = plF.rooms.length + (plF.area ? 1 : 0) + (plF.rent ? 1 : 0) + (plF.kind ? 1 : 0);
+  box.innerHTML = `
+    <div class="pl-head"><h2><i class="ti ti-layout-2"></i> ${t('間取りから探す')}</h2>
+      <p>${t('間取り図を見くらべて、住みたい部屋を選べます。気になる間取りを押すと、くわしい情報とVR内見に進めます。')}</p></div>
+    <div class="pl-filter">
+      <div class="pl-row"><label>${t('建物')}</label><div>${plChip('kind', '', t('すべて'), !plF.kind)}${plChip('kind', 'apt', t('マンション・アパート'), plF.kind === 'apt')}${plChip('kind', 'house', t('一戸建て'), plF.kind === 'house')}</div></div>
+      <div class="pl-row"><label>${t('部屋の数')}</label><div>${[[1, '1部屋（1R・1K・1DK・1LDK）'], [2, '2部屋'], [3, '3部屋'], [4, '4部屋以上']].map(([v, l]) => plChip('rooms', v, t(l), plF.rooms.includes(v))).join('')}</div></div>
+      <div class="pl-row pl-sels">
+        <label>${t('広さ')}<select data-s="area">${PL_AREA.map(([v, l]) => `<option value="${v}" ${plF.area === v ? 'selected' : ''}>${t(l)}</option>`).join('')}</select></label>
+        <label>${t('家賃')}<select data-s="rent">${PL_RENT.map(([v, l]) => `<option value="${v}" ${plF.rent === v ? 'selected' : ''}>${t(l)}</option>`).join('')}</select></label>
+        ${nOn ? `<button type="button" class="btn btn-sm" id="pl-reset"><i class="ti ti-refresh"></i> ${t('条件をクリア')}</button>` : ''}
+      </div>
+    </div>
+    <div class="pl-bar"><span id="pl-hit"></span><label class="pl-sortl">${t('並べ方')} <select id="pl-sort"><option value="new">${t('新しい順')}</option><option value="cheap">${t('家賃の安い順')}</option><option value="big">${t('広い順')}</option></select></label></div>
+    <div class="pl-grid" id="pl-grid"></div>
+    <div style="text-align:center;margin:14px 0 30px"><button type="button" class="btn" id="pl-more" style="display:none">${t('もっと見る')}</button></div>`;
+  $('pl-sort').value = plF.sort;
+  box.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+    const g = b.dataset.g;
+    if (g === 'kind') plF.kind = b.dataset.v;
+    else { const v = +b.dataset.v, a = plF[g], i = a.indexOf(v); if (i >= 0) a.splice(i, 1); else a.push(v); }
+    renderPlans();
+  });
+  box.querySelectorAll('[data-s]').forEach(sel => sel.onchange = () => { plF[sel.dataset.s] = sel.value; renderPlans(); });
+  $('pl-sort').onchange = () => { plF.sort = $('pl-sort').value; renderPlans(); };
+  if ($('pl-reset')) $('pl-reset').onclick = () => { plF = { rooms: [], area: '', rent: '', kind: '', sort: plF.sort, lv: {} }; renderPlans(); };
+  renderPlanGrid(24);
+}
+function planCardHTML({ p, st }) {
+  const lv = plF.lv[p.id] || 0;
+  const svg = fpSvg(p.fpMini, { level: st.floors > 1 ? lv : null }) || '';
+  const dots = st.floors > 1 ? `<div class="pl-lv">${Array.from({ length: st.floors }, (_, i) => `<button type="button" class="${i === lv ? 'on' : ''}" data-lv="${i}" data-id="${p.id}" aria-label="${i + 1}${t('階の間取り')}">${i + 1}F</button>`).join('')}</div>` : '';
+  const vr = p.floorplanData || p.splatURL ? `<span class="pl-vr"><i class="ti ti-vr"></i> VR</span>` : '';
+  const tag = st.house ? `<span class="pl-tag">${st.floors === 1 ? t('平屋') : st.floors + t('階建て')}</span>` : '';
+  const walk = p.walkMin ? ` ・ ${esc(p.station || '')} ${t('徒歩')}${+p.walkMin}${t('分')}` : '';
+  return `<div class="pl-card" data-id="${p.id}" tabindex="0" role="button" aria-label="${esc((p.madori || '') + ' ' + p.name)}">
+    <div class="pl-img">${svg}${dots}${vr}</div>
+    <div class="pl-info">
+      <p class="pl-l1"><b>${esc(p.madori || '')}</b> ・ ${plArea(p, st).toFixed(1)}㎡ ${tag}</p>
+      <p class="pl-rent">${p.price ? yen(p.price) : ''}<small>${p.price ? ' / ' + t('月') : ''}</small></p>
+      <p class="pl-prop">${esc(p.name)}${walk}</p></div></div>`;
+}
+let plShown = 24;
+function renderPlanGrid(n) {
+  plShown = n;
+  const list = planFiltered();
+  $('pl-hit').innerHTML = `<b>${list.length}</b> ${t('件の間取り')}`;
+  const g = $('pl-grid');
+  g.innerHTML = list.length ? list.slice(0, n).map(planCardHTML).join('') : `<div class="pl-none">${PROPS.length ? t('条件に合う間取りがありません。条件をへらしてみてください') : t('物件を読み込み中…')}</div>`;
+  $('pl-more').style.display = list.length > n ? '' : 'none';
+  $('pl-more').onclick = () => renderPlanGrid(n + 24);
+  g.querySelectorAll('.pl-lv button').forEach(b => b.onclick = e => { e.stopPropagation(); plF.lv[+b.dataset.id] = +b.dataset.lv; renderPlanGrid(plShown); });
+  g.querySelectorAll('.pl-card').forEach(c => { c.onclick = () => openPlanDetail(+c.dataset.id); c.onkeydown = e => { if (e.key === 'Enter') openPlanDetail(+c.dataset.id); }; });
+}
+const _renderCardsPl = window.renderCards;
+window.renderCards = function () { const r = _renderCardsPl.apply(this, arguments); try { const sc = $('s-plans'); if (sc && sc.classList.contains('active')) renderPlans(); } catch (e) {} return r; };
+window.fxOpenPlans = function () { if (typeof showScreen === 'function') showScreen('plans'); renderPlans(); };
+const _applyScreenPl = window._applyScreen;
+window._applyScreen = function (id) { const r = _applyScreenPl.apply(this, arguments); if (id === 'plans') renderPlans(); return r; };
+
+async function openPlanDetail(id) {
+  const p = findProp(id); if (!p) return;
+  const st = planStats(p);
+  const body = openModal('fx-plan', `<i class="ti ti-layout-2"></i> ${esc(p.name)}`, `<div class="pl-dl-loading">${t('読み込んでいます…')}</div>`, { width: 860 });
+  const full = await ensureFull(id);
+  if (!$('fx-plan')) return;
+  const fp = full && full.floorplanData && !full.floorplanData._stub ? full.floorplanData : null;
+  const sh = miniShapes(p.fpMini);
+  const perLv = Array.from({ length: st.floors }, (_, l) => sh.filter(s => s.l === l && s.k !== 'loft' && s.k !== 'void').reduce((a, s) => a + s.area, 0));
+  const rooms = sh.filter(s => s.k !== 'void').sort((a, b) => a.l - b.l || b.area - a.area);
+  const diag = fp ? diagnosePlan(fp, p) : null;
+  body.innerHTML = `
+    <div class="pl-dl">
+      <div class="pl-dl-img">${fpSvg(p.fpMini, { big: true })}</div>
+      <div class="pl-dl-side">
+        <table class="pl-tbl">
+          <tr><th>${t('間取り')}</th><td><b>${esc(p.madori || '')}</b>${st.house ? `（${st.floors === 1 ? t('平屋') : st.floors + t('階建て')}）` : ''}</td></tr>
+          <tr><th>${t('広さ')}</th><td>${plArea(p, st).toFixed(1)}㎡${perLv.length > 1 ? '（' + perLv.map((a, i) => `${i + 1}F ${a.toFixed(1)}㎡`).join(' / ') + '）' : ''}</td></tr>
+          ${p.price ? `<tr><th>${t('家賃')}</th><td>${yen(p.price)}${p.mgmt ? `（${t('管理費')} ${yen(p.mgmt)}）` : ''}</td></tr>` : ''}
+          ${p.station ? `<tr><th>${t('駅')}</th><td>${esc(p.station)}${p.walkMin ? ` ${t('徒歩')}${+p.walkMin}${t('分')}` : ''}</td></tr>` : ''}
+        </table>
+        <div class="pl-rooms">${rooms.map(r => `<span><i>${st.floors > 1 ? (r.l + 1) + 'F ' : ''}</i>${esc(r.n)} <b>${(r.area / JO).toFixed(1)}${t('帖')}</b></span>`).join('')}</div>
+        <div class="pl-acts">
+          ${p.floorplanData || p.splatURL ? `<button class="btn btn-p" onclick="fxCloseModal('fx-plan');viewInVR(${p.id})"><i class="ti ti-vr"></i> ${t('VRで歩く')}</button>` : ''}
+          <button class="btn" onclick="fxCloseModal('fx-plan');showPropDetail(${p.id})"><i class="ti ti-building"></i> ${t('物件の詳細')}</button>
+          ${typeof isAdmin === 'function' && isAdmin() && fp ? `<button class="btn" onclick="fxCopyPlan(${p.id})" title="${t('この間取りをコピーして、新しい物件の登録をはじめます')}"><i class="ti ti-copy"></i> ${t('この間取りで物件を作る')}</button>` : ''}
+        </div>
+      </div>
+    </div>
+    ${diag ? diagHTML(diag) : ''}`;
+}
+window.fxCopyPlan = async function (id) {
+  const p = await ensureFull(id); if (!p || !p.floorplanData || p.floorplanData._stub) return;
+  closeModal('fx-plan');
+  if (typeof guardedScreen === 'function') guardedScreen('admin');
+  const nav = document.querySelector('#s-admin .admin-nav-item[onclick*="\'props\'"]');
+  if (typeof switchAdmin === 'function') switchAdmin('props', nav);
+  const form = $('add-form');
+  if (form && !form.classList.contains('show') && typeof toggleAddForm === 'function') toggleAddForm();
+  setTimeout(() => {
+    window.editedFloorplanData = JSON.parse(JSON.stringify(p.floorplanData)); window.editedFloorplanThumb = null;
+    const set = (k, v) => { const el = $(k); if (el && !el.value) el.value = v; };
+    set('af-madori', p.madori || ''); set('af-size', p.size || '');
+    const ty = $('af-type'); if (ty && p.type) for (let i = 0; i < ty.options.length; i++) if (ty.options[i].text === p.type) ty.selectedIndex = i;
+    if (typeof window._applyFloorplanThumbnail === 'function') window._applyFloorplanThumbnail();
+    toast(t('間取りをコピーしました。物件の情報を入れて登録してください（「間取りを編集する」で直せます）'), 'success');
+  }, 200);
+};
+
+/* ── 間取り診断 ── */
+function diagnosePlan(fp, prop) {
+  const rooms = (fp.rooms || []).map(r => {
+    let pts;
+    if (Array.isArray(r.vertices) && r.vertices.length >= 3) pts = r.vertices.map(v => [+v.x / PX_M, +v.y / PX_M]);
+    else pts = [[r.wx, r.wy], [r.wx + r.ww, r.wy], [r.wx + r.ww, r.wy + r.wh], [r.wx, r.wy + r.wh]].map(q => [+q[0] / PX_M, +q[1] / PX_M]);
+    let a = 0, cx = 0, cy = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; cx += p[0]; cy += p[1]; }
+    return { r, n: r.name || '', k: r.kind || '', l: +r.level || 0, pts, area: Math.abs(a) / 2, cx: cx / pts.length, cy: cy / pts.length, sign: a > 0 ? 1 : -1 };
+  }).filter(x => x.pts.every(q => isFinite(q[0]) && isFinite(q[1])));
+  const furn = fp.furnitures || [];
+  const solid = rooms.filter(x => x.k !== 'loft' && x.k !== 'void');
+  const total = solid.reduce((s, x) => s + x.area, 0) || 1;
+  const north = +fp.north || 0;
+  const items = [];
+  const clamp5 = v => Math.max(1, Math.min(5, Math.round(v)));
+  const inRoom = (x, px, py) => { let c = false; const p = x.pts; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { if ((p[i][1] > py) !== (p[j][1] > py) && px < (p[j][0] - p[i][0]) * (py - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) c = !c; } return c; };
+  // 1) 収納
+  const stor = solid.filter(x => /収納|クローゼット|WIC|ウォークイン|納戸|押入|物入|シューズ|SIC|パントリー/i.test(x.n)).reduce((s, x) => s + x.area, 0)
+    + furn.filter(f => /closet|クローゼット|押入|shoebox|下駄箱|cupboard|カップボード/i.test((f.type || '') + (f.name || ''))).reduce((s, f) => s + (+f.w || 0) * (+f.d || 0), 0)
+    + rooms.filter(x => x.k === 'loft').reduce((s, x) => s + x.area * 0.5, 0);
+  const sr = stor / total * 100;
+  items.push({ key: 'storage', name: '収納', score: clamp5(sr >= 12 ? 5 : sr >= 9 ? 4 : sr >= 6 ? 3 : sr >= 4 ? 2 : 1),
+    text: `収納の広さは床面積の約${sr.toFixed(0)}%です（目安は10%前後）。` + (sr >= 9 ? '物が多い家族でもすっきり暮らせます。' : sr >= 6 ? 'ふつうの量です。' : '少なめなので、収納家具の置き場所も考えておきましょう。') });
+  // 2) 日当たり（居室・LDKに南・東・西の窓があるか）
+  const living = solid.filter(x => isRoomName(x.n) || /LDK|DK|リビング|ダイニング/i.test(x.n));
+  const dirOfEdge = (x, i) => {
+    const a = x.pts[i], b = x.pts[(i + 1) % x.pts.length];
+    const ex = b[0] - a[0], ey = b[1] - a[1]; let nx = ey * x.sign, ny = -ex * x.sign;   // 外向き
+    const L = Math.hypot(nx, ny) || 1; return compassOf(nx / L, ny / L, north);
+  };
+  const edgeIdx = (x, o) => { if (o.edgeIndex !== undefined) return +o.edgeIndex; return { North: 0, East: 1, South: 2, West: 3 }[o.wall]; };
+  let sunny = 0; const southRooms = [];
+  living.forEach(x => {
+    const ds = (x.r.openings || []).filter(o => o.type === 'window').map(o => dirOfEdge(x, edgeIdx(x, o) || 0));
+    if (ds.some(d => /南/.test(d))) { sunny += 1; southRooms.push(x.n); } else if (ds.some(d => d === '東' || d === '西')) sunny += 0.6;
+  });
+  const sunR = living.length ? sunny / living.length : 0;
+  items.push({ key: 'sun', name: '日当たり', score: clamp5(1 + sunR * 4),
+    text: living.length ? (southRooms.length ? `南向きの窓がある部屋: ${[...new Set(southRooms)].slice(0, 4).join('・')}。` : '南向きの窓がある部屋はありません。') + (sunR >= 0.7 ? '明るい間取りです。' : sunR >= 0.4 ? '部屋によって明るさに差があります。' : '日中も照明が必要な部屋がありそうです。VRの「日当たり」で確かめましょう。') : '部屋の窓の情報がありません。' });
+  // 3) 家事動線（キッチン ↔ 洗面所）
+  const kit = furn.find(f => /kitchen|キッチン/i.test((f.type || '') + (f.name || '')));
+  const kitPos = kit ? { x: +kit.cx / PX_M, y: +kit.cy / PX_M, l: +kit.level || 0 } : (() => { const x = solid.find(q => /LDK|DK|キッチン/i.test(q.n)); return x ? { x: x.cx, y: x.cy, l: x.l } : null; })();
+  const wash = solid.find(x => /洗面|脱衣|ランドリー|ユニットバス/.test(x.n));
+  if (kitPos && wash) {
+    const same = wash.l === kitPos.l, d = Math.hypot(wash.cx - kitPos.x, wash.cy - kitPos.y);
+    items.push({ key: 'chore', name: '家事動線', score: same ? clamp5(d <= 2.8 ? 5 : d <= 4.2 ? 4 : d <= 6 ? 3 : 2) : 1,
+      text: same ? `キッチンから洗面所まで約${d.toFixed(1)}m。` + (d <= 4.2 ? '料理と洗濯を同時に進めやすい、家事ラクな配置です。' : '少し離れているので、家事の行き来が多くなりそうです。') : 'キッチンと洗面所が別の階にあります。洗濯物を運ぶ動きを考えておきましょう。' });
+  }
+  // 4) 水回りのまとまり
+  const wets = solid.filter(x => /トイレ|浴室|風呂|洗面|脱衣|ユニットバス/.test(x.n));
+  if (wets.length >= 2) {
+    const byL = {}; wets.forEach(x => (byL[x.l] = byL[x.l] || []).push(x));
+    let spread = 0; Object.values(byL).forEach(a => a.forEach(x => a.forEach(y => { spread = Math.max(spread, Math.hypot(x.cx - y.cx, x.cy - y.cy)); })));
+    items.push({ key: 'wet', name: '水回り', score: clamp5(spread <= 2.6 ? 5 : spread <= 4 ? 4 : spread <= 6 ? 3 : 2),
+      text: spread <= 4 ? '浴室・洗面所・トイレが近くにまとまっていて、使いやすく掃除もしやすい配置です。' : '水回りが離れているので、動きが多くなることがあります。' });
+  }
+  // 5) 広さのバランス
+  const ldk = solid.filter(x => /LDK|DK|リビング/i.test(x.n)).sort((a, b) => b.area - a.area)[0];
+  const beds = solid.filter(x => isRoomName(x.n));
+  if (ldk) {
+    const share = ldk.area / total * 100, jo = ldk.area / JO, minBed = beds.length ? Math.min(...beds.map(b => b.area / JO)) : 99;
+    const need = 6 + Math.max(1, beds.length) * 2;   // 部屋数に合ったLDKの広さの目安（帖）
+    let sc = jo >= need ? 5 : jo >= need - 2 ? 4 : jo >= need - 4 ? 3 : 2;
+    if (minBed < 4.5) sc -= 1;
+    items.push({ key: 'size', name: '広さのバランス', score: clamp5(sc),
+      text: `${ldk.n}は約${jo.toFixed(1)}帖（床面積の${share.toFixed(0)}%）。` + (jo >= need ? '家族が集まるのに十分な広さです。' : `${beds.length}部屋の間取りなら${need}帖くらいあると、ゆったりします。`) + (minBed < 4.5 ? ` いちばん小さい部屋は${minBed.toFixed(1)}帖で、ベッドを置くと少しせまめです。` : '') });
+  }
+  // 6) 暮らしやすさ（階段のある家はトイレの数・ドアのない部屋）
+  const lvN = Math.max(0, ...rooms.map(x => x.l)) + 1;
+  const wcLv = new Set(solid.filter(x => /トイレ|ユニットバス/.test(x.n)).map(x => x.l));
+  const noDoor = solid.filter(x => x.area > 1.2 && !(x.r.openings || []).some(o => o.type !== 'window') && !solid.some(y => y !== x && y.l === x.l && (y.r.openings || []).some(o => o.type !== 'window' && (() => { const i = edgeIdx(y, o); const a = y.pts[i] || y.pts[0], b = y.pts[(i + 1) % y.pts.length] || y.pts[1]; const t2 = +o.offsetAlongWall <= 1 ? +o.offsetAlongWall : 0.5; const px = a[0] + (b[0] - a[0]) * t2, py = a[1] + (b[1] - a[1]) * t2; const ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey) || 1; return inRoom(x, px + ey / L * 0.2, py - ex / L * 0.2) || inRoom(x, px - ey / L * 0.2, py + ex / L * 0.2); })())));
+  let ls = 3; const notes = [];
+  const sepWc = solid.some(x => /^トイレ/.test(x.n)) && solid.some(x => /浴室|風呂/.test(x.n));
+  if (sepWc) { ls += 1; notes.push('お風呂とトイレが別々です。'); } else if (solid.some(x => /ユニットバス/.test(x.n))) notes.push('お風呂・洗面・トイレが一緒のユニットバスです。');
+  if (lvN > 1) { if (wcLv.size >= lvN) { ls += 1; notes.push('どの階にもトイレがあって、夜も安心です。'); } else { ls -= 1; notes.push('トイレがない階があります。'); } }
+  if (rooms.some(x => x.k === 'loft')) { ls += 1; notes.push('ロフトを収納や趣味のスペースに使えます。'); }
+  if (solid.some(x => /シューズ|SIC|土間収納/i.test(x.n))) { ls += 1; notes.push('玄関にシューズクロークがあります。'); }
+  if (noDoor.length) { ls -= Math.min(2, noDoor.length); notes.push(`ドアのない部屋があります（${noDoor.slice(0, 3).map(x => x.n).join('・')}）。`); }
+  if (!notes.length) notes.push('ふつうの間取りです。');
+  items.push({ key: 'life', name: '暮らしやすさ', score: clamp5(ls), text: notes.join('') });
+  const score = Math.round(items.reduce((s, x) => s + x.score, 0) / items.length * 20);
+  const best = items.slice().sort((a, b) => b.score - a.score)[0], worst = items.slice().sort((a, b) => a.score - b.score)[0];
+  const summary = `いちばんの良いところは「${best.name}」。` + (worst.score <= 3 ? `「${worst.name}」は内見のときによく確かめてね。` : 'どの項目もバランスがいい間取りだよ。');
+  return { score, items, summary };
+}
+window.fxDiagnosePlan = diagnosePlan;
+function diagHTML(dg) {
+  const grade = dg.score >= 85 ? 'S' : dg.score >= 72 ? 'A' : dg.score >= 58 ? 'B' : 'C';
+  return `<div class="dg-box">
+    <div class="dg-top"><div class="dg-score dg-${grade}"><b>${dg.score}</b><span>${t('点')}</span><i>${grade}</i></div>
+      <div><div class="dg-title"><i class="ti ti-sparkles"></i> ${t('間取り診断')}<small>${t('間取りデータから自動でチェックしました')}</small></div>
+      <p class="dg-sum"><span class="dg-yk" aria-hidden="true"></span>${esc(t(dg.summary))}</p></div></div>
+    <div class="dg-items">${dg.items.map(x => `<div class="dg-it"><div class="dg-h"><b>${t(x.name)}</b><span class="dg-stars" aria-label="${x.score}/5">${'★'.repeat(x.score)}<em>${'★'.repeat(5 - x.score)}</em></span></div><p>${esc(t(x.text))}</p></div>`).join('')}</div>
+    <p class="dg-note">${t('※ 間取りの形と窓・設備の位置から計算した目安です。実際の住み心地は内見で確かめてください。')}</p></div>`;
+}
+// 物件の詳細に「間取り診断」を出す
+const _renderPropDetailDg = window.renderPropDetail;
+window.renderPropDetail = function (prop) {
+  const r = _renderPropDetailDg.apply(this, arguments);
+  try {
+    let box = $('fx-diag');
+    if (!box) { const anchor = $('pd-details-section'); if (anchor) { anchor.insertAdjacentHTML('beforebegin', '<div id="fx-diag"></div>'); box = $('fx-diag'); } }
+    if (box) {
+      box.innerHTML = '';
+      if (prop && prop.floorplanData) {
+        const id = prop.id;
+        (async () => {
+          const full = await ensureFull(id);
+          if (!full || pdCurrentIdSafe() !== id || !full.floorplanData || full.floorplanData._stub) return;
+          box.innerHTML = `<div class="pd-section-title">${t('間取り診断')}</div>` + diagHTML(diagnosePlan(full.floorplanData, full));
+        })();
+      }
+    }
+  } catch (e) { console.warn(e); }
+  return r;
+};
+function pdCurrentIdSafe() { try { return typeof pdCurrentId !== 'undefined' ? pdCurrentId : null; } catch (e) { return null; } }
 
 /* ══════════════ 33. 物件フォームを使いやすく ══════════════
    ・項目を「基本 → 場所 → お金 → 設備と説明 → 写真とVR → 公開と内見 → 詳細」に分けて、上のボタンで移動できる
