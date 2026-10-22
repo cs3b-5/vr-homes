@@ -3,7 +3,7 @@
    キャッシュ戦略: サイトのファイルは Network First（いつも最新）
               外部ライブラリは Cache First
 ============================================ */
-const CACHE_NAME    = 'vr-homes-v40';
+const CACHE_NAME    = 'vr-homes-v41';
 const STATIC_ASSETS = [
   './',
   './index.html',

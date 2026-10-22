@@ -539,3 +539,72 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 .fx-live-ch{display:grid;gap:8px}
 .fx-live-ch .btn{flex-direction:column;align-items:flex-start;padding:12px 14px;gap:2px;text-align:left;width:100%}
 .fx-live-ch small{font-weight:500;font-size:11.5px;opacity:.8}
+/* ══ 物件を追加（v41）: わかりやすく ══ */
+#add-form .req{display:inline-block;background:#FEE2E2;color:#B91C1C;font-size:10.5px;font-weight:800;border-radius:5px;padding:1px 6px;margin-left:4px;vertical-align:1px}
+#add-form .fx-auto{display:inline-block;background:#E0F2F1;color:#0F766E;font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 6px;margin-left:4px;vertical-align:1px}
+#add-form .fx-hint{font-size:11.5px;color:#64748b;margin-top:5px;line-height:1.55}
+#add-form .flabel{font-size:13px}
+#add-form .finput::placeholder{color:#B6BFCB;font-weight:400}
+.fx-unit{position:relative;display:flex;align-items:center;width:100%}
+.fx-unit>.finput{flex:1;padding-right:58px}
+.fx-unit::after{content:attr(data-u);position:absolute;right:12px;font-size:12.5px;font-weight:700;color:#64748b;pointer-events:none}
+/* 上の案内 */
+.fx-af-nav{padding:8px 0 8px}
+.fx-af-steps{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.fx-af-steps::-webkit-scrollbar{display:none}
+.fx-af-steps button{flex:none;font:inherit;font-size:12.5px;font-weight:700;color:#475569;background:#F1F5F9;border:1.5px solid transparent;border-radius:999px;padding:5px 11px 5px 6px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.fx-af-steps button b{width:20px;height:20px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.fx-af-steps button .st{display:none}
+.fx-af-steps button.cur{background:#fff;border-color:var(--navy,#2D2A32);color:var(--navy,#2D2A32)}
+.fx-af-steps button.cur b{background:var(--navy,#2D2A32)}
+.fx-af-steps button.done b{background:#16A34A}
+.fx-af-steps button.done b::before{content:"✓";font-size:11px}
+.fx-af-steps button.done b{font-size:0}
+.fx-af-steps button.need b{background:#DC2626}
+.fx-af-sum{display:flex;align-items:center;justify-content:space-between;gap:8px 14px;flex-wrap:wrap;margin-top:8px}
+.fx-af-req{font-size:12.5px;font-weight:700;color:#B91C1C;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.fx-af-req b{font-size:15px;margin:0 1px}
+.fx-af-req button{font:inherit;font-size:12px;font-weight:700;color:#B91C1C;background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:999px;padding:2px 9px;cursor:pointer}
+.fx-af-req .ok,.fx-af-foot-st .ok{color:#15803D;display:inline-flex;align-items:center;gap:4px;font-weight:800}
+.fx-af-score{display:inline-flex!important;align-items:center;gap:8px;margin:0!important;font-size:11.5px!important;color:#64748b!important;font-weight:700}
+.fx-af-score .fx-af-bar{width:90px}
+.fx-af-next{font-size:12px;color:#64748b;margin-top:6px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.fx-af-next:empty{display:none}
+.fx-af-next button{font:inherit;font-size:12px;font-weight:700;color:#B45309;background:#FFFBEB;border:1.5px dashed #F5C27A;border-radius:999px;padding:2px 9px;cursor:pointer}
+.fx-af-sec{scroll-margin-top:130px}
+/* 下の固定バー */
+.fx-af-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;position:sticky;bottom:0;background:var(--surface,#fff);padding:12px 0;border-top:1px solid var(--border,#e5e7eb);margin-top:8px;z-index:4}
+.fx-af-foot-st{margin-right:auto;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.fx-af-foot-st .need{color:#B91C1C;font-weight:800;display:inline-flex;align-items:center;gap:4px}
+.fx-af-autosave{font-size:11px;color:#94a3b8}
+.fx-af-foot .btn{padding:9px 16px;font-size:13.5px}
+#af-submit-btn{min-width:130px;justify-content:center}
+/* ファイルを選ぶ */
+.fx-file-hidden{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none}
+.fx-drop{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:2px dashed #CBD5E1;border-radius:12px;padding:12px 14px;cursor:pointer;background:#F8FAFC;transition:.15s}
+.fx-drop:hover,.fx-drop.over{border-color:var(--blue,#178277);background:#ECFDF5}
+.fx-drop .btn{pointer-events:none}
+.fx-drop-h{font-size:12px;color:#64748b}
+/* 実写・360° はたたむ */
+.fx-af-adv{border:1.5px solid var(--border,#e5e7eb);border-radius:12px}
+.fx-af-adv>summary{cursor:pointer;padding:11px 14px;font-weight:700;font-size:13px;color:var(--navy,#2D2A32);list-style:none}
+.fx-af-adv>summary::-webkit-details-marker{display:none}
+.fx-af-adv>summary span{font-weight:500;color:#94a3b8;font-size:12px}
+.fx-af-adv-in{padding:4px 14px 14px;display:grid;gap:14px}
+/* 設備をグループで */
+.fx-feat-count{font-size:12px;color:#64748b;margin-bottom:6px}
+.fx-feat-g{margin-bottom:8px}
+.fx-feat-gh{font-size:11.5px;font-weight:800;color:#64748b;margin-bottom:4px}
+.fx-feat-gl{display:flex;flex-wrap:wrap;gap:6px}
+#af-features-box .fx-feat-gl button{display:inline-flex;align-items:center;gap:3px}
+#af-features-box .fx-feat-gl button i{font-size:13px}
+/* 間取りのボタン */
+#af-fp-field .btn{margin:0 6px 6px 0}
+@media (max-width:720px){
+  .fx-af-sum{margin-top:6px}
+  .fx-af-score .fx-af-bar{width:60px}
+  .fx-af-autosave{display:none}
+  .fx-af-foot .btn{padding:9px 12px}
+  #af-submit-btn{min-width:0;flex:1}
+}
+#af-features-box{display:block}

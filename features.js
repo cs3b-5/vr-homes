@@ -1141,18 +1141,18 @@ function addFormExtras() {
   const hours = []; for (let h = 6; h <= 23; h++) hours.push(h);
   box.innerHTML = `
     <div class="fx-af-grid">
-      <div><div class="flabel">掲載状態</div>
+      <div><div class="flabel">掲載の状態</div>
         <select class="finput" id="af-status">${Object.entries(PSTATUS).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select>
-        <div class="fx-mini">「非公開」は自分（とグループ）にだけ見えます。「成約済み」は一覧から外れ、予約もできなくなります。</div></div>
-      <div><div class="flabel">内見を受け付ける曜日・時間</div>
+        <div class="fx-mini">「募集中」でサイトに出ます。「非公開」は自分とグループにだけ見えます。「成約済み」は一覧から外れ、予約も受け付けなくなります。</div></div>
+      <div><div class="flabel">内見を受け付ける曜日と時間</div><div class="fx-mini" style="margin:0 0 6px">押した曜日（青）に、お客さんがサイトから予約できます</div>
         <div class="fx-wdays" id="af-wdays">${WEEK.map((w, i) => `<button type="button" data-d="${i}">${w}</button>`).join('')}</div>
         <div class="fx-row"><select class="finput fx-hsel" id="af-hstart">${hours.map(h => `<option value="${h}">${h}:00</option>`).join('')}</select> 〜
           <select class="finput fx-hsel" id="af-hend">${hours.map(h => `<option value="${h}">${h}:00</option>`).join('')}<option value="24">24:00</option></select></div></div>
     </div>
-    <div class="flabel" style="margin-top:10px">休みの日（この日は予約を受け付けない）</div>
+    <div class="flabel" style="margin-top:10px">休みの日（この日だけ予約を受け付けない）</div>
     <div class="fx-row"><input type="date" class="finput" id="af-closed-date" style="max-width:180px"><button type="button" class="btn btn-sm" id="af-closed-add">追加</button></div>
     <div class="fx-chips" id="af-closed-list"></div>
-    <div class="flabel" style="margin-top:12px">360°写真（任意）<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">THETAなどの全天球カメラで撮った写真。部屋ごとに入れるとVR内見で切り替えられます</span></div>
+    <div class="flabel" style="margin-top:12px">360°写真</div>
     <input type="file" id="af-pano" accept="image/jpeg,image/png,image/webp" multiple class="finput" style="padding:7px 11px">
     <div id="af-pano-list" class="fx-pano-list"></div>`;
   field.parentNode.insertBefore(box, field.nextSibling);
@@ -1773,28 +1773,43 @@ function decoratePRCards() {
 function addFormExtras2() {
   const box = $('fx-af-extra'); if (!box || $('af-features-box')) return;
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<div class="flabel" style="margin-top:12px">設備・条件<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">当てはまるものを押して選ぶ（検索の絞り込みに使われます）</span></div>
+  wrap.innerHTML = `<div class="flabel" style="margin-top:12px">設備・条件</div>
     <div class="fx-feat-pick" id="af-features-box"></div>
-    <div class="flabel" style="margin-top:12px">おすすめ掲載（PR）<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">一覧の上の「おすすめの物件」に出ます</span></div>
+    <div class="flabel" style="margin-top:12px">おすすめ掲載（PR）</div>
     <div class="fx-row" id="af-pr-box"></div>
     <div class="fx-mini" id="af-pr-note"></div>`;
   box.insertBefore(wrap, box.firstChild);
   renderFormExtras2();
 }
+const FEAT_GROUPS = [
+  ['お部屋', ['エアコン', '南向き', 'ロフト付き', 'ウォークインクローゼット', '家具・家電付き', 'リノベーション済み', 'DIY可']],
+  ['キッチン・お風呂', ['バス・トイレ別', '独立洗面台', '室内洗濯機置場', '浴室乾燥機', 'システムキッチン', '対面キッチン', '食洗機', 'IHコンロ']],
+  ['建物・セキュリティ', ['オートロック', '宅配ボックス', 'インターネット無料', '駐車場', '駐輪場']],
+  ['入居の条件', ['ペット可', '二人暮らし可', '子供可', '学生向け', '女性限定', '即入居可', '保証人不要']],
+  ['お金', ['敷金なし', '礼金なし', 'フリーレント']]
+];
 function renderFormExtras2() {
   const fb = $('af-features-box'); if (!fb) return;
   const all = [...new Set([].concat((typeof fieldDefs !== 'undefined' && fieldDefs.features) || [], fxForm.features || []))];
-  fb.innerHTML = all.map(f => `<button type="button" class="${(fxForm.features || []).includes(f) ? 'on' : ''}" data-f="${esc(f)}">${esc(f)}</button>`).join('');
-  fb.querySelectorAll('button').forEach(b => b.onclick = () => {
+  const sel = fxForm.features || [];
+  const groups = FEAT_GROUPS.map(([g, list]) => [g, all.filter(f => list.includes(f))]);
+  const known = new Set(FEAT_GROUPS.flatMap(x => x[1]));
+  groups.push(['その他', all.filter(f => !known.has(f))]);
+  fb.innerHTML = `<div class="fx-feat-count" id="af-feat-count"></div>` + groups.filter(g => g[1].length).map(([g, list]) => `<div class="fx-feat-g"><div class="fx-feat-gh">${g}</div><div class="fx-feat-gl">${list.map(f => `<button type="button" class="${sel.includes(f) ? 'on' : ''}" data-f="${esc(f)}" aria-pressed="${sel.includes(f)}">${esc(f)}</button>`).join('')}</div></div>`).join('');
+  const cnt = () => { const n = (fxForm.features || []).length; const c = $('af-feat-count'); if (c) c.textContent = n ? `${n}個 選んでいます` : '当てはまるものを押してください（お客さんの検索の絞り込みに使われます）'; };
+  cnt();
+  fb.querySelectorAll('button[data-f]').forEach(b => b.onclick = () => {
     const f = b.dataset.f; fxForm.features = fxForm.features || [];
     fxForm.features = fxForm.features.includes(f) ? fxForm.features.filter(x => x !== f) : fxForm.features.concat([f]);
-    b.classList.toggle('on');
+    const on = fxForm.features.includes(f);
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on);
+    cnt(); if (typeof afScore === 'function') afScore();
   });
   const pb = $('af-pr-box');
   const active = fxForm.featuredUntil && fxForm.featuredUntil >= ymd(new Date());
   if (!(typeof isMaster === 'function' && isMaster())) {   // おすすめ掲載（PR）は運営（マスター）が設定する
     pb.innerHTML = active ? `<span class="fx-pr-tag">PR中</span><span class="fx-mini" style="margin:0 0 0 6px">${esc(fxForm.featuredUntil)} まで</span>` : '';
-    $('af-pr-note').textContent = '「おすすめの物件」への掲載は運営が設定します。希望するときは、お問い合わせから運営に連絡してください。';
+    $('af-pr-note').textContent = '一覧の上の「おすすめの物件」に出すかどうかは、運営が決めます。出したいときは、お問い合わせから運営に連絡してください。';
     return;
   }
   pb.innerHTML = PR_PLANS.map(([d, n]) => `<button type="button" class="btn btn-sm ${(d === 0 && !fxForm.prPlan && !active) || fxForm.prPlan === d ? 'fx-on' : ''}" data-d="${d}">${n}</button>`).join('')
@@ -3335,14 +3350,22 @@ window._applyFloorplanThumbnail = function () {
   afScore();
   return r;
 };
-const AF_SECTIONS = [
-  ['basic', '基本の情報', ['af-name', 'af-madori', 'af-size', 'af-type', 'af-structure', 'af-age', 'af-floor-no']],
-  ['place', '場所', ['af-address', 'af-area', 'af-station', 'af-walk-min', 'af-access']],
-  ['money', 'お金', ['af-rent', 'af-mgmt', 'af-deposit', 'af-key', 'af-cost']],
-  ['feat', '設備と説明', ['af-feat-field', 'af-desc']],
-  ['media', '写真とVR', ['af-photo', 'af-fp-field', 'af-splat', 'af-pano-field']],
-  ['pub', '公開と内見', ['af-pr-field', 'fx-af-extra']],
-  ['more', 'くわしい情報（任意）', ['af-available']]
+const AF_SECTIONS = [   // [キー, 見出し, ボタンの短い名前, 入れる項目]
+  ['basic', '基本の情報', '基本', ['af-name', 'af-madori', 'af-type', 'af-size', 'af-age', 'af-structure', 'af-floor-no']],
+  ['place', '場所', '場所', ['af-address', 'af-area', 'af-station', 'af-walk-min', 'af-access']],
+  ['money', 'お金', 'お金', ['af-rent', 'af-mgmt', 'af-deposit', 'af-key', 'af-cost']],
+  ['media', '写真と間取り（VR内見）', '写真・間取り', ['af-photo', 'af-fp-field', 'af-adv-field']],
+  ['feat', '設備と説明', '設備・説明', ['af-feat-field', 'af-desc']],
+  ['pub', '公開と内見の受付', '公開・内見', ['fx-af-extra', 'af-pr-field']],
+  ['more', 'くわしい情報（任意）', 'くわしく', ['af-available']]
+];
+// 必須の項目: [入力欄, 名前, 区切り, 入っているか]
+const AF_REQ = [
+  ['af-name', '物件名', 'basic', v => !!v.trim()],
+  ['af-madori', '間取り', 'basic', v => /^[1-9](S?LDK|S?DK|S?K|R)/.test(afNormMadori(v))],
+  ['af-address', '住所', 'place', v => !!v.trim()],
+  ['af-area', 'エリア', 'place', v => !!v.trim()],
+  ['af-rent', '家賃', 'money', v => +v > 0]
 ];
 let afDirty = false, afSaving = false, afDraftT = 0;
 function afField(id) {   // その入力欄が入っている、いちばん外側の項目
@@ -3377,11 +3400,19 @@ function initFormUX() {
   }
   const fpb = document.querySelector('#add-form [onclick="openFloorEditor()"]');
   if (fpb) { const f = fpb.closest('.field'); f.id = 'af-fp-field'; }
+  {   // 実写の3D・360°写真は、使う人だけ開く
+    const sp = afField('af-splat'), pf = $('af-pano-field');
+    const adv = el('div', 'field'); adv.id = 'af-adv-field'; adv.style.gridColumn = '1/-1';
+    adv.innerHTML = '<details class="fx-af-adv"><summary><i class="ti ti-camera-plus"></i> 実写の3D・360°写真を入れる <span>（なくても大丈夫。撮影した人向け）</span></summary><div class="fx-af-adv-in"></div></details>';
+    const inner = adv.querySelector('.fx-af-adv-in');
+    if (sp) inner.appendChild(sp); if (pf) inner.appendChild(pf);
+    grid.appendChild(adv);
+  }
   // 説明文の自動作成・間取りの自動作成ボタン
   const desc = $('af-desc');
   if (desc) desc.closest('.field').querySelector('.flabel').insertAdjacentHTML('beforeend', ' <button type="button" class="btn btn-sm fx-af-mini" id="af-desc-gen"><i class="ti ti-sparkles"></i> 入力した内容から説明文を作る</button>');
-  if (fpb) fpb.insertAdjacentHTML('afterend', ' <button type="button" class="btn btn-sm btn-p" id="af-fp-gen"><i class="ti ti-wand"></i> 間取りを自動で作る</button><div class="fx-mini" style="margin-top:6px">「間取り」「面積」「建物の種類」から、トイレ・お風呂・洗面台・キッチンつきの、VR内見できる間取りを自動で作ります。一戸建ては階段つきの2階建てか平屋になります（建物の階数が1なら平屋）。作ったあと「間取りを編集する」で直せます。押すたびに別の形になります。</div>'
-    + '<details class="fx-gen-opt"><summary>作り方を選ぶ（ロフト・対面キッチン・和室・平屋など）</summary><div class="fx-gen-grid">'
+  if (fpb) { fpb.id = 'af-fp-edit'; fpb.insertAdjacentHTML('beforebegin', '<button type="button" class="btn btn-sm btn-p" id="af-fp-gen"><i class="ti ti-wand"></i> 自動で作る（おすすめ）</button> '); }
+  if (fpb) fpb.insertAdjacentHTML('afterend', '<details class="fx-gen-opt"><summary>自動で作るときの細かい設定（ロフト・対面キッチン・和室・平屋など）</summary><div class="fx-gen-grid">'
     + '<label>ロフト<select id="af-gen-loft"><option value="auto">おまかせ</option><option value="yes">あり</option><option value="no">なし</option></select></label>'
     + '<label>お風呂とトイレ<select id="af-gen-bath"><option value="auto">おまかせ</option><option value="sep">別々</option><option value="unit">一緒（ユニットバス）</option></select></label>'
     + '<label>キッチン<select id="af-gen-kitchen"><option value="auto">おまかせ</option><option value="face">対面キッチン</option><option value="wall">壁付きキッチン</option></select></label>'
@@ -3390,7 +3421,7 @@ function initFormUX() {
     + '<label>2階のトイレ<select id="af-gen-toilet2"><option value="auto">おまかせ</option><option value="each">あり</option><option value="one">なし（1階だけ）</option></select></label>'
     + '</div></details>');
   // 項目を区切りごとに並べ直す
-  AF_SECTIONS.forEach(([key, title, ids], i) => {
+  AF_SECTIONS.forEach(([key, title, short, ids], i) => {
     const h = el('div', 'fx-af-sec'); h.id = 'af-sec-' + key;
     h.innerHTML = `<span class="fx-af-num">${i + 1}</span>${title}`;
     grid.appendChild(h);
@@ -3399,12 +3430,17 @@ function initFormUX() {
   // 上の案内（区切りへ移動・充実度）
   const head = document.querySelector('#add-form .add-form-head');
   const nav = el('div', 'fx-af-nav'); nav.id = 'af-secnav';
-  nav.innerHTML = `<div class="fx-af-chips">${AF_SECTIONS.map(([k, tt], i) => `<button type="button" data-sec="${k}">${i + 1}. ${tt.replace('（任意）', '')}</button>`).join('')}</div>
-    <div class="fx-af-score"><div class="fx-af-bar"><i id="af-score-bar"></i></div><span id="af-score-text"></span></div>
-    <div class="fx-af-todo" id="af-todo"></div>
+  nav.innerHTML = `<div class="fx-af-steps" role="tablist" aria-label="入力する項目">${AF_SECTIONS.map(([k, tt, sh], i) => `<button type="button" data-sec="${k}" id="af-step-${k}"><i class="st" aria-hidden="true"></i><b>${i + 1}</b>${sh}</button>`).join('')}</div>
+    <div class="fx-af-sum"><span class="fx-af-req" id="af-req"></span>
+      <span class="fx-af-score" title="写真・間取り・説明などがそろうほど、お客さんに選ばれやすくなります"><span class="fx-af-bar"><i id="af-score-bar"></i></span><span id="af-score-text"></span></span></div>
+    <div class="fx-af-next" id="af-todo"></div>
     <div class="fx-af-draft" id="af-draft" hidden></div>`;
   head.parentNode.insertBefore(nav, head.nextSibling);
-  nav.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => { const t = $('af-sec-' + b.dataset.sec); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  nav.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => afGo(b.dataset.sec));
+  // いま見ている区切りのボタンを光らせる
+  const scroller = $('add-form');
+  let spyT = 0;
+  scroller.addEventListener('scroll', () => { cancelAnimationFrame(spyT); spyT = requestAnimationFrame(afSpy); }, { passive: true });
   // 入力に合わせて更新
   const form = $('add-form');
   form.addEventListener('input', e => { afDirty = true; if (e.target.closest('.fx-invalid')) e.target.closest('.fx-invalid').classList.remove('fx-invalid'); afCost(); afScore(); afDraftSave(); });
@@ -3414,7 +3450,78 @@ function initFormUX() {
   $('af-address').addEventListener('blur', afAreaFromAddress);
   $('af-desc-gen').onclick = afGenDesc;
   if ($('af-fp-gen')) $('af-fp-gen').onclick = afGenFloorplan;
+  initFormUX2();
   afCost(); afScore();
+}
+// 入力欄の右に単位（円・㎡・分…）をつける / ファイルを選ぶボタンをわかりやすく / 住所から駅を自動で
+const AF_UNITS = { 'af-rent': '円', 'af-mgmt': '円', 'af-deposit': 'ヶ月分', 'af-key': 'ヶ月分', 'af-size': '㎡', 'af-age': '年', 'af-walk-min': '分' };
+function afNavTop() {   // 上の案内は、見出し（タイトルと×）のすぐ下に止める
+  const head = document.querySelector('#add-form .add-form-head'), nav = $('af-secnav'), sc = $('add-form');
+  if (!head || !nav || !sc) return;
+  const padTop = parseFloat(getComputedStyle(sc).paddingTop) || 0, hTop = parseFloat(getComputedStyle(head).top) || 0;
+  nav.style.top = Math.max(0, head.offsetHeight + hTop + padTop - padTop) + 'px';
+  const foot = document.querySelector('#add-form .fx-af-foot'); if (foot) foot.style.bottom = -(parseFloat(getComputedStyle(sc).paddingBottom) || 0) + 'px';
+}
+function initFormUX2() {
+  afNavTop(); window.addEventListener('resize', afNavTop);
+  Object.entries(AF_UNITS).forEach(([id, u]) => {
+    const inp = $(id); if (!inp || inp.parentNode.classList.contains('fx-unit')) return;
+    const w = el('span', 'fx-unit'); w.dataset.u = u;
+    inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
+  });
+  // 家賃の下に「＝ 9.2万円」
+  const rent = $('af-rent');
+  if (rent && !$('af-rent-man')) {
+    const m = el('div', 'fx-hint'); m.id = 'af-rent-man'; rent.parentNode.after(m);
+    const upd = () => { const n = +rent.value; m.textContent = n > 0 ? `＝ ${(n / 10000).toLocaleString('ja-JP', { maximumFractionDigits: 2 })}万円` : '円で入れてください（例：9.2万円なら 92000）'; };
+    rent.addEventListener('input', upd); upd();
+  }
+  // ファイルを選ぶボタン（英語の「Choose Files」を出さない・ドラッグでも入れられる）
+  [['af-photo', 'ti-photo-plus', '写真を選ぶ', 'またはここに写真をドラッグ'], ['af-pano', 'ti-360-view', '360°写真を選ぶ', 'THETA などで撮った全天球写真。部屋ごとに入れるとVRで切り替えられます'], ['af-splat', 'ti-cube-3d-sphere', '3Dデータ（.spz）を選ぶ', '']].forEach(([id, ic, label, hint]) => {
+    const inp = $(id); if (!inp || inp.dataset.fxPick) return;
+    inp.dataset.fxPick = '1'; inp.classList.add('fx-file-hidden');
+    const z = el('label', 'fx-drop'); z.htmlFor = id;
+    z.innerHTML = `<span class="btn btn-sm"><i class="ti ${ic}"></i> ${label}</span>${hint ? `<span class="fx-drop-h">${hint}</span>` : ''}`;
+    inp.parentNode.insertBefore(z, inp.nextSibling);
+    ['dragenter', 'dragover'].forEach(t => z.addEventListener(t, e => { e.preventDefault(); z.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach(t => z.addEventListener(t, () => z.classList.remove('over')));
+    z.addEventListener('drop', e => {
+      e.preventDefault();
+      const fl = e.dataTransfer && e.dataTransfer.files; if (!fl || !fl.length) return;
+      try { const dt = new DataTransfer(); [...fl].forEach(f => dt.items.add(f)); inp.files = dt.files; inp.dispatchEvent(new Event('change', { bubbles: true })); } catch (err) {}
+    });
+  });
+  // 住所を入れたら、駅がまだ空なら自動で調べる
+  const ad = $('af-address');
+  if (ad && !ad.dataset.fxAuto) {
+    ad.dataset.fxAuto = '1';
+    let last = '';
+    ad.addEventListener('blur', () => {
+      const a = ad.value.trim();
+      if (a.length < 6 || a === last || (($('af-station') || {}).value || '').trim()) return;
+      last = a;
+      if (typeof autoFillFromAddress === 'function') Promise.resolve(autoFillFromAddress()).then(() => { afScore(); afDraftSave(); }).catch(() => {});
+    });
+  }
+  // 敷金・礼金が0なら「敷金なし」「礼金なし」を自動でつける
+  [['af-deposit', '敷金なし'], ['af-key', '礼金なし']].forEach(([id, f]) => {
+    const inp = $(id); if (!inp || inp.dataset.fxNone) return;
+    inp.dataset.fxNone = '1';
+    inp.addEventListener('change', () => {
+      if (typeof fxForm === 'undefined') return;
+      fxForm.features = fxForm.features || [];
+      const has = fxForm.features.includes(f), zero = inp.value !== '' && +inp.value === 0;
+      if (zero && !has) { fxForm.features = fxForm.features.concat([f]); renderFormExtras2(); toast(`設備・条件に「${f}」をつけました`, 'info'); }
+      if (!zero && inp.value !== '' && has) { fxForm.features = fxForm.features.filter(x => x !== f); renderFormExtras2(); }
+      afScore();
+    });
+  });
+  // 間取りを消したときも表示をなおす
+  if (typeof window.clearFloorplan === 'function' && !window.clearFloorplan._fx) {
+    const c0 = window.clearFloorplan;
+    window.clearFloorplan = function () { const r = c0.apply(this, arguments); setTimeout(afScore, 0); return r; };
+    window.clearFloorplan._fx = true;
+  }
 }
 function afNormMadori(v) {
   v = String(v || '').normalize('NFKC').toUpperCase().replace(/\s+/g, '').replace(/ＬＤＫ/g, 'LDK');
@@ -3449,16 +3556,64 @@ function afChecks() {
     ['面積', afNum('af-size') > 0 && afNum('af-age') >= 0 && v('af-size'), '面積', 'basic', 5]
   ];
 }
+function afGo(sec, fieldId) {
+  const tgt = (fieldId && afField(fieldId)) || $('af-sec-' + sec);
+  if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: fieldId ? 'center' : 'start' });
+  if (fieldId) setTimeout(() => { try { $(fieldId).focus({ preventScroll: true }); } catch (e) {} }, 350);
+}
+function afSpy() {
+  const sc = $('add-form'), nav = $('af-secnav'); if (!sc || !nav) return;
+  const top = sc.getBoundingClientRect().top + Math.max(nav.offsetHeight + 60, sc.clientHeight * 0.35);
+  let cur = AF_SECTIONS[0][0];
+  AF_SECTIONS.forEach(([k]) => { const h = $('af-sec-' + k); if (h && h.getBoundingClientRect().top <= top) cur = k; });
+  if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4) cur = AF_SECTIONS[AF_SECTIONS.length - 1][0];
+  nav.querySelectorAll('[data-sec]').forEach(b => { const on = b.dataset.sec === cur; b.classList.toggle('cur', on); b.setAttribute('aria-current', on ? 'step' : 'false'); if (on && b.scrollIntoView && window.innerWidth < 720) b.parentNode.scrollLeft = b.offsetLeft - 40; });
+}
 function afScore() {
   const bar = $('af-score-bar'); if (!bar) return;
+  const v = id => (($(id) || {}).value || '');
   const cs = afChecks();
   const sc = cs.reduce((a, c) => a + (c[1] ? c[4] : 0), 0);
   bar.style.width = sc + '%';
   bar.style.background = sc >= 80 ? 'var(--teal,#1A7F72)' : sc >= 50 ? '#F59E0B' : 'var(--coral,#E8604A)';
   $('af-score-text').textContent = `掲載の充実度 ${sc}%`;
-  const todo = cs.filter(c => !c[1]);
-  $('af-todo').innerHTML = todo.length ? 'あと少し：' + todo.map(c => `<button type="button" data-sec="${c[3]}">${c[2]}</button>`).join('') : '<span class="fx-af-ok"><i class="ti ti-circle-check"></i> 必要な情報がそろっています</span>';
-  $('af-todo').querySelectorAll('[data-sec]').forEach(b => b.onclick = () => { const t = $('af-sec-' + b.dataset.sec); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  // 必須のあと何個
+  const miss = AF_REQ.filter(r => !r[3](v(r[0])));
+  const req = $('af-req');
+  req.innerHTML = miss.length ? `<i class="ti ti-alert-circle"></i> 必須の項目があと<b>${miss.length}</b>つ：` + miss.map(r => `<button type="button" data-go="${r[0]}" data-sec="${r[2]}">${r[1]}</button>`).join('')
+    : '<span class="ok"><i class="ti ti-circle-check"></i> 登録できます</span>';
+  req.classList.toggle('done', !miss.length);
+  req.querySelectorAll('[data-go]').forEach(b => b.onclick = () => afGo(b.dataset.sec, b.dataset.go));
+  // 次にやるといいこと（いちばん効くものを1つだけ）
+  const next = cs.filter(c => !c[1] && c[0] !== '必須').sort((a, b) => b[4] - a[4])[0];
+  const todo = $('af-todo');
+  todo.innerHTML = !miss.length && next ? `<i class="ti ti-bulb"></i> もっと選ばれやすくするには：<button type="button" data-sec="${next[3]}">${next[2]}</button>` : '';
+  todo.querySelectorAll('[data-sec]').forEach(b => b.onclick = () => afGo(b.dataset.sec));
+  // 区切りごとの状態（✓ = そろった / ! = 必須が足りない）
+  const photos = ((typeof editingExistingPhotos !== 'undefined' ? editingExistingPhotos : []) || []).length + ((typeof _newPhotoQueue !== 'undefined' ? _newPhotoQueue : []) || []).length;
+  const feats = (typeof fxForm !== 'undefined' && fxForm.features ? fxForm.features.length : 0);
+  const done = {
+    basic: AF_REQ.slice(0, 2).every(r => r[3](v(r[0]))) && +v('af-size') > 0,
+    place: AF_REQ.slice(2, 4).every(r => r[3](v(r[0]))) && !!v('af-station').trim(),
+    money: +v('af-rent') > 0,
+    media: photos > 0 || !!(window.editedFloorplanData || window.editedSplat),
+    feat: feats > 0 && v('af-desc').trim().length >= 20,
+    pub: false,
+    more: ['af-available', 'af-contract', 'af-renewal', 'af-guarantor', 'af-surroundings'].some(id => v(id).trim())
+  };
+  AF_SECTIONS.forEach(([k]) => {
+    const b = $('af-step-' + k); if (!b) return;
+    const need = miss.some(r => r[2] === k);
+    b.classList.toggle('need', need); b.classList.toggle('done', !need && !!done[k]);
+    b.title = need ? '必須の項目が入っていません' : done[k] ? '入力できています' : '';
+  });
+  // 下の「登録する」のとなり
+  const fs = $('af-foot-status');
+  if (fs) fs.innerHTML = miss.length ? `<span class="need"><i class="ti ti-alert-circle"></i> 必須があと${miss.length}つ</span>` : `<span class="ok"><i class="ti ti-circle-check"></i> 登録できます</span><span class="fx-af-autosave">${typeof editingPropId !== 'undefined' && editingPropId != null ? '' : '入力中の内容は自動で下書き保存されます'}</span>`;
+  // 間取りのボタンの名前（間取りがあるときは「直す」）
+  const fe = $('af-fp-edit'), fg = $('af-fp-gen');
+  if (fe) fe.innerHTML = window.editedFloorplanData ? '<i class="ti ti-pencil"></i>エディタで直す' : '<i class="ti ti-pencil"></i>エディタで描く・図面から作る';
+  if (fg && !fg.disabled) fg.innerHTML = window.editedFloorplanData ? '<i class="ti ti-wand"></i> 作り直す' : '<i class="ti ti-wand"></i> 自動で作る（おすすめ）';
 }
 function afGenDesc() {
   const v = id => (($(id) || {}).value || '').trim();
@@ -3493,7 +3648,7 @@ async function afGenFloorplan() {
     afDirty = true; afScore(); afDraftSave();
     toast('間取りを作りました。保存するとVR内見できます' + (added.length ? `（設備に「${added.join('・')}」も入れました）` : ''), 'success');
   } catch (e) { toast('作れませんでした: ' + e.message, 'error'); }
-  b.disabled = false; b.innerHTML = '<i class="ti ti-wand"></i> 間取りを自動で作る';
+  b.disabled = false; afScore();
 }
 function afGenReq(md) {
   const v = id => (($(id) || {}).value || 'auto');
@@ -3606,7 +3761,7 @@ window.toggleAddForm = function () {
   const f = $('add-form'), open = f && f.classList.contains('show');
   if (open && afDirty && typeof editingPropId !== 'undefined' && editingPropId != null && !afSaving && !confirm('保存していない変更があります。閉じてもいいですか？')) return;
   const r = _toggleAddUX.apply(this, arguments);
-  if (!open) { afDirty = false; document.querySelectorAll('#add-form .fx-invalid').forEach(x => x.classList.remove('fx-invalid')); setTimeout(() => { afCost(); afScore(); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftOffer(); else { const b = $('af-draft'); if (b) b.hidden = true; } }, 0); }
+  if (!open) { afDirty = false; document.querySelectorAll('#add-form .fx-invalid').forEach(x => x.classList.remove('fx-invalid')); setTimeout(() => { afNavTop(); afSpy(); afCost(); afScore(); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftOffer(); else { const b = $('af-draft'); if (b) b.hidden = true; } }, 0); }
   return r;
 };
 const _startEditUX = window.startEditProp;
