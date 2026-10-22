@@ -279,7 +279,7 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
           <option value="0.455">吸着 半間(45.5cm)</option>
           <option value="0">吸着なし</option>
         </select>
-        <button class="btn small" id="bDims" title="すべての部屋の寸法を表示">寸法: 選択中のみ</button>
+        <button class="btn small" id="bDims" title="押すたびに、寸法の出し方が「選んだ部屋だけ → 建物のまわり → 全部の部屋」と変わります">寸法: 選んだ部屋だけ</button>
       </div>
     </section>
 
@@ -295,6 +295,7 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
     <p class="mini" style="margin:-4px 0 12px">間取り図の壁を読み取って、部屋・ドア・窓をまとめて作ります。できあがった後で、違う所を手で直してください。</p>
     <div class="field"><label>専有面積(縮尺を合わせるのに使います)</label><div class="unit" data-u="㎡"><input class="in" id="autoArea" type="number" step="0.01" placeholder="例: 25.5"></div></div>
     <div class="mini" id="autoNote" style="margin:-2px 0 12px"></div>
+    <div class="field"><label><input type="checkbox" id="autoOcr" checked> 部屋の名前・帖数の文字も読み取る</label><div class="mini" style="margin-top:2px">図に書いてある「洋室 6帖」「トイレ」などを読んで名前を付けます（はじめは文字認識の準備に数秒かかります）</div></div>
     <div class="field" id="autoReplaceRow" style="display:none"><label><input type="checkbox" id="autoReplace" checked> 今ある部屋を消して作り直す</label></div>
     <div class="row" style="justify-content:flex-end">
       <button class="btn ghost" id="autoCancel">やめる</button>
@@ -368,7 +369,8 @@ details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px;margin:2px 0}
 
 const M = 50;                    // 1m = 50px(エディタ座標)
 const WALL_DRAW_T = 0.12;        // 描画上の壁の厚み(m)
-const TATAMI = 1.62;             // 1帖 = 1.62㎡(不動産表示の基準)
+const TATAMI = 1.62;
+const TSUBO = 3.30579;           // 1坪 = 3.30579㎡             // 1帖 = 1.62㎡(不動産表示の基準)
 const ROOM_COLORS = ['#1D9E75','#185FA5','#BA7517','#993556','#533AB7','#0891B2','#65A30D','#DC2626','#78716C','#D97706'];
 const ROOM_NAMES = ['LDK','洋室','和室','寝室','キッチン','ダイニング','玄関','廊下','浴室','洗面所','トイレ','収納','クローゼット','バルコニー','階段','ロフト'];
 const ROOM_KINDS = [['', '部屋'], ['stairs', '階段'], ['void', '吹き抜け・階段の穴'], ['loft', 'ロフト']];
@@ -428,7 +430,7 @@ let tool = 'select';
 let selection = [];               // [{kind:'room'|'opening'|'furn'|'wall', obj, room}]
 let view = { scale: 1.2, ox: 0, oy: 0 };
 let gridM = 0.1;
-let showAllDims = false;
+let showAllDims = false, dimMode = 0;   // 0=選択中のみ 1=外周 2=すべて
 let embedded = window.parent !== window;
 let propName = '';
 let furnPick = null;              // 置こうとしている家具の定義
@@ -894,6 +896,7 @@ function render() {
   setScreen();
   plan.rooms.forEach(r => drawRoomLabel(r, sel.has(r)));
   (plan.tags || []).forEach(t => drawTag(t, sel.has(t)));
+  if (dimMode >= 1) drawOuterDims();
   plan.rooms.forEach(r => { if (showAllDims || (sel.has(r) && selection.length === 1)) drawRoomDims(r); });
   selection.forEach(s => { if (s.kind === 'wall') drawSegDim(s.obj.x1, s.obj.y1, s.obj.x2, s.obj.y2, 1); if (s.kind === 'opening') drawOpeningDims(s.room, s.obj); });
   drawDraftLabels();
@@ -1071,6 +1074,42 @@ function drawSegDim(x1, y1, x2, y2, side, color) {
   ctx.fillStyle = 'rgba(255,255,255,.95)'; ctx.fillRect(mx - tw / 2, my - 8, tw, 16);
   ctx.fillStyle = color || '#334155'; ctx.fillText(txt, mx, my);
 }
+// 外周の寸法（図面のように、建物のまわりに壁の位置ごとの寸法と全体の寸法を mm で）
+function drawOuterDims() {
+  const rs = plan.rooms.filter(r => r.kind !== 'loft');
+  if (!rs.length) return;
+  const b = bbox(rs.flatMap(r => r.vertices)), tol = 3;
+  const xsAt = y => [...new Set(rs.flatMap(r => r.vertices.filter(v => Math.abs(v.y - y) < tol).map(v => Math.round(v.x))))].sort((p, q) => p - q);
+  const ysAt = x => [...new Set(rs.flatMap(r => r.vertices.filter(v => Math.abs(v.x - x) < tol).map(v => Math.round(v.y))))].sort((p, q) => p - q);
+  const allX = [...new Set(rs.flatMap(r => r.vertices.map(v => Math.round(v.x))))].sort((p, q) => p - q);
+  const allY = [...new Set(rs.flatMap(r => r.vertices.map(v => Math.round(v.y))))].sort((p, q) => p - q);
+  const uniq = (a, mn) => a.filter((v, i) => i === 0 || v - a[i - 1] > mn);
+  const mm = d => String(Math.round(d / M * 1000));
+  const line = (pts, horiz, at, off, color) => {
+    if (pts.length < 2) return;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1; ctx.font = '600 10.5px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const S = v => horiz ? toScreen({ x: v, y: at }) : toScreen({ x: at, y: v });
+    const a = S(pts[0]), z = S(pts[pts.length - 1]);
+    ctx.beginPath();
+    if (horiz) { ctx.moveTo(a.x, a.y + off); ctx.lineTo(z.x, z.y + off); } else { ctx.moveTo(a.x + off, a.y); ctx.lineTo(z.x + off, z.y); }
+    pts.forEach(v => { const p = S(v); if (horiz) { ctx.moveTo(p.x, p.y + off - 4); ctx.lineTo(p.x, p.y + off + 4); } else { ctx.moveTo(p.x + off - 4, p.y); ctx.lineTo(p.x + off + 4, p.y); } });
+    ctx.stroke();
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const p = S(pts[i]), q = S(pts[i + 1]), L = horiz ? q.x - p.x : q.y - p.y; if (L < 26) continue;
+      const t = mm(pts[i + 1] - pts[i]), tw = ctx.measureText(t).width + 6;
+      const cx = horiz ? (p.x + q.x) / 2 : p.x + off, cy = horiz ? p.y + off : (p.y + q.y) / 2;
+      ctx.save(); ctx.translate(cx, cy); if (!horiz) ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = 'rgba(251,252,254,.95)'; ctx.fillRect(-tw / 2, -7, tw, 14); ctx.fillStyle = color; ctx.fillText(t, 0, 0); ctx.restore();
+    }
+  };
+  const mn = 0.05 * M;
+  line(uniq(xsAt(b.y1).length > 1 ? allX : allX, mn), true, b.y1, -26, '#475569');
+  line([b.x1, b.x2], true, b.y1, -48, '#1e293b');
+  line(uniq(allY, mn), false, b.x2, 26, '#475569');
+  line([b.y1, b.y2], false, b.x2, 48, '#1e293b');
+  line(uniq(xsAt(b.y2).length > 1 ? xsAt(b.y2) : allX, mn), true, b.y2, 26, '#475569');
+  line(uniq(ysAt(b.x1).length > 1 ? ysAt(b.x1) : allY, mn), false, b.x1, -26, '#475569');
+}
 function drawRoomDims(r) {
   const side = polyArea2(r.vertices) > 0 ? -1 : 1;   // 部屋の外側に寸法線を出す
   r.vertices.forEach((v, i) => { const e = edgeInfo(r, i); drawSegDim(e.a.x, e.a.y, e.b.x, e.b.y, side, '#475569'); });
@@ -1179,9 +1218,20 @@ function drawOpeningPreview(pv) {
 function updateStat() {
   const total = plan.rooms.reduce((s, r) => s + polyAreaM2(r.vertices), 0);
   let t = `部屋 ${plan.rooms.length} / 合計 ${total.toFixed(1)}㎡(${(total / TATAMI).toFixed(1)}帖)`;
+  if (levelCount() > 1 || plan.rooms.some(r => r.kind === 'stairs')) { const q = buildingAreas(); t += ` ・ 延床 ${q.floor.toFixed(1)}㎡(${(q.floor / TSUBO).toFixed(1)}坪) ・ 建築 ${q.build.toFixed(1)}㎡(${(q.build / TSUBO).toFixed(1)}坪)`; }
   if (hover) t += `  ・  ${(hover.x / M).toFixed(2)}, ${(hover.y / M).toFixed(2)} m`;
   $('stat').textContent = t;
   $('zoomLabel').textContent = Math.round(view.scale / 1.2 * 100) + '%';
+}
+
+// 延床面積（全部の階。ロフト・吹き抜けは入れない）と建築面積（1階の広さ）
+function buildingAreas() {
+  let floor = 0, build = 0;
+  for (let i = 0; i < levelCount(); i++) {
+    const a = levelData(i).rooms.filter(r => r.kind !== 'loft' && r.kind !== 'void').reduce((s, r) => s + polyAreaM2(r.vertices), 0);
+    floor += a; if (i === 0) build = a;
+  }
+  return { floor, build };
 }
 
 /* ───────── 案内(画面上部のヒント)───────── */
@@ -2194,6 +2244,7 @@ function planSummary() {
   const list = plan.rooms.map((r, i) => { const a = polyAreaM2(r.vertices); return `<button class="li" data-i="${i}"><span class="dot" style="background:${r.color}"></span><span class="nm">${esc(r.name)}</span><span class="v">${(a / TATAMI).toFixed(1)}帖</span></button>`; }).join('');
   return `<div class="ph">間取りの一覧${levelCount() > 1 ? ` <span class="tag">${(plan.lv || 0) + 1}階</span>` : ''}</div>
     <div class="big"><b>${total.toFixed(1)}㎡</b><span>${(total / TATAMI).toFixed(1)}帖 ・ ${plan.rooms.length}部屋</span></div>
+    ${levelCount() > 1 ? (() => { const q = buildingAreas(); return `<div class="mini" style="margin:-4px 0 8px">延床面積 <b>${q.floor.toFixed(1)}㎡（${(q.floor / TSUBO).toFixed(1)}坪）</b><br>建築面積 ${q.build.toFixed(1)}㎡（${(q.build / TSUBO).toFixed(1)}坪）</div>`; })() : (total ? `<div class="mini" style="margin:-4px 0 8px">約${(total / TSUBO).toFixed(1)}坪</div>` : '')}
     ${plan.rooms.length ? `<div class="list">${list}</div>` : `<div class="empty">まだ部屋がありません。<br>① 左の「四角い部屋」でドラッグ<br>② または「数字で部屋を追加」<br>③ 間取り図の画像から自動で作ることもできます</div><div class="acts"><button class="btn primary" id="sAuto">✨ 間取り図の画像から作る</button></div>`}
     <div class="field" style="margin-top:12px"><label>方角（北の向き）<span class="mini" style="font-weight:400"> — VR内見の「日当たり」に使います</span></label>
       <div class="row"><button class="btn" id="nL" title="左に15°">⟲ 15°</button><div class="unit" data-u="°" style="flex:1"><input class="in" id="nDeg" type="number" step="5" value="${Math.round(+plan.north || 0)}"></div><button class="btn" id="nR" title="右に15°">⟳ 15°</button></div>
@@ -2727,7 +2778,7 @@ function startAutoFromImage() {
 }
 function openAutoDialog() {
   $('autoArea').value = propArea > 0 ? propArea : '';
-  $('autoNote').textContent = bgCalibrated ? '「長さを合わせる」で縮尺を合わせ済みです。空欄ならその縮尺を使います。' : (propArea > 0 ? '物件情報の専有面積を入れてあります。' : 'わからなければ空欄でもOK(あとで「長さを合わせる」で直せます)。');
+  $('autoNote').textContent = bgCalibrated ? '「長さを合わせる」で縮尺を合わせ済みです。空欄ならその縮尺を使います。' : (propArea > 0 ? '物件情報の専有面積を入れてあります。' : 'わからなければ空欄でもOK（図の帖数やドアの幅から推測します。あとで「長さを合わせる」でも直せます）。');
   $('autoReplaceRow').style.display = plan.rooms.length ? 'block' : 'none';
   $('autoModal').classList.add('show');
   setTimeout(() => $('autoArea').focus(), 50);
@@ -2736,18 +2787,22 @@ $('bAutoFromImage').onclick = startAutoFromImage;
 $('autoCancel').onclick = () => $('autoModal').classList.remove('show');
 $('autoModal').addEventListener('click', e => { if (e.target.id === 'autoModal') $('autoModal').classList.remove('show'); });
 $('autoArea').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') $('autoOk').click(); });
-$('autoOk').onclick = () => {
-  const area = parseFloat($('autoArea').value);
+let autoBusy = false;
+$('autoOk').onclick = async () => {
+  if (autoBusy) return;
+  const area = parseFloat($('autoArea').value), ocr = $('autoOcr').checked;
   $('autoModal').classList.remove('show');
-  setHint('間取り図を読み取っています…');
-  setTimeout(() => {
-    try {
-      const r = autoBuildFromImage(area > 0 ? area : 0, $('autoReplace').checked || !plan.rooms.length);
-      if (!r) return;
-      fitView();
-      toast(`${r.rooms}部屋・ドア${r.doors}・窓${r.windows}を作りました。違う所は直してください`);
-    } catch (err) { console.error(err); toast('読み取りに失敗しました: ' + err.message); updateHint(); }
-  }, 30);
+  setHint(ocr ? '間取り図の文字と線を読み取っています…（はじめは数秒〜十数秒かかります）' : '間取り図を読み取っています…');
+  autoBusy = true;
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const r = await autoBuildFromImageFull(area > 0 ? area : 0, $('autoReplace').checked || !plan.rooms.length, ocr);
+    if (!r) return;
+    fitView();
+    const sc = { area: '', calib: '', jo: '（縮尺は図の帖数から決めました）', door: '（縮尺はドアの幅から推測しました。「長さを合わせる」で直せます）', none: '（縮尺がわかりません。「長さを合わせる」で直してください）' }[r.scale] || '';
+    toast(`${r.rooms}部屋・ドア${r.doors}・窓${r.windows}を作りました` + (ocr ? (r.ocr ? `。文字から${r.named}部屋の名前を読みました` : '。文字は読み取れませんでした（形から名前を決めました）') : '') + sc + '。違う所は直してください');
+  } catch (err) { console.error(err); toast('読み取りに失敗しました: ' + err.message); updateHint(); }
+  finally { autoBusy = false; }
 };
 
 // 壁は図面の中で一番濃い色。大津のしきい値と「一番濃い色」の中間を使うと、灰色の文字や設備の線を拾いにくい
@@ -2794,18 +2849,131 @@ function estimateWallThickness(mask, w, h) {
   const score = L => hist[L - 1] * 0.5 + hist[L] + hist[L + 1] * 0.5;
   let best = 4, bestScore = -1;
   for (let L = 3; L <= maxL; L++) { const sc = score(L); if (sc > bestScore) { bestScore = sc; best = L; } }
-  // 一番細い「ちゃんとした壁」(内壁など)の太さ
+  // 一番細い「ちゃんとした壁」(内壁など)の太さ: 本数で数えて、よく出てくる太さのうち一番細いもの
+  // （3px以下は文字や設備の線が多いので見ない）
+  const h1 = L => L >= 5 && L <= maxL ? hist[L] / L : 0;
+  const cnt = L => h1(L - 1) + h1(L) + h1(L + 1);
+  let cmax = 0; for (let L = 6; L <= Math.min(maxL, best + 2); L++) cmax = Math.max(cmax, cnt(L));
   let thin = best;
-  for (let L = 3; L < best; L++) { const sc = score(L); if (sc >= bestScore * 0.3 && sc >= score(L - 1) && sc >= score(L + 1)) { thin = L; break; } }
+  for (let L = 6; L < best * 0.85; L++) { const c = cnt(L); if (c >= cmax * 0.15 && c >= cnt(L - 1) && c >= cnt(L + 1)) { thin = L; break; } }
   return { t: best, tMin: thin };
 }
-function autoBuildFromImage(areaM2, replace) {
+/* ───────── 文字認識（OCR）: 間取り図に書いてある部屋の名前・帖数を読む ─────────
+   無料のOCR（tesseract.js）を、使うときだけ読み込む（はじめは数MB読み込むので数秒かかる）。
+   読めないとき（オフラインなど）は、部屋の形と大きさだけで名前を決める */
+const OCR_JS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let ocrWorkerP = null;
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => {
+    if (window.Tesseract) return res();
+    const sc = document.createElement('script'); sc.src = src; sc.onload = () => res(); sc.onerror = () => rej(new Error('OCRを読み込めませんでした'));
+    document.head.appendChild(sc);
+  });
+}
+function getOcrWorker() {
+  if (!ocrWorkerP) ocrWorkerP = (async () => {
+    await loadScriptOnce(OCR_JS);
+    const wk = await Tesseract.createWorker(['jpn', 'eng'], 1);
+    await wk.setParameters({ tessedit_pageseg_mode: '11' });   // ばらばらに書かれた文字を探す
+    return wk;
+  })().catch(e => { ocrWorkerP = null; throw e; });
+  return ocrWorkerP;
+}
+function withTimeout(pr, ms) { return Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]); }
+// 解析用の画像を2通りで読む: (A) そのまま / (B) 長い線（壁・フローリングの線・寸法線）を消して拡大したもの
+async function ocrFloorplan(im) {
+  const wk = await getOcrWorker();
+  const { w, h, data } = im;
+  const gray = new Uint8ClampedArray(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) gray[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+  const mk = (src, sc) => {
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d'), id = x.createImageData(w, h);
+    for (let i = 0; i < w * h; i++) { const v = src[i]; id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255; }
+    x.putImageData(id, 0, 0);
+    if (sc === 1) return c;
+    const c2 = document.createElement('canvas'); c2.width = Math.round(w * sc); c2.height = Math.round(h * sc);
+    const x2 = c2.getContext('2d'); x2.imageSmoothingQuality = 'high'; x2.drawImage(c, 0, 0, c2.width, c2.height); return c2;
+  };
+  // 長い線を消す
+  const dk = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) dk[i] = gray[i] < 170 ? 1 : 0;
+  const L = Math.max(26, Math.round(Math.max(w, h) / 38)), kill = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) { let x = 0; while (x < w) { if (!dk[y * w + x]) { x++; continue; } const st = x; while (x < w && dk[y * w + x]) x++; if (x - st >= L) for (let k = st; k < x; k++) kill[y * w + k] = 1; } }
+  for (let x = 0; x < w; x++) { let y = 0; while (y < h) { if (!dk[y * w + x]) { y++; continue; } const st = y; while (y < h && dk[y * w + x]) y++; if (y - st >= L) for (let k = st; k < y; k++) kill[k * w + x] = 1; } }
+  const kd = dilateBin(kill, w, h, 1), clean = new Uint8ClampedArray(w * h);
+  for (let i = 0; i < w * h; i++) clean[i] = kd[i] ? 255 : gray[i];
+  const sc = clamp(2200 / Math.max(w, h), 1, 2);
+  const words = [];
+  // 元の画像（解析用に拡大・縮小する前）も読む。こちらのほうが文字がくっきりしていることが多い
+  const orig = document.createElement('canvas'), os = Math.min(1, 2400 / Math.max(bg.img.width, bg.img.height));
+  orig.width = Math.round(bg.img.width * os); orig.height = Math.round(bg.img.height * os);
+  { const ox = orig.getContext('2d'); ox.fillStyle = '#fff'; ox.fillRect(0, 0, orig.width, orig.height); ox.drawImage(bg.img, 0, 0, orig.width, orig.height); }
+  const ko = orig.width / w;   // 元の画像の1px = 解析画像の 1/ko px
+  for (const [cv0, k] of [[orig, ko], [mk(gray, 1), 1], [mk(clean, sc), sc]]) {
+    const r = await wk.recognize(cv0);
+    ((r.data && r.data.words) || []).forEach(wd => {
+      const tx = String(wd.text || '').replace(/\s+/g, '');
+      if (!tx || wd.confidence < 35) return;
+      const b = { text: tx, conf: wd.confidence, x0: wd.bbox.x0 / k, y0: wd.bbox.y0 / k, x1: wd.bbox.x1 / k, y1: wd.bbox.y1 / k };
+      if (b.x1 - b.x0 > w * 0.4 || b.y1 - b.y0 > h * 0.3) return;   // 大きすぎる「文字」は線の読み間違い
+      const dup = words.findIndex(q => Math.max(0, Math.min(q.x1, b.x1) - Math.max(q.x0, b.x0)) * Math.max(0, Math.min(q.y1, b.y1) - Math.max(q.y0, b.y0)) > 0.3 * Math.min((q.x1 - q.x0) * (q.y1 - q.y0), (b.x1 - b.x0) * (b.y1 - b.y0)));
+      if (dup < 0) words.push(b);
+      else if (words[dup].text !== b.text) { if (ocrRule(b.text) && !ocrRule(words[dup].text)) words[dup] = b; else if (!ocrRule(words[dup].text) && b.conf > words[dup].conf) words[dup] = b; }
+    });
+  }
+  return words;
+}
+// 文字 → 部屋の種類（上から順に調べる）
+const OCR_RULES = [
+  [/^室$/, '浴室', 'bath'],   // 「浴室」の「浴」が読めないことが多い（大きな部屋なら洋室にする）
+  [/バルコニー|ベランダ|バル[コユ]|コニー|テラス|BALCONY|Balcony/i, 'バルコニー', 'balcony'],
+  [/WIC|W\.I\.C|W\.I\.CL|WCL|ウォークイン|ＷＩＣ/i, 'ウォークインクローゼット', 'storage'],
+  [/SIC|S\.I\.C|シューズ|ＳＩＣ/i, 'シューズクローク', 'storage'],
+  [/LDK|L\.D\.K|ＬＤＫ|リビング|居間|LIVING/i, 'LDK', 'ldk'],
+  [/^DK$|[^LＬ]DK|^ＤＫ|ダイニング|DINING/i, 'DK', 'ldk'],
+  [/キッチン|台所|^K$|^Ｋ$|KITCHEN/i, 'キッチン', 'ldk'],
+  [/和室|^和$/, '和室', 'wa'],
+  [/洋室|^洋|寝室|主寝|BED|ROOM|^OOM|ベッド|子供|子ども|書斎|個室|サービス/i, '洋室', 'bed'],
+  [/トイレ|トイ|イレ$|^WC$|ＷＣ|便所|TOILET/i, 'トイレ', 'wc'],
+  [/ユニットバス|^UB$|ＵＢ/i, 'ユニットバス', 'bath'],
+  [/浴室|^浴|浴$|風呂|バス|BATH|谷室/i, '浴室', 'bath'],
+  [/洗面|^洗|脱衣|ランドリー|洗濯/, '洗面所', 'wash'],
+  [/玄関|^玄|エントランス|ENTRANCE/i, '玄関', 'entry'],
+  [/ホール|廊下|HALL/i, '廊下', 'hall'],
+  [/階段|^UP$|^DN$|ＵＰ|ＤＮ|UP|DN/, '階段', 'stairs'],
+  [/納戸|^S$|サービスルーム/, '納戸', 'storage'],
+  [/^CL$|^ＣＬ|CL$|クローゼット|収納|物入|押入|^PS$|^MB$|ストック/i, '収納', 'storage'],
+];
+function ocrRule(text) { for (const r of OCR_RULES) if (r[0].test(text)) return r; return null; }
+function ocrJo(text) {   // 「6.0帖」「4.5畳」→ 6.0
+  const m = String(text).replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).match(/(\d{1,2}(?:[.,]\d{1,2})?)\s*(帖|畳|J|j|ジョウ|帳|帕|中占|巾占)/);
+  if (!m) return 0;
+  const v = parseFloat(m[1].replace(',', '.'));
+  return v >= 1.5 && v <= 40 ? v : 0;
+}
+const CAT_COLOR = { ldk: '#1D9E75', bed: '#185FA5', wa: '#B45309', wc: '#64748B', bath: '#64748B', wash: '#64748B', entry: '#94A3B8', hall: '#94A3B8', storage: '#94A3B8', stairs: '#A16207' };
+
+async function autoBuildFromImageFull(areaM2, replace, useOcr) {
+  let words = null, ocrErr = '';
+  if (useOcr !== false) {
+    const im = getBgAnalysisImage();
+    if (im) {
+      try { words = await withTimeout(ocrFloorplan(im), 120000); } catch (e) { ocrErr = e.message || 'error'; console.warn('OCR', e); }
+    }
+  }
+  const r = autoBuildFromImage(areaM2, replace, words);
+  if (r) { r.ocr = !!words; r.ocrErr = ocrErr; }
+  return r;
+}
+
+function autoBuildFromImage(areaM2, replace, words) {
+  const DBG = window.AB_DEBUG ? (window._ab = { bridges: [], thin: [], words: (words || []).map(q => q.text + ' ' + Math.round(q.conf) + ' ' + Math.round(q.x0) + ',' + Math.round(q.y0)) }) : null;   // 調べるとき用
   const im = getBgAnalysisImage(); if (!im) { toast('画像を読み取れませんでした'); return null; }
   const w = im.w, h = im.h, d = im.data;
   const maxSat = P('pSat');
   const thr = wallThreshold(im, maxSat);
   $('pThreshold').value = thr; $('pThresholdV').textContent = thr;
-  // 1) 壁候補
+  // 1) 壁候補（暗くて色みのない画素）
   let dark = new Uint8Array(w * h);
   for (let i = 0, p = 0; i < w * h; i++, p += 4) {
     if (d[p + 3] < 128) continue;
@@ -2813,17 +2981,52 @@ function autoBuildFromImage(areaM2, replace) {
     if (mx - mn > maxSat) continue;
     if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < thr) dark[i] = 1;
   }
+  // 細い線（文字・設備・ドアの弧）も見るための、やや明るいしきい値の線画
+  const ink = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) if (0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2] < Math.max(thr + 60, 195)) ink[i] = 1;
   const th = estimateWallThickness(dark, w, h), t = th.t, tMin = th.tMin;
   // 細い線を消す(opening: 収縮→膨張)。一番細い壁は残る大きさにする
   const rOpen = Math.max(1, Math.floor((tMin - 1) / 2 * 0.45));
   const walls = dilateBin(erodeBin(dark, w, h, rOpen), w, h, rOpen);
-  // 2) ドアの隙間だけを塞ぐ: 同じ線上にある壁と壁の間の短い隙間を橋渡しする
-  //    (全体を太らせると、トイレのような狭い部屋まで埋まってしまうため)
+  const wallAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h && walls[y * w + x]; };
+  const wallsD = dilateBin(walls, w, h, 2);   // 壁のふちのにじみは線として数えない
+  const inkNear = (x, y, r) => { x = Math.round(x); y = Math.round(y); for (let yy = y - r; yy <= y + r; yy++) for (let xx = x - r; xx <= x + r; xx++) if (xx >= 0 && yy >= 0 && xx < w && yy < h && ink[yy * w + xx] && !wallsD[yy * w + xx]) return true; return false; };
+  // ドアの弧と扉の線があるか（ある側・ちょうつがいの側も）。フローリングの線などは、小さい円で比べて差し引く
+  const arcInfo = (a, ux, uy, nx, ny, st, en) => {
+    const R = en - st; let best = { s: 0 };
+    // 半径に幅をもたせて調べる（壁のふちの削れで、隙間の長さとドアの幅が少しずれるため）
+    const band = (hx, hy, cx, cy, r0, r1) => { for (let r = r0; r <= r1; r += 1) if (inkNear(hx + r * cx, hy + r * cy, 1)) return 1; return 0; };
+    for (const he of [0, 1]) for (const side of [1, -1]) {
+      const hp = he ? en : st, hx = a.x + ux * hp, hy = a.y + uy * hp, ax = he ? -ux : ux, ay = he ? -uy : uy, sx = nx * side, sy = ny * side;
+      let arc = 0, ctl = 0, n = 0;
+      for (let deg = 14; deg <= 76; deg += 6) {
+        const r = deg * Math.PI / 180, cx = Math.cos(r) * ax + Math.sin(r) * sx, cy = Math.cos(r) * ay + Math.sin(r) * sy;
+        arc += band(hx, hy, cx, cy, R * 0.86, R * 1.1); ctl += band(hx, hy, cx, cy, R * 0.5, R * 0.62); n++;
+      }
+      let leaf = 0, lctl = 0, nl = 0;
+      for (let f = 0.3; f <= 0.95; f += 0.08) {
+        const px0 = hx + R * f * sx, py0 = hy + R * f * sy;
+        let hit = 0, hc = 0;
+        for (let o = -Math.max(2, R * 0.1); o <= Math.max(2, R * 0.1); o += 1) { if (inkNear(px0 + ax * o, py0 + ay * o, 0)) hit = 1; if (inkNear(px0 + ax * (o + R * 0.45), py0 + ay * (o + R * 0.45), 0)) hc = 1; }
+        leaf += hit; lctl += hc; nl++;
+      }
+      const an = (arc - ctl) / n, ln = (leaf - lctl) / nl;
+      const s = Math.min(an, ln + 0.25);   // 弧と、開いた扉の線の両方があればドア
+      if (s > best.s) best = { s, he, side, an, ln };
+    }
+    return best;
+  };
+  // 2) 部屋を分けるために、壁の切れ目を塞ぐ
+  //    ・同じ線上の長い壁どうしの間（ドア） ・長い壁と、直交する壁の間（角の近くのドア）
+  //    ・細い線で描かれた間仕切り（長い壁の続きに細い線がある所）
   const N = Math.max(2, Math.round(t * 7));
-  const closed = closeBin(bridgeGaps(walls, w, h, Math.max(4, Math.round(t * 2)), N), w, h, Math.max(1, Math.round(tMin * 0.5)));
+  const bridged = bridgeGaps(walls, w, h, Math.max(4, Math.round(t * 2)), N, { ink, minEnd: Math.max(2, Math.round(tMin * 0.8)), maxLined: Math.round(t * 24) });
+  const closed = closeBin(bridged, w, h, Math.max(1, Math.round(tMin * 0.5)));
   // 建物の外側: 大きな窓の隙間も塞いだ状態で、画像の端から塗った領域
   const N2 = Math.max(4, Math.round(t * 10));
-  const closed2 = closeBin(walls, w, h, N2);
+  // 大きな窓（掃き出し窓など）も、サッシの線が引いてあれば外壁として塞ぐ
+  const bridgedOut = bridgeGaps(walls, w, h, Math.max(4, Math.round(t * 2)), N, { ink, minEnd: Math.max(2, Math.round(tMin * 0.8)), maxLined: Math.round(t * 80) });
+  const closed2 = closeBin(bridgedOut, w, h, N2);
   const outside = new Uint8Array(w * h);
   {
     const stack = [];
@@ -2836,16 +3039,18 @@ function autoBuildFromImage(areaM2, replace) {
     }
   }
   const label = new Int32Array(w * h);
-  const comps = [];
+  const labelAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h ? label[y * w + x] : 0; };
+  const comps = [null];
   let next = 1;
   const free = k => !closed[k] && !outside[k];
   for (let i = 0; i < w * h; i++) {
     if (!free(i) || label[i]) continue;
     const id = next++, stack = [i]; label[i] = id;
-    let count = 0, border = false, perim = 0, touchOut = 0;
+    let count = 0, border = false, perim = 0, touchOut = 0, x1 = w, y1 = h, x2 = 0, y2 = 0;
     while (stack.length) {
       const k = stack.pop(); count++;
       const x = k % w, y = (k / w) | 0;
+      if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y;
       if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border = true;
       const nb = [x > 0 ? k - 1 : -1, x < w - 1 ? k + 1 : -1, y > 0 ? k - w : -1, y < h - 1 ? k + w : -1];
       for (const q of nb) {
@@ -2855,10 +3060,89 @@ function autoBuildFromImage(areaM2, replace) {
       }
     }
     // 外側に大きく面している領域は、建物のくぼみ(部屋ではない)
-    comps.push({ id, count, border: border || (perim > 0 && touchOut / perim > 0.3) });
+    comps.push({ id, count, border: border || (perim > 0 && touchOut / perim > 0.3), x1, y1, x2, y2, hints: [] });
   }
   const minArea = (tMin * 5) * (tMin * 5);
-  const roomComps = comps.filter(c => !c.border && c.count >= minArea);
+  const parent = new Int32Array(next); for (let k = 0; k < next; k++) parent[k] = k;
+  const root = k => { while (parent[k] !== k) k = parent[k] = parent[parent[k]]; return k; };
+  const unite = (A, B) => {   // 小さいほうを大きいほうへ
+    A = root(A); B = root(B); if (A === B) return;
+    if (comps[A].count > comps[B].count) { const tmp = A; A = B; B = tmp; }
+    parent[A] = B; const a = comps[A], b = comps[B]; b.joined = true;
+    if (a.count < 70 * t * t) b.hints.push({ w: a.x2 - a.x1 + 1, h: a.y2 - a.y1 + 1 });
+    b.count += a.count; b.x1 = Math.min(a.x1, b.x1); b.y1 = Math.min(a.y1, b.y1); b.x2 = Math.max(a.x2, b.x2); b.y2 = Math.max(a.y2, b.y2); b.hints.push(...a.hints); a.merged = true;
+  };
+  const roomish = Lb => Lb && !comps[Lb].border && comps[Lb].count >= minArea;
+  // 2b) 塞いだ隙間のうち、ドアの弧も間仕切りの線もない所は「ドアのない通路」→ 両側を同じ部屋にもどす
+  {
+    // 塞いだ区間を、となりの行（列）と重なるものどうしでまとめる
+    const groups = [];
+    for (const hz of [true, false]) {
+      const list = bridged.segs.filter(g => g.hz === hz).sort((a, b) => a.i - b.i || a.a - b.a);
+      const open = [];
+      list.forEach(g => {
+        let gr = open.find(o => o.last === g.i - 1 && Math.min(o.b, g.b) - Math.max(o.a, g.a) > 0.5 * Math.min(o.b - o.a, g.b - g.a));
+        if (!gr) { gr = { hz, i1: g.i, i2: g.i, a: g.a, b: g.b, n: 0, lined: 0, last: g.i }; open.push(gr); groups.push(gr); }
+        gr.i2 = g.i; gr.last = g.i; gr.a = Math.min(gr.a, g.a); gr.b = Math.max(gr.b, g.b); gr.n++; if (g.lined) gr.lined++;
+      });
+    }
+    groups.forEach(gr => {
+      const len = gr.b - gr.a; if (len < tMin * 3) return;
+      const dbgB = { hz: gr.hz, i1: gr.i1, i2: gr.i2, a: gr.a, b: gr.b, lined: +(gr.lined / gr.n).toFixed(2) }; if (DBG) DBG.bridges.push(dbgB);
+      if (gr.lined / gr.n >= 0.25) return;   // 細い線が引いてある → 間仕切り（引き戸）として残す
+      const mid = (gr.i1 + gr.i2) / 2, hz = gr.hz;
+      const a = hz ? { x: gr.a, y: mid } : { x: mid, y: gr.a }, ux = hz ? 1 : 0, uy = hz ? 0 : 1;
+      const ai = arcInfo(a, ux, uy, -uy, ux, 0, len); dbgB.s = +ai.s.toFixed(2); dbgB.an = ai.an; dbgB.ln = ai.ln; dbgB.he = ai.he; dbgB.side = ai.side;
+      if (ai.s > 0.28) return;   // ドアの弧と扉の線がある → ドア
+      const off = (gr.i2 - gr.i1) / 2 + t * 1.3, c = (gr.a + gr.b) / 2;
+      const A = hz ? labelAt(c, mid - off) : labelAt(mid - off, c), B = hz ? labelAt(c, mid + off) : labelAt(mid + off, c);
+      dbgB.A = A; dbgB.B = B;
+      if (!(roomish(A) && roomish(B)) || root(A) === root(B)) return;
+      // 廊下の続き（細い領域どうしで、隙間が細いほうの幅いっぱい）のときだけ。部屋と廊下はまとめない
+      const ms = Lb => { const c = comps[root(Lb)]; return Math.min(c.x2 - c.x1 + 1, c.y2 - c.y1 + 1); };
+      const mA = ms(A), mB = ms(B);
+      if (Math.max(mA, mB) <= t * 10 && len >= 0.8 * Math.min(mA, mB)) { unite(A, B); dbgB.merged = true; }
+    });
+  }
+  // 2c) 細い線（浴槽などの設備の線）で仕切られただけで、ドアの隙間がない小さな領域は、となりの部屋の一部にする
+  {
+    const tiny = Lb => Lb && comps[root(Lb)].count < minArea;
+    const solid = k => !free(k) || tiny(label[k]);
+    const thinMax = Math.max(3, Math.round(t * 0.45)), bnd = new Float64Array(next), thin = new Map(), viaBridge = new Float64Array(next);
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x; if (!label[i] || tiny(label[i])) continue;
+      const Lb = root(label[i]);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (!solid(i + dx + dy * w)) continue;
+        bnd[Lb]++;
+        let br = false, wr = 0;
+        for (let k = 1; k <= Math.round(t * 1.5); k++) {
+          const xx = x + dx * k, yy = y + dy * k; if (xx < 0 || yy < 0 || xx >= w || yy >= h) break;
+          const q = yy * w + xx;
+          if (bridged.kind[q] === 1) br = true;
+          if (walls[q]) wr++;
+          if (!solid(q)) { const Mb = root(label[q]); if (Mb && Mb !== Lb && wr <= thinMax) thin.set(Lb * next + Mb, (thin.get(Lb * next + Mb) || 0) + 1); if (br && Mb && Mb !== Lb) viaBridge[Lb]++; break; }
+        }
+      }
+    }
+    const small = 70 * t * t;
+    comps.slice(1).filter(c => !c.merged && !c.border && c.count >= minArea && c.count < small).sort((a, b) => a.count - b.count).forEach(c => {
+      const Lb = root(c.id); if (Lb !== c.id || !bnd[Lb]) return;
+      let sum = 0, best = 0, bestM = 0;
+      thin.forEach((v, key) => { if (Math.floor(key / next) !== Lb) return; const Mb = root(key % next); sum += v; if (v > best && roomish(Mb) && Mb !== Lb) { best = v; bestM = Mb; } });
+      if (!bestM) return;
+      const frac = sum / bnd[Lb], door = viaBridge[Lb] >= t * 2.5;   // ドアくらいの幅の隙間がとなりの部屋に開いているか
+      if (DBG) DBG.thin.push({ id: Lb, x: c.x1, y: c.y1, x2: c.x2, y2: c.y2, frac: +frac.toFixed(2), vb: viaBridge[Lb], bestM });
+      if (frac >= 0.08 && !door) {   // ドアの隙間がない（＝設備の線で囲まれただけの）領域だけ
+        if (comps[bestM].count <= c.count) return;
+        const hint = { w: c.x2 - c.x1 + 1, h: c.y2 - c.y1 + 1 };
+        unite(Lb, bestM); comps[root(bestM)].hints.push(hint);
+      }
+    });
+  }
+  for (let i = 0; i < w * h; i++) if (label[i]) { const r0 = root(label[i]); if (r0 !== label[i]) label[i] = r0; }
+  if (DBG) Object.assign(DBG, { w, h, t, tMin, thr, dark, walls, closed, outside, label });
+  const roomComps = comps.slice(1).filter(c => !c.border && !c.merged && c.count >= minArea);
   if (!roomComps.length) { toast('部屋を見つけられませんでした。画像がはっきりした間取り図か確認してください'); updateHint(); return null; }
   const isRoom = new Uint8Array(next);
   roomComps.forEach(c => { isRoom[c.id] = 1; });
@@ -2868,81 +3152,274 @@ function autoBuildFromImage(areaM2, replace) {
   roomComps.forEach(c => {
     let m = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) if (label[i] === c.id) m[i] = 1;
-    // 窓の隙間に入り込んだ薄いでっぱりを削ってから、壁の中心まで広げる
+    if (c.joined) m = closeBin(m, w, h, Math.max(2, Math.round(t * 0.7)));   // まとめた部屋（細い線・通路で分かれていた）を1つの形に
     m = dilateBin(m, w, h, K);
     const contour = traceContour(m, w, h);
     if (contour.length < 8) return;
     const simp = flattenJogs(orthogonalizeSoft(simplifyDP(contour, Math.max(1.5, tMin * 0.6)), 12, tMin * 2.5), tMin * 1.8);
     if (simp.length < 3) return;
-    polys.push({ comp: c, pts: simp, areaPx: Math.abs(polyArea2(simp)) / 2 });
+    polys.push({ comp: c, pts: simp, areaPx: Math.abs(polyArea2(simp)) / 2, texts: [], jo: 0 });
   });
   if (!polys.length) { toast('部屋の形を読み取れませんでした'); updateHint(); return null; }
-  // 5) 縮尺(解析画像1pxあたりのメートル)
-  let mPerPx;
-  if (areaM2 > 0) mPerPx = Math.sqrt(areaM2 / polys.reduce((s, q) => s + q.areaPx, 0));
-  else mPerPx = (1 / im.s) * bg.scale / M;
-  if (!(mPerPx > 0)) { toast('縮尺を決められませんでした'); return null; }
-  bg.scale = mPerPx * im.s * M; bgCalibrated = true;
-  rfCache = null;
-  const toW = q => ({ x: bg.x + (q.x / im.s) * bg.scale, y: bg.y + (q.y / im.s) * bg.scale });
-  // 4) 開口
-  const wallAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h && walls[y * w + x]; };
-  const darkAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h && dark[y * w + x]; };
-  const labelAt = (x, y) => { x = Math.round(x); y = Math.round(y); return x >= 0 && y >= 0 && x < w && y < h ? label[y * w + x] : 0; };
+  const byComp = new Map(polys.map(pg => [pg.comp.id, pg]));
+  // 4) 文字（OCR）を部屋に割りふる
+  let ocrWords = 0;
+  (words || []).forEach(wd => {
+    const cnt = new Map();
+    const sx = Math.max(1, (wd.x1 - wd.x0) / 8), sy = Math.max(1, (wd.y1 - wd.y0) / 6);
+    for (let y = wd.y0; y <= wd.y1; y += sy) for (let x = wd.x0; x <= wd.x1; x += sx) { const Lb = labelAt(x, y); if (Lb && byComp.has(Lb)) cnt.set(Lb, (cnt.get(Lb) || 0) + 1); }
+    let bestL = 0, bv = 0; cnt.forEach((v, k) => { if (v > bv) { bv = v; bestL = k; } });
+    if (!bestL) {   // 文字が壁の上にかかっているときは、まわりを探す
+      const cx = (wd.x0 + wd.x1) / 2, cy = (wd.y0 + wd.y1) / 2, R = Math.max(wd.y1 - wd.y0, 8) * 1.5;
+      for (let r = 2; r <= R && !bestL; r += 2) for (let a = 0; a < 8 && !bestL; a++) { const Lb = labelAt(cx + r * Math.cos(a * Math.PI / 4), cy + r * Math.sin(a * Math.PI / 4)); if (Lb && byComp.has(Lb)) bestL = Lb; }
+    }
+    if (!bestL) return;
+    const pg = byComp.get(bestL);
+    pg.texts.push({ text: wd.text, y: wd.y0, x: wd.x0 });
+    if (DBG) DBG.words.push(wd.text + '@' + bestL);
+    ocrWords++;
+  });
+  polys.forEach(pg => {
+    pg.texts.sort((a, b) => a.y - b.y || a.x - b.x);
+    const all = pg.texts.map(q => q.text).join(' ');
+    pg.jo = ocrJo(all.replace(/\s+/g, ''));
+    if (!pg.jo) {   // 数字だけ読めて「帖」が読めないこともある（例: 洋室 6.0）
+      const m = pg.texts.map(q => q.text).find(q => /^\d{1,2}[.,]\d$/.test(q));
+      if (m && pg.texts.some(q => ocrRule(q.text))) { const v = parseFloat(m.replace(',', '.')); if (v >= 2 && v <= 30) pg.jo = v; }
+    }
+    pg.rules = [];
+    pg.texts.forEach(q => { const r = ocrRule(q.text); if (r && !pg.rules.includes(r)) pg.rules.push(r); });
+    if (!pg.rules.length && all) { const r = ocrRule(all.replace(/\s+/g, '')); if (r) pg.rules.push(r); }
+  });
+  // バルコニーと書いてある所は部屋にしない
+  for (let k = polys.length - 1; k >= 0; k--) if (polys[k].rules.length && polys[k].rules.every(r => r[2] === 'balcony')) polys.splice(k, 1);
+  if (!polys.length) { toast('部屋の形を読み取れませんでした'); updateHint(); return null; }
+  // 5) 開口（壁の切れ目）を、部屋の輪郭に沿って探す（縮尺を決める前に、画素の単位で）
   const seen = [];
-  let doors = 0, windows = 0;
-  const sorted = polys.slice().sort((a, b) => b.areaPx - a.areaPx);
-  const newRooms = sorted.map((pg, idx) => {
-    const verts = pg.pts.map(toW);
-    const room = { id: newId(), name: guessRoomName(idx, pg.areaPx * mPerPx * mPerPx), color: ROOM_COLORS[idx % ROOM_COLORS.length], vertices: verts, openings: [], groupId: null };
+  polys.forEach(pg => {
+    pg.gaps = [];
     const s2 = polyArea2(pg.pts) > 0 ? 1 : -1;
     for (let i = 0; i < pg.pts.length; i++) {
       const a = pg.pts[i], b = pg.pts[(i + 1) % pg.pts.length];
       const L = Math.hypot(b.x - a.x, b.y - a.y); if (L < tMin * 3) continue;
       const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, nx = -uy * s2, ny = ux * s2;   // n: 部屋の内側
-      const present = [];
-      for (let k = 0; k <= L; k++) {
-        let hit = false;
-        for (let j = -t; j <= t && !hit; j++) if (wallAt(a.x + ux * k + nx * j, a.y + uy * k + ny * j)) hit = true;   // 壁の中心線の前後を見る
-        present.push(hit);
-      }
+      // 壁の太さを測る。外壁で、壁が急に細くなっている所（窓のサッシの線）も切れ目とみなす
+      const thick = [];
+      for (let k = 0; k <= L; k++) { let c = 0; for (let j = -t; j <= t; j++) if (wallAt(a.x + ux * k + nx * j, a.y + uy * k + ny * j)) c++; thick.push(c); }
+      const ts = thick.filter(v => v > 0).sort((p, q) => p - q), tmed = ts.length ? ts[ts.length >> 1] : 0;
+      const thinAt = k => tmed >= 6 && thick[k] > 0 && thick[k] < tmed * 0.45;
+      const present = thick.map((v, k) => v > 0 && !thinAt(k));
       let k = 0;
       while (k < present.length) {
         if (present[k]) { k++; continue; }
         const st = k; while (k < present.length && !present[k]) k++;
-        const en = k;   // [st, en)
-        const len = en - st;
-        if (st < tMin * 0.6 || en > L - tMin * 0.6) continue;     // 角の付近は誤検出しやすい
-        const wm = len * mPerPx;
-        if (wm < 0.45 || wm > 3.5) continue;
-        const cpos = (st + en) / 2;
-        const cx = a.x + ux * cpos, cy = a.y + uy * cpos;
+        const en = k, len = en - st;
+        if (st < tMin * 0.6 || en > L - tMin * 0.6 || len < tMin * 1.5) continue;
+        const cpos = (st + en) / 2, cx = a.x + ux * cpos, cy = a.y + uy * cpos;
         if (seen.some(q => Math.hypot(q.x - cx, q.y - cy) < t * 3)) continue;
         seen.push({ x: cx, y: cy });
-        const outside = labelAt(cx - nx * t * 2.2, cy - ny * t * 2.2);
-        const exterior = !(outside && isRoom[outside] && outside !== pg.comp.id);
-        // 外周の隙間: 壁に沿った細い線(窓の記号)があれば窓、なければ玄関などのドア
+        const other = labelAt(cx - nx * t * 2.2, cy - ny * t * 2.2);
+        const exterior = !(other && isRoom[other] && other !== pg.comp.id);
+        let thinOnly = true; for (let q = st; q < en; q++) if (!thinAt(q)) { thinOnly = false; break; }
+        if (thinOnly && !exterior) continue;   // 内側の壁の細い所は、そのまま壁
         let lined = 0;
-        for (let q = st; q < en; q++) { let hit = false; for (let j = -t; j <= t && !hit; j++) if (darkAt(a.x + ux * q + nx * j, a.y + uy * q + ny * j)) hit = true; if (hit) lined++; }
-        const hasLines = lined / Math.max(1, len) > 0.6;
-        const type = exterior ? (hasLines || wm > 1.15 ? 'window' : 'door') : (wm <= 1.15 ? 'door' : 'passage');
-        const o = { type, edgeIndex: i, offsetAlongWall: cpos / L, width: +wm.toFixed(2), height: OPENING_DEFAULTS[type].height };
-        if (type === 'door') o.doorType = 'swing_left';
-        room.openings.push(o);
-        if (type === 'window') windows++; else doors++;
+        for (let q = st; q < en; q++) { let hit = false; for (let j = -t; j <= t && !hit; j++) { const xx = Math.round(a.x + ux * q + nx * j), yy = Math.round(a.y + uy * q + ny * j); if (xx >= 0 && yy >= 0 && xx < w && yy < h && ink[yy * w + xx]) hit = true; } if (hit) lined++; }
+        const arc = arcInfo(a, ux, uy, nx, ny, st, en);
+        pg.gaps.push({ i, st, en, len, L, cpos, exterior, lined: lined / Math.max(1, len), arc, other });
       }
     }
-    return room;
   });
+  // 6) 縮尺（解析画像1pxあたりのメートル）: 面積 → 「長さを合わせる」 → 図の帖数 → ドアの幅 の順
+  let mPerPx = 0, scaleSrc = '';
+  const sumPx = polys.reduce((s, q) => s + q.areaPx, 0);
+  if (areaM2 > 0) { mPerPx = Math.sqrt(areaM2 / sumPx); scaleSrc = 'area'; }
+  else if (bgCalibrated) { mPerPx = (1 / im.s) * bg.scale / M; scaleSrc = 'calib'; }
+  else {
+    const js = polys.filter(pg => pg.jo > 0).map(pg => Math.sqrt(pg.jo * TATAMI / pg.areaPx)).sort((a, b) => a - b);
+    if (js.length) { mPerPx = js[js.length >> 1]; scaleSrc = 'jo'; }
+    else {
+      const dw = polys.flatMap(pg => pg.gaps.filter(g => !g.exterior && g.arc.s > 0.4).map(g => g.len)).sort((a, b) => a - b);
+      if (dw.length) { mPerPx = 0.78 / dw[dw.length >> 1]; scaleSrc = 'door'; }
+      else { mPerPx = 0.16 / t; scaleSrc = 'none'; }   // 手がかりがないときは、外壁の太さ（図ではだいたい16cm）から
+    }
+  }
+  if (!(mPerPx > 0)) { toast('縮尺を決められませんでした'); return null; }
+  bg.scale = mPerPx * im.s * M; bgCalibrated = true;
+  rfCache = null;
+  const toW = q => ({ x: bg.x + (q.x / im.s) * bg.scale, y: bg.y + (q.y / im.s) * bg.scale });
+  // 7) 開口の種類: 外側 → 窓（ドアの弧があれば玄関ドア） / 内側 → 弧があれば開き戸、線が並んでいれば引き戸、なければ通路
+  let doors = 0, windows = 0;
+  polys.forEach(pg => {
+    pg.ops = [];
+    pg.gaps.forEach(g => {
+      const wm = g.len * mPerPx;
+      if (wm < 0.45 || wm > 3.6) return;
+      let type, dt = null;
+      const arcOk = g.arc.s > 0.3;
+      if (g.exterior) {
+        if (arcOk && wm <= 1.3) { type = 'door'; } else type = 'window';
+      } else if (arcOk && wm <= 1.4) type = 'door';
+      else if (g.lined > 0.6) { if (wm > 1.5) return; type = 'door'; dt = 'slide_left'; }   // 細い線の間仕切りは壁のまま
+      else type = wm <= 0.95 ? 'door' : 'passage';
+      if (type === 'door' && !dt) dt = (g.arc.he ? 'swing_right' : 'swing_left') + (arcOk && g.arc.side < 0 ? '_out' : '');
+      const o = { type, edgeIndex: g.i, offsetAlongWall: g.cpos / g.L, width: +wm.toFixed(2), height: OPENING_DEFAULTS[type].height };
+      if (type === 'door') o.doorType = dt;
+      o._ext = g.exterior; o._other = g.other;
+      pg.ops.push(o);
+      if (type === 'window') windows++; else doors++;
+    });
+  });
+  // 8) 部屋の名前: 図の文字 → 形・大きさ・ドア・設備の線から推測
+  const m2 = pg => pg.areaPx * mPerPx * mPerPx;
+  const dims = pg => { const b = bbox(pg.pts), a = (b.x2 - b.x1) * mPerPx, c = (b.y2 - b.y1) * mPerPx; return [Math.min(a, c), Math.max(a, c)]; };
+  const used = new Set();
+  let named = 0;
+  polys.forEach(pg => {
+    // 大きな部屋の中の「UP/DN」「CL」は、部屋の中の階段・収納の文字なので名前には使わない
+    const rs = pg.rules.filter(r => r[2] !== 'balcony' && !(r[2] === 'stairs' && m2(pg) >= 6) && !(r[2] === 'storage' && m2(pg) >= 4.5 && r[1] === '収納'));
+    if (!rs.length) return;
+    named++;
+    const wet = rs.filter(r => ['wc', 'bath', 'wash'].includes(r[2]));
+    if (wet.length >= 2) { pg.cat = wet[0][2]; pg.name = wet.map(r => r[1].replace('所', '')).join('・'); }
+    else {
+      // 「洋室」より LDK、「階段」より部屋の名前を優先
+      const pri = ['ldk', 'wa', 'bed', 'wc', 'bath', 'wash', 'entry', 'storage', 'hall', 'stairs'];
+      const r = rs.slice().sort((a, b) => pri.indexOf(a[2]) - pri.indexOf(b[2]))[0];
+      pg.cat = r[2]; pg.name = r[1];
+      if (r[0].source === '^室$' && m2(pg) >= 5) { pg.cat = 'bed'; pg.name = '洋室'; }
+      if (r[2] === 'bed' && /寝室|BED|ベッド/i.test(pg.texts.map(q => q.text).join(''))) pg.name = /主寝/.test(pg.texts.map(q => q.text).join('')) ? '主寝室' : '寝室';
+    }
+    used.add(pg.cat);
+  });
+  const totalM2 = polys.reduce((s, q) => s + m2(q), 0);
+  // 階段らしさ: 部屋の中に、20〜35cmおきの平行な線（段）が並んでいるか
+  const neighborsOf = pg => {   // 壁をはさんでとなり合う部屋
+    const out = new Set(), s2 = polyArea2(pg.pts) > 0 ? 1 : -1;
+    for (let i = 0; i < pg.pts.length; i++) {
+      const a = pg.pts[i], b = pg.pts[(i + 1) % pg.pts.length], L = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, nx = -uy * s2, ny = ux * s2;
+      for (let k = 2; k < L; k += 3) { const o = labelAt(a.x + ux * k - nx * t * 1.8, a.y + uy * k - ny * t * 1.8); if (o && o !== pg.comp.id && byComp.has(o)) out.add(o); }
+    }
+    return out;
+  };
+  const nearStairs = pg => [...neighborsOf(pg)].some(o => { const q = byComp.get(o); return q && q.cat === 'stairs'; });
+  const stairLike = pg => {
+    const b = bbox(pg.pts), id = pg.comp.id;
+    for (const hz of [true, false]) {
+      for (const f of [0.35, 0.5, 0.65]) {
+        const pos = []; let inside = 0, prev = false;
+        const n = hz ? b.x2 - b.x1 : b.y2 - b.y1;
+        for (let k = 0; k < n; k++) {
+          const x = hz ? b.x1 + k : b.x1 + (b.x2 - b.x1) * f, y = hz ? b.y1 + (b.y2 - b.y1) * f : b.y1 + k;
+          const xi = Math.round(x), yi = Math.round(y);
+          if (labelAt(xi, yi) !== id && !(ink[yi * w + xi] && !walls[yi * w + xi])) { prev = false; continue; }
+          inside++;
+          const on = !!ink[yi * w + xi];
+          if (on && !prev) {   // その線が部屋の幅の6割以上つづいているか（段の線）
+            let full = 0, tot = 0;
+            const m0 = hz ? b.y1 : b.x1, m1 = hz ? b.y2 : b.x2;
+            for (let q = m0; q <= m1; q += 2) { const xx = Math.round(hz ? x : q), yy = Math.round(hz ? q : y); if (labelAt(xx, yy) !== id && !ink[yy * w + xx]) continue; tot++; if (ink[yy * w + xx] || ink[yy * w + xx + (hz ? 1 : 0)] || ink[yy * w + xx - (hz ? 1 : 0)] || ink[(yy + (hz ? 0 : 1)) * w + xx] || ink[(yy - (hz ? 0 : 1)) * w + xx]) full++; }
+            if (tot && full / tot >= 0.6) pos.push(k);
+          }
+          prev = on;
+        }
+        if (pos.length < 5 || inside * mPerPx < 0.9) continue;
+        // 段の間隔がだいたい同じ（17〜36cm）か
+        const ds = pos.slice(1).map((p, q) => (p - pos[q]) * mPerPx).sort((p, q) => p - q), md = ds[ds.length >> 1];
+        if (md < 0.17 || md > 0.36) continue;
+        if (ds.filter(v => Math.abs(v - md) <= md * 0.35).length >= ds.length * 0.7) return true;
+      }
+    }
+    return false;
+  };
+  const bySize = polys.slice().sort((a, b) => m2(b) - m2(a));
+  // ドアでつながっている部屋どうし
+  const doorNb = new Map(), addNb = (a, b) => { if (!doorNb.has(a)) doorNb.set(a, new Set()); doorNb.get(a).add(b); };
+  polys.forEach(q => q.ops.forEach(o => { if (o.type !== 'window' && o._other && byComp.has(o._other) && o._other !== q.comp.id) { addNb(q.comp.id, o._other); addNb(o._other, q.comp.id); } }));
+  const nbCats = pg => [...(doorNb.get(pg.comp.id) || [])].map(o => byComp.get(o).cat).filter(Boolean);
+  const NAMES = { ldk: 'LDK', bed: '洋室', wa: '和室', wc: 'トイレ', bath: '浴室', wash: '洗面所', entry: '玄関', hall: '廊下', storage: '収納', stairs: '階段' };
+  const setCat = (pg, c) => { pg.cat = c; used.add(c); pg.name = NAMES[c]; };
+  const isHouse = levelCount() > 1 || totalM2 > 90;
+  // 1回目: 大きい部屋・形でわかる所
+  const small = [];
+  bySize.forEach((pg, idx) => {
+    if (pg.cat) return;
+    const a = m2(pg), [mn, mx] = dims(pg), tub = pg.comp.hints.some(hh => { const p1 = Math.min(hh.w, hh.h) * mPerPx, p2 = Math.max(hh.w, hh.h) * mPerPx; return p1 >= 0.5 && p1 <= 1.0 && p2 >= 0.95 && p2 <= 1.9; });
+    const extDoor = pg.ops.some(o => o._ext && o.type === 'door');
+    if (tub && a < 6) setCat(pg, 'bath');
+    else if (mn <= 1.7 && a < 6 && stairLike(pg)) setCat(pg, 'stairs');
+    else if (idx === 0 && !used.has('ldk') && a >= 7) setCat(pg, totalM2 < 30 && a < 13 ? 'bed' : 'ldk');
+    else if (extDoor && a < 6) setCat(pg, 'entry');
+    else if (mn < 1.4 && mx / mn > 2.4 && a >= 2) setCat(pg, 'hall');
+    else if (a >= 4.5) setCat(pg, 'bed');
+    else small.push(pg);
+  });
+  // 2回目: 小さな部屋は、ドアでつながっている部屋も見て決める
+  small.forEach(pg => { if (pg.cat) return; const a = m2(pg), [mn] = dims(pg); if (a < 3 && nearStairs(pg)) setCat(pg, 'hall'); else if (a < 1.2 || (mn < 0.75 && a < 2.2)) setCat(pg, 'storage'); });
+  small.forEach(pg => {   // トイレか収納か: 寝室からしか入れなければ収納
+    if (pg.cat) return;
+    const a = m2(pg), [mn] = dims(pg);
+    if (!(a < 2.6 && mn <= 1.2)) return;
+    const nc = nbCats(pg);
+    if (nc.length && nc.every(c => c === 'bed' || c === 'wa' || c === 'storage')) setCat(pg, 'storage');
+    else setCat(pg, used.has('wc') && !isHouse ? 'storage' : 'wc');
+  });
+  const wet = small.filter(pg => !pg.cat), wetIds = new Set(wet.map(pg => pg.comp.id));
+  wet.forEach(pg => {   // 浴室か洗面所か: 洗面所からしか入れない部屋が浴室
+    const nb = [...(doorNb.get(pg.comp.id) || [])];
+    if (nb.length === 1 && (wetIds.has(nb[0]) || ['wash'].includes(byComp.get(nb[0]).cat)) && !used.has('bath')) setCat(pg, 'bath');
+  });
+  wet.forEach(pg => { if (!pg.cat) setCat(pg, !used.has('wash') ? 'wash' : !used.has('bath') ? 'bath' : 'storage'); });
+  // 同じ名前には番号（洋室・洋室2…）
+  const cnt = {};
+  polys.slice().sort((a, b) => m2(b) - m2(a)).forEach(pg => { if (!['洋室', '収納'].includes(pg.name)) return; cnt[pg.name] = (cnt[pg.name] || 0) + 1; if (cnt[pg.name] > 1) pg.name += cnt[pg.name]; });
+  // 9) ドアのない部屋は、いちばん長くとなり合う部屋との間にドアを付ける（VRで入れるように）
+  const entered = new Set();   // となりの部屋の側に付いたドアで、入れる部屋
+  polys.forEach(q => q.ops.forEach(o => { if (o.type !== 'window' && o._other) entered.add(o._other); }));
+  polys.forEach(pg => {
+    if (pg.ops.some(o => o.type !== 'window') || entered.has(pg.comp.id) || m2(pg) < 0.6) return;
+    const s2 = polyArea2(pg.pts) > 0 ? 1 : -1;
+    let best = null;
+    for (let i = 0; i < pg.pts.length; i++) {
+      const a = pg.pts[i], b = pg.pts[(i + 1) % pg.pts.length], L = Math.hypot(b.x - a.x, b.y - a.y);
+      if (L < tMin * 4) continue;
+      const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, nx = -uy * s2, ny = ux * s2;
+      let run = 0, st = 0, cur = 0;
+      for (let k = 0; k <= L; k += 2) {
+        const o = labelAt(a.x + ux * k - nx * t * 2.2, a.y + uy * k - ny * t * 2.2);
+        const ok = o && isRoom[o] && o !== pg.comp.id && (cur === 0 || o === cur);
+        if (ok) { if (!run) st = k; run += 2; cur = o; }
+        if (!ok || k + 2 > L) { if (run * mPerPx >= 0.7 && (!best || run > best.run)) best = { i, st, run, L }; run = 0; cur = 0; }
+      }
+    }
+    if (best) {
+      const wm = Math.min(0.78, best.run * mPerPx - 0.15);
+      pg.ops.push({ type: 'door', edgeIndex: best.i, offsetAlongWall: (best.st + best.run / 2) / best.L, width: +wm.toFixed(2), height: 2.0, doorType: 'swing_left' });
+      doors++;
+    }
+  });
+  const sorted = polys.slice().sort((a, b) => b.areaPx - a.areaPx);
+  const newRooms = sorted.map((pg, idx) => {
+    pg.ops.forEach(o => { delete o._ext; delete o._other; });
+    return { id: newId(), name: pg.name, color: CAT_COLOR[pg.cat] || ROOM_COLORS[idx % ROOM_COLORS.length], vertices: pg.pts.map(toW), openings: pg.ops, groupId: null, _cat: pg.cat };
+  });
+  let fixtures = 0;
   change(() => {
-    if (replace) { plan.rooms = []; plan.walls = []; }
+    if (replace) { plan.rooms = []; plan.walls = []; plan.furnitures = plan.furnitures.filter(f => !f.fixed); }
     newRooms.forEach(r => plan.rooms.push(r));
+    // 水回りとキッチンの設備も置く（四角い部屋だけ）
+    newRooms.forEach(r => {
+      const c = r._cat; delete r._cat;
+      if (!['wc', 'bath', 'wash', 'ldk'].includes(c) || !isAxisRect(r)) return;
+      const specs = fixturesFor(r).filter(sp => sp[0] !== 'closet');
+      const zones = openingZones(r), placed = [];
+      for (let i = 0; i < specs.length; i++) { const f = autoPlaceIn(r, specs[i], zones, placed); if (f) { f.id = newId(); placed.push(f); plan.furnitures.push(f); fixtures++; } else if (i === 0) break; }
+    });
   });
   // 下絵は薄くして、できた間取りを見やすくする
   bg.opacity = 0.3; $('bgOpacity').value = 30;
   setTool('select');
   setSelection([]);
-  return { rooms: newRooms.length, doors, windows };
+  return { rooms: newRooms.length, doors, windows, named, words: ocrWords, scale: scaleSrc, fixtures, names: newRooms.map(r => r.name) };
 }
 // 窓の隙間などでできた浅いでっぱり・へこみ(深さ < maxDepth)を平らにする
 function flattenJogs(v, maxDepth) {
@@ -2987,23 +3464,51 @@ function flattenJogs(v, maxDepth) {
   }
   return pts;
 }
-// 同じ行(列)にある長い壁と長い壁の間の、短い隙間を埋める
-function bridgeGaps(src, w, h, minRun, maxGap) {
-  const out = src.slice();
-  const pass = (n1, n2, at, set) => {
+// 同じ行(列)にある壁と壁の間の隙間を埋める
+//  ・長い壁どうしの間の短い隙間（ドア）
+//  ・長い壁と、直交する壁の断面の間の短い隙間（部屋の角の近くのドア）
+//  ・長い壁の続きに細い線が引いてある所（細い線で描かれた間仕切り）
+function bridgeGaps(src, w, h, minRun, maxGap, opt) {
+  opt = opt || {};
+  const out = src.slice(), kind = new Uint8Array(w * h), ink = opt.ink, minEnd = opt.minEnd || minRun, maxLined = opt.maxLined || 0, segs = [];
+  let horizPass = true;
+  const pass = (n1, n2, at, set, inkAt) => {
     for (let i = 0; i < n1; i++) {
-      let j = 0, prevEnd = -1;
+      const runs = [];
+      let j = 0;
       while (j < n2) {
         if (!at(i, j)) { j++; continue; }
         const st = j; while (j < n2 && at(i, j)) j++;
-        if (j - st < minRun) continue;                 // 直交する壁の断面など、短いものは無視
-        if (prevEnd >= 0 && st - prevEnd <= maxGap) for (let k = prevEnd; k < st; k++) set(i, k);
-        prevEnd = j;
+        if (j - st >= minEnd) runs.push({ st, en: j, long: j - st >= minRun });
+      }
+      if (runs.length < 2) continue;
+      // となり合う壁の間: ok = ドアの隙間として塞ぐ / chain = 細い線でつながっている
+      const gi = [];
+      for (let k = 0; k + 1 < runs.length; k++) {
+        const A = runs[k], B = runs[k + 1], gap = B.st - A.en;
+        let ok = (A.long && B.long && gap <= maxGap) || ((A.long || B.long) && gap <= maxGap * 0.85);
+        let lined = false;
+        if (ink && gap > 0 && gap <= maxLined) {
+          let c = 0; for (let q = A.en; q < B.st; q++) if (inkAt(i, q) || inkAt(i - 1, q) || inkAt(i + 1, q)) c++;
+          lined = c / gap >= 0.9;
+        }
+        gi.push({ ok, chain: ok || lined, lined });
+      }
+      // 細い線でつながった壁の並びに、長い壁が1本でもあれば、その並びの隙間を全部塞ぐ
+      let k = 0;
+      while (k < gi.length) {
+        if (!gi[k].chain) { k++; continue; }
+        const s0 = k; while (k < gi.length && gi[k].chain) k++;
+        let hasLong = false; for (let q = s0; q <= k; q++) if (runs[q].long) hasLong = true;
+        for (let q = s0; q < k; q++) if (gi[q].ok || hasLong) { for (let x = runs[q].en; x < runs[q + 1].st; x++) set(i, x, gi[q].ok && !gi[q].lined ? 1 : 2); segs.push({ hz: horizPass, i, a: runs[q].en, b: runs[q + 1].st, lined: gi[q].lined }); }
       }
     }
   };
-  pass(h, w, (y, x) => src[y * w + x], (y, x) => { out[y * w + x] = 1; });
-  pass(w, h, (x, y) => src[y * w + x], (x, y) => { out[y * w + x] = 1; });
+  const inkXY = (x, y) => x >= 0 && y >= 0 && x < w && y < h && ink[y * w + x];
+  pass(h, w, (y, x) => src[y * w + x], (y, x, v) => { out[y * w + x] = 1; if (!kind[y * w + x] || v === 2) kind[y * w + x] = v; }, (y, x) => ink && inkXY(x, y));
+  horizPass = false;
+  pass(w, h, (x, y) => src[y * w + x], (x, y, v) => { out[y * w + x] = 1; if (!kind[y * w + x] || v === 2) kind[y * w + x] = v; }, (x, y) => ink && inkXY(x, y));
+  out.segs = segs; out.kind = kind;   // kind: 1 = ドアの隙間として塞いだ / 2 = 細い線の間仕切りとして塞いだ
   return out;
 }
 // 水平・垂直に近い辺だけ真っすぐにそろえる(斜めの壁はそのまま残す)
@@ -3029,13 +3534,6 @@ function closeBin(src, w, h, r) {
   const c = erodeBin(dilateBin(pad, W, H, r), W, H, r), out = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) out.set(c.subarray((y + p) * W + p, (y + p) * W + p + w), y * w);
   return out;
-}
-function guessRoomName(rank, m2) {
-  if (rank === 0) return 'LDK';
-  if (m2 < 1.6) return '収納';
-  if (m2 < 2.4) return 'トイレ';
-  if (m2 < 3.6) return '洗面・浴室';
-  return rank === 1 ? '洋室' : '洋室' + rank;
 }
 
 /* ───────── 間取りを自動で作る（サーバーで作るので、サイトから開いたときだけ）───────── */
@@ -3169,7 +3667,7 @@ $('bFit').onclick = fitView;
 $('bWalk').onclick = openWalk;
 $('bProps').onclick = () => $('props').classList.toggle('open');
 $('gridSel').onchange = e => { gridM = +e.target.value; };
-$('bDims').onclick = () => { showAllDims = !showAllDims; $('bDims').textContent = showAllDims ? '寸法: すべて' : '寸法: 選択中のみ'; draw(); };
+$('bDims').onclick = () => { dimMode = (dimMode + 1) % 3; showAllDims = dimMode === 2; $('bDims').textContent = ['寸法: 選んだ部屋だけ', '寸法: 建物のまわり', '寸法: 全部の部屋'][dimMode]; draw(); };
 window.addEventListener('resize', resize);
 if (window.ResizeObserver) new ResizeObserver(resize).observe($('stage'));
 

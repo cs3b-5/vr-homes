@@ -88,9 +88,10 @@
 <!-- TAB BAR -->
 <div class="tab-bar">
   <div class="tab active" id="tab-top"    onclick="guardedScreen('top')"><i class="ti ti-home"></i>トップ</div>
+  <div class="tab"        id="tab-plans"  onclick="fxOpenPlans()"><i class="ti ti-layout-2"></i>間取り</div>
   <div class="tab"        id="tab-map"    onclick="guardedScreen('map')"><i class="ti ti-map-pin"></i>マップ</div>
   <div class="tab"        id="tab-mypage" onclick="guardedScreen('mypage')"><i class="ti ti-user"></i>マイページ</div>
-  <div class="tab"        id="tab-help"   onclick="guardedScreen('help')"><i class="ti ti-help-circle"></i>お問い合わせ</div>
+  <div class="tab"        id="tab-help"   onclick="guardedScreen('help')"><i class="ti ti-help-circle"></i>ヘルプ</div>
   <div class="tab hidden" id="tab-admin"  onclick="guardedScreen('admin')"><i class="ti ti-settings"></i>管理者</div>
   <div class="tab hidden" id="tab-master" onclick="guardedScreen('master')"><i class="ti ti-crown"></i>マスター</div>
 </div>
@@ -101,12 +102,7 @@
     <div class="logo" onclick="guardedScreen('top')">
       <span class="logo-yk" aria-hidden="true"></span>VR Homes
     </div>
-    <div class="nav-links">
-      <span class="nl on">物件を探す</span>
-      <span class="nl" onclick="guardedScreen('map')">マップで探す</span>
-    </div>
     <div class="nav-r">
-      <button class="btn btn-sm" onclick="guardedScreen('mypage')"><i class="ti ti-user"></i>マイページ</button>
       <button class="btn btn-p btn-sm hidden" id="nav-admin-btn" onclick="guardedScreen('admin')"><i class="ti ti-settings"></i>管理者</button>
     </div>
   </nav>
@@ -196,6 +192,7 @@
       <button type="button" class="he-view-btn on" data-view="list" aria-pressed="true"><i class="ti ti-layout-grid" aria-hidden="true"></i>リスト</button>
       <button type="button" class="he-view-btn" data-view="map" aria-pressed="false"><i class="ti ti-map-2" aria-hidden="true"></i>地図</button>
     </div>
+    <button type="button" class="he-plans-btn" onclick="fxOpenPlans()"><i class="ti ti-layout-2" aria-hidden="true"></i>間取りから探す</button>
   </div>
   <div class="he-active" id="he-active" hidden></div>
   <div class="card-grid" id="card-grid"></div>
@@ -421,6 +418,18 @@
 </div>
 
 <!-- ══════ HELP / CONTACT ══════ -->
+<div class="screen" id="s-plans">
+  <nav class="nav">
+    <div class="logo" onclick="showScreen('top')">
+      <span class="logo-yk" aria-hidden="true"></span>VR Homes
+    </div>
+    <div class="nav-r">
+      <button class="btn btn-sm" onclick="showScreen('top')"><i class="ti ti-home"></i>トップ</button>
+    </div>
+  </nav>
+  <div class="pl-wrap" id="pl-root"></div>
+</div>
+
 <div class="screen" id="s-help">
   <nav class="nav">
     <div class="logo" onclick="guardedScreen('top')">
