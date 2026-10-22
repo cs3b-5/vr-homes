@@ -923,6 +923,10 @@ window.addEventListener('resize',()=>{ clearTimeout(window._hfT); window._hfT=se
 <script>
 /* ── Service Worker 登録 ── */
 if ('serviceWorker' in navigator) {
+  // 新しい版のサイトに切りかわったら、1回だけ読み直して新しい画面にする（はじめて開いたときは読み直さない）
+  const hadSW = !!navigator.serviceWorker.controller;
+  let swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadSW && !swReloaded) { swReloaded = true; location.reload(); } });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => console.log('[SW] 登録成功:', reg.scope))
