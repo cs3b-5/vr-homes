@@ -535,24 +535,25 @@
               <button class="add-form-close" onclick="toggleAddForm()" title="閉じる"><i class="ti ti-x"></i></button>
             </div>
           <div class="add-form-grid">
-            <div class="field"><div class="flabel">物件名 <span class="req">*</span></div><input class="finput" id="af-name" placeholder="例：ハイツ渋谷" onkeydown="handleFormKey(event,'af-address')"></div>
+            <div class="field"><div class="flabel">物件名 <span class="req">必須</span></div><input class="finput" id="af-name" placeholder="例：ハイツ渋谷 203" onkeydown="handleFormKey(event,'af-address')"></div>
             <div class="field" style="grid-column:1/-1">
-              <div class="flabel">詳細住所 <span class="req">*</span> <span style="font-size:10px;color:#94a3b8">（マップのピン・最寄駅の自動取得に使用）</span></div>
+              <div class="flabel">住所 <span class="req">必須</span></div>
               <div style="display:flex;gap:8px">
                 <input class="finput" id="af-address" placeholder="例：東京都渋谷区道玄坂1丁目10-8" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();autoFillFromAddress();}">
-                <button type="button" class="btn btn-sm" onclick="autoFillFromAddress()" style="white-space:nowrap;flex-shrink:0"><i class="ti ti-map-search"></i> 駅を自動取得</button>
+                <button type="button" class="btn btn-sm" onclick="autoFillFromAddress()" style="white-space:nowrap;flex-shrink:0"><i class="ti ti-map-search"></i> 駅を調べる</button>
               </div>
+              <div class="fx-hint">住所を入れると、エリア・最寄り駅・駅からの徒歩分が自動で入ります（地図のピンにも使います）</div>
               <div id="af-geo-status" style="font-size:11px;margin-top:5px;display:none"></div>
             </div>
-            <div class="field"><div class="flabel">エリア <span class="req">*</span></div><input class="finput" id="af-area" placeholder="東京都渋谷区" onkeydown="handleFormKey(event,'af-station')"></div>
-            <div class="field"><div class="flabel">最寄り駅名 <span style="font-size:10px;color:#94a3b8">（自動入力）</span></div><input class="finput" id="af-station" placeholder="渋谷" onkeydown="handleFormKey(event,'af-walk-min')"></div>
-            <div class="field"><div class="flabel">駅からの徒歩（分）<span style="font-size:10px;color:#94a3b8">（自動入力）</span></div><input class="finput" type="number" id="af-walk-min" placeholder="3" onkeydown="handleFormKey(event,'af-rent')"></div>
-            <div class="field"><div class="flabel">家賃（円）<span class="req">*</span></div><input class="finput" type="number" id="af-rent" placeholder="92000" onkeydown="handleFormKey(event,'af-mgmt')"></div>
-            <div class="field"><div class="flabel">管理費（円）</div><input class="finput" type="number" id="af-mgmt" placeholder="5000" onkeydown="handleFormKey(event,'af-deposit')"></div>
-            <div class="field"><div class="flabel">敷金（ヶ月）</div><input class="finput" type="number" id="af-deposit" placeholder="1" step="0.5" onkeydown="handleFormKey(event,'af-key')"></div>
-            <div class="field"><div class="flabel">礼金（ヶ月）</div><input class="finput" type="number" id="af-key" placeholder="1" step="0.5" onkeydown="handleFormKey(event,'af-madori')"></div>
-            <div class="field"><div class="flabel">間取り <span class="req">*</span></div><input class="finput" id="af-madori" list="af-madori-list" autocomplete="off" placeholder="1K・2LDK など" onkeydown="handleFormKey(event,'af-size')"><datalist id="af-madori-list"><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3DK</option><option>3LDK</option><option>4LDK</option></datalist></div>
-            <div class="field"><div class="flabel">面積（㎡）</div><input class="finput" type="number" id="af-size" placeholder="48" onkeydown="handleFormKey(event,'af-age')"></div>
+            <div class="field"><div class="flabel">エリア（市区町村） <span class="req">必須</span><span class="fx-auto">住所から自動</span></div><input class="finput" id="af-area" placeholder="例：東京都渋谷区" onkeydown="handleFormKey(event,'af-station')"></div>
+            <div class="field"><div class="flabel">最寄り駅 <span class="fx-auto">住所から自動</span></div><input class="finput" id="af-station" placeholder="例：渋谷" onkeydown="handleFormKey(event,'af-walk-min')"></div>
+            <div class="field"><div class="flabel">駅から歩いて <span class="fx-auto">住所から自動</span></div><input class="finput" type="number" id="af-walk-min" min="0" placeholder="例：5" onkeydown="handleFormKey(event,'af-rent')"></div>
+            <div class="field"><div class="flabel">家賃 <span class="req">必須</span></div><input class="finput" type="number" id="af-rent" min="0" step="500" placeholder="例：92000" onkeydown="handleFormKey(event,'af-mgmt')"></div>
+            <div class="field"><div class="flabel">管理費・共益費</div><input class="finput" type="number" id="af-mgmt" min="0" step="500" placeholder="例：5000（なしは0）" onkeydown="handleFormKey(event,'af-deposit')"></div>
+            <div class="field"><div class="flabel">敷金</div><input class="finput" type="number" id="af-deposit" min="0" placeholder="例：1（なしは0）" step="0.5" onkeydown="handleFormKey(event,'af-key')"></div>
+            <div class="field"><div class="flabel">礼金</div><input class="finput" type="number" id="af-key" min="0" placeholder="例：1（なしは0）" step="0.5" onkeydown="handleFormKey(event,'af-madori')"></div>
+            <div class="field"><div class="flabel">間取り <span class="req">必須</span></div><input class="finput" id="af-madori" list="af-madori-list" autocomplete="off" placeholder="例：1K、2LDK（一覧から選べます）" onkeydown="handleFormKey(event,'af-size')"><datalist id="af-madori-list"><option>1R</option><option>1K</option><option>1DK</option><option>1LDK</option><option>2K</option><option>2DK</option><option>2LDK</option><option>3DK</option><option>3LDK</option><option>4LDK</option></datalist></div>
+            <div class="field"><div class="flabel">広さ（専有面積）</div><input class="finput" type="number" id="af-size" min="0" step="0.01" placeholder="例：25.5" onkeydown="handleFormKey(event,'af-age')"></div>
             <div class="field">
               <div class="flabel">物件種別</div>
               <select class="finput" id="af-type">
@@ -572,18 +573,18 @@
                 <option value="その他">その他</option>
               </select>
             </div>
-            <div class="field"><div class="flabel">築年数</div><input class="finput" type="number" id="af-age" placeholder="10" onkeydown="handleFormKey(event,'af-desc')"></div>
-            <div class="field"><div class="flabel">所在階 / 建物の階数</div><div style="display:flex;gap:6px;align-items:center"><input class="finput" type="number" id="af-floor-no" min="1" max="80" placeholder="3"><span style="font-size:12px;color:#64748b;white-space:nowrap">階 /</span><input class="finput" type="number" id="af-floors" min="1" max="80" placeholder="10"><span style="font-size:12px;color:#64748b;white-space:nowrap">階建て</span></div></div>
+            <div class="field"><div class="flabel">築年数</div><input class="finput" type="number" id="af-age" min="0" placeholder="例：10（新築は0）" onkeydown="handleFormKey(event,'af-desc')"></div>
+            <div class="field"><div class="flabel">何階の部屋か</div><div style="display:flex;gap:6px;align-items:center"><input class="finput" type="number" id="af-floor-no" min="1" max="80" placeholder="例：3"><span style="font-size:12px;color:#64748b;white-space:nowrap">階 ／ 建物は</span><input class="finput" type="number" id="af-floors" min="1" max="80" placeholder="例：10"><span style="font-size:12px;color:#64748b;white-space:nowrap">階建て</span></div></div>
             <div class="field" style="grid-column:1/-1">
-              <div class="flabel">アクセス（複数の駅）<span style="font-size:10px;color:#94a3b8">（「駅を自動取得」で複数駅が入ります・1行1駅）</span></div>
-              <textarea class="finput" id="af-access" rows="3" placeholder="あおなみ線/荒子駅 徒歩7分&#10;地下鉄東山線/高畑駅 徒歩8分&#10;あおなみ線/南荒子駅 徒歩12分" style="resize:vertical;font-size:13px"></textarea>
+              <div class="flabel">ほかの駅（任意） <span class="fx-auto">住所から自動</span></div>
+              <textarea class="finput" id="af-access" rows="2" placeholder="例：東急東横線/代官山駅 徒歩10分（1行に1駅）" style="resize:vertical;font-size:13px"></textarea>
             </div>
 
             <!-- ═══ 詳細情報（すべて任意・未記入OK）═══ -->
             <div class="field" style="grid-column:1/-1;margin-top:4px">
               <details style="border:1px solid var(--border);border-radius:10px;padding:0">
                 <summary style="cursor:pointer;padding:12px 14px;font-size:13px;font-weight:700;color:var(--navy);user-select:none">
-                  <i class="ti ti-plus"></i> 詳細情報を追加（任意・未記入でも登録できます）
+                  <i class="ti ti-plus"></i> くわしい情報を書く <span style="font-weight:500;color:#64748b">（入居時期・契約期間・更新料・周辺情報など。書かなくても登録できます）</span>
                 </summary>
                 <div class="add-form-grid" style="padding:14px;padding-top:4px">
                   <div class="field"><div class="flabel">入居時期</div><input class="finput" id="af-available" placeholder="即・相談・2026年4月など"></div>
@@ -609,10 +610,11 @@
             </div>
             <div class="field" style="grid-column:1/-1">
               <div class="flabel">物件説明</div>
-              <textarea class="finput" id="af-desc" rows="2" placeholder="物件の特徴・アピールポイントなど" style="resize:vertical"></textarea>
+              <textarea class="finput" id="af-desc" rows="4" placeholder="例：駅から5分の、日当たりのいい角部屋です。スーパーやコンビニも近く、ひとり暮らしにぴったりです。" style="resize:vertical"></textarea>
             </div>
             <div class="field" style="grid-column:1/-1">
-              <div class="flabel">物件写真（複数枚OK）<span style="font-size:10px;color:#94a3b8">（1枚目がメイン写真になります・並べ替え可）</span></div>
+              <div class="flabel">物件の写真（何枚でもOK）</div>
+              <div class="fx-hint" style="margin:0 0 8px">1枚目が一覧に出るメインの写真になります。あとで並べ替えられます</div>
               <div id="af-existing-photos" style="display:none;margin-bottom:10px">
                 <div style="font-size:11px;color:#94a3b8;margin-bottom:6px">既存の写真（← → で並べ替え、× で削除）</div>
                 <div id="af-existing-photos-list" style="display:flex;gap:8px;flex-wrap:wrap"></div>
@@ -625,8 +627,9 @@
               <div id="af-new-photos-hint" style="display:none;font-size:11px;color:#94a3b8;margin-top:4px">既存写真に追加する形でアップロードされます</div>
             </div>
             <div class="field" style="grid-column:1/-1">
-              <div class="flabel">間取り図（任意・VR内見用）</div>
-              <button class="btn btn-sm" type="button" onclick="openFloorEditor()"><i class="ti ti-pencil"></i>間取りを編集する</button>
+              <div class="flabel">間取り（VR内見）</div>
+              <div class="fx-hint" style="margin:0 0 8px">間取りがあると、お客さんがVRで部屋の中を歩けます。「自動で作る」なら、間取りと広さからすぐ作れます</div>
+              <button class="btn btn-sm" type="button" onclick="openFloorEditor()"><i class="ti ti-pencil"></i>エディタで描く・図面から作る</button>
               <div class="fp-thumb-wrap" id="fp-thumb-wrap" style="display:none;margin-top:10px;align-items:center;gap:12px">
                 <div class="fp-thumb"><img id="fp-thumb-img" alt="間取りプレビュー" style="max-width:100%;max-height:100%"></div>
                 <div style="font-size:11px;color:#64748b">
@@ -639,7 +642,8 @@
               </div>
             </div>
             <div class="field" style="grid-column:1/-1">
-              <div class="flabel">実写データ（任意・.spz）<span style="font-size:10px;color:#94a3b8;font-weight:400;margin-left:6px">スマホアプリ Scaniverse などで撮影した部屋の3D</span></div>
+              <div class="flabel">実写の3Dデータ（.spz）</div>
+              <div class="fx-hint" style="margin:0 0 8px">スマホアプリ Scaniverse などで部屋を撮影した3Dです</div>
               <input type="file" id="af-splat" accept=".spz" class="finput" style="padding:7px 11px" onchange="onSplatFileChange(this)">
               <div id="af-splat-status" style="display:none;font-size:11.5px;color:#475569;margin-top:8px;line-height:1.7"></div>
               <div id="af-splat-actions" style="display:none;gap:8px;margin-top:8px;flex-wrap:wrap">
@@ -649,7 +653,8 @@
               </div>
             </div>
           </div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:var(--surface);padding:14px 0;border-top:1px solid var(--border);margin-top:8px">
+          <div class="fx-af-foot">
+            <div class="fx-af-foot-st" id="af-foot-status"></div>
             <button class="btn btn-sm" onclick="toggleAddForm()">キャンセル</button>
             <button class="btn btn-p btn-sm" id="af-submit-btn" onclick="addProperty()"><i class="ti ti-check"></i> 登録する</button>
           </div>
