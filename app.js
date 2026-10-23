@@ -701,7 +701,12 @@ async function onSplatFileChange(input){
     if(window.editedSplat&&window.editedSplat.url&&window.editedSplat.blob) URL.revokeObjectURL(window.editedSplat.url);
     window.editedSplat={blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info};
     _renderSplatStatus();
-    showToast('実写データを読み込みました。「位置合わせ」で間取りに重ねてください','success');
+    // 間取りがあれば、そのまま位置合わせを開く(自動で重ねた状態から始まる)
+    const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
+    if(window.editedFloorplanData||(editing&&editing.floorplanData)){
+      showToast('自動で間取りに重ねます。合っていれば「この位置で保存」を押すだけです','success',4000);
+      setTimeout(alignSplat,400);
+    } else showToast('実写データを読み込みました。床の高さと向きは自動でそろえます','success');
   }catch(e){ console.error(e); st.textContent='読み込めませんでした: '+e.message; }
   input.value='';
 }
@@ -714,13 +719,13 @@ function _renderSplatStatus(){
   const mb=b=>(b/1024/1024).toFixed(1)+'MB';
   const i=sp.info;
   st.innerHTML=(i?`📷 実写データ: ${(i.pointsOut/10000).toFixed(1)}万点・${mb(i.bytesOut)}(元: ${(i.pointsIn/10000).toFixed(1)}万点・${mb(i.bytesIn)})`:'📷 実写データあり')
-    +'<br>'+(sp.transform?'<span style="color:var(--green)">✓ 位置合わせ済み</span>':'<span style="color:var(--amber)">位置合わせがまだです(自動の推定で表示されます)</span>');
+    +'<br>'+(sp.transform?'<span style="color:var(--green)">✓ 位置合わせ済み</span>':'<span style="color:var(--amber)">自動で合わせた位置で表示されます。確かめるなら「位置合わせ」</span>');
 }
 function alignSplat(){
   const sp=window.editedSplat; if(!sp){ showToast('先に実写データを選んでください','warn'); return; }
   const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
   const plan=window.editedFloorplanData||(editing&&editing.floorplanData)||null;
-  if(!plan) showToast('間取りがないので、実写の床と中心だけ合わせます','info');
+  if(!plan) showToast('間取りがないので、床の高さと向きだけそろえます','info');
   openVRViewer({data:plan,propName:'位置合わせ',align:true,splat:{url:sp.url,transform:sp.transform,ext:'.spz'}});
 }
 function previewSplat(){
