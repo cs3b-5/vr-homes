@@ -179,6 +179,7 @@
   <h4>実写の位置合わせ</h4>
   <div id="aStat" class="ast"></div>
   <div class="sub"><b>ドラッグ</b>で動かす ／ <b>右ドラッグ・Shift+ドラッグ・2本指でひねる</b>と回る ／ ホイール・ピンチで拡大</div>
+  <div class="r" id="aRoomRow"><span style="width:auto">撮った部屋</span><select id="aRoom" style="flex:1;height:30px;border:1px solid #cbd5e1;border-radius:7px;font-family:inherit"><option value="-1">わからない（自動で探す）</option></select></div>
   <div class="big"><button id="aR90">↻ 90°回す</button><button id="aAuto">✨ 自動で合わせる</button><button id="aTilt">斜めから見る</button></div>
   <details id="aMore"><summary>数値で細かく調整</summary>
   <div class="r"><span>回転</span><button data-rot="-5">-5</button><button data-rot="-1">-1</button><input type="number" id="aRot" step="1"><button data-rot="1">+1</button><button data-rot="5">+5</button></div>
@@ -1528,10 +1529,10 @@ document.getElementById("modeBtn").addEventListener("click", function () { setVi
    1) 床の高さと上下の向き … guessSplatTransform
    2) 壁の向き … 腰〜頭の高さの点を上から見て、壁が縦横にそろう角度を探す
    3) 間取りがあれば、4方向 × 位置 を総当たりして、実写の壁が間取りの壁にいちばん重なる所を探す */
-function planWallSegs() {
+function planWallSegs(only) {
   const segs = [];
-  roomAreas.forEach(function (r) {
-    if (r.level !== 0 || r.kind === "loft") return;
+  roomAreas.forEach(function (r, i) {
+    if (only !== undefined && only !== null && only >= 0 ? i !== only : (r.level !== 0 || r.kind === "loft")) return;
     for (let i = 0; i < r.pts.length; i++) { const a = r.pts[i], b = r.pts[(i + 1) % r.pts.length]; segs.push([a.x, a.z, b.x, b.z]); }
   });
   return segs;
@@ -1591,6 +1592,7 @@ function fitScore(g, q, tx, tz) {
   }
   return { s: s / n, q: inl / n };
 }
+let alignRoom = -1;   // 位置合わせで「この部屋を撮った」と選んだ部屋(-1 = 自動)
 function autoFitSplat(base) {
   const t = guessSplatTransform(base);
   t.fit = "floor"; t.q = 0;
@@ -1605,7 +1607,7 @@ function autoFitSplat(base) {
   for (let i = 0; i < near.length; i += step) pts.push(near[i].x, near[i].z);
   const P = new Float32Array(pts);
   const phi = dominantAngle(P);
-  const segs = hasPlan() ? planWallSegs() : [];
+  const segs = hasPlan() ? planWallSegs(alignRoom) : [];
   const c = planCenter();
   // 間取りなし: まっすぐにして中心へ
   const center = function (deg) {
@@ -1618,23 +1620,38 @@ function autoFitSplat(base) {
   t.fit = "axis";
   if (segs.length >= 3) {
     const g = distGrid(segs);
-    const sub = []; for (let i = 0; i < P.length; i += 2 * Math.max(1, Math.floor(P.length / 2 / 1500))) sub.push(P[i], P[i + 1]);
-    const S = new Float32Array(sub);
+    const pick = function (n) { const o = []; for (let i = 0; i < P.length; i += 2 * Math.max(1, Math.floor(P.length / 2 / n))) o.push(P[i], P[i + 1]); return new Float32Array(o); };
+    const S = pick(1500), S0 = pick(400);
+    // 大きい建物でも時間がかからないように、粗く探す刻みを広さに合わせる
+    const span = Math.max(g.bx[1] - g.bx[0], g.bz[1] - g.bz[0]), cs = Math.max(0.2, span / 90);
     let best = null;
-    for (let k = 0; k < 4; k++) {
-      const deg = rot + k * 90, q = rotXZ(S, deg);
+    // 間取りの壁の向き(斜めの棟もある)ごとに試す。長い壁が多い向きから3つまで
+    const dirs = [];
+    segs.forEach(function (sg) {
+      const len = Math.hypot(sg[2] - sg[0], sg[3] - sg[1]); if (len < 0.5) return;
+      const a = ((Math.atan2(sg[3] - sg[1], sg[2] - sg[0]) * 180 / Math.PI) % 90 + 90) % 90;
+      const d = dirs.find(function (o) { const x = Math.abs(o.a - a); return Math.min(x, 90 - x) < 2; });
+      if (d) d.w += len; else dirs.push({ a: a, w: len });
+    });
+    dirs.sort(function (p, q) { return q.w - p.w; });
+    const cands = [];
+    dirs.slice(0, 3).forEach(function (d) { for (let k = 0; k < 4; k++) cands.push(phi - d.a + k * 90); });
+    if (!cands.length) for (let k = 0; k < 4; k++) cands.push(rot + k * 90);
+    cands.forEach(function (deg) {
+      const q = rotXZ(S0, deg);
       let qx1 = Infinity, qx2 = -Infinity, qz1 = Infinity, qz2 = -Infinity;
       for (let i = 0; i < q.length; i += 2) { qx1 = Math.min(qx1, q[i]); qx2 = Math.max(qx2, q[i]); qz1 = Math.min(qz1, q[i + 1]); qz2 = Math.max(qz2, q[i + 1]); }
       // 実写の範囲が間取りの範囲と重なる位置を 0.2m 刻みで総当たり
-      for (let tx = g.bx[0] - qx2 + 0.5; tx <= g.bx[1] - qx1 - 0.5; tx += 0.2)
-        for (let tz = g.bz[0] - qz2 + 0.5; tz <= g.bz[1] - qz1 - 0.5; tz += 0.2) {
+      for (let tx = g.bx[0] - qx2 + 0.5; tx <= g.bx[1] - qx1 - 0.5; tx += cs)
+        for (let tz = g.bz[0] - qz2 + 0.5; tz <= g.bz[1] - qz1 - 0.5; tz += cs) {
           const r = fitScore(g, q, tx, tz);
           if (!best || r.s < best.s) best = { s: r.s, q: r.q, deg: deg, tx: tx, tz: tz };
         }
-    }
+    });
     if (best) {
+      const r0 = fitScore(g, rotXZ(S, best.deg), best.tx, best.tz); best.s = r0.s; best.q = r0.q;
       // 少しずつ動かして詰める
-      let st = 0.1, rs = 1;
+      let st = Math.max(0.1, cs / 2), rs = 1;
       for (let it = 0; it < 40 && (st > 0.01 || rs > 0.1); it++) {
         let moved = false;
         [[st, 0, 0], [-st, 0, 0], [0, st, 0], [0, -st, 0], [0, 0, rs], [0, 0, -rs]].forEach(function (d) {
@@ -1643,7 +1660,7 @@ function autoFitSplat(base) {
         });
         if (!moved) { st /= 2; rs /= 2; }
       }
-      if (best.q >= 0.3) { rot = best.deg; pos = { x: best.tx, z: best.tz }; t.fit = "plan"; t.q = best.q; }
+      if (best.q >= (alignRoom >= 0 ? 0.15 : 0.3)) { rot = best.deg; pos = { x: best.tx, z: best.tz }; t.fit = "plan"; t.q = best.q; }
     }
   }
   t.rotY = ((rot % 360) + 540) % 360 - 180; t.x = pos.x; t.z = pos.z;
@@ -1676,6 +1693,9 @@ function enterAlignMode() {
   });
   if (splatRoot) splatRoot.setEnabled(true);
   scene.clearColor = new BABYLON.Color4(0.08, 0.09, 0.12, 1);
+  const sel = document.getElementById("aRoom");
+  sel.innerHTML = '<option value="-1">わからない（自動で探す）</option>' + roomAreas.map(function (r, i) { return r.kind === "loft" ? "" : '<option value="' + i + '">' + esc(r.name) + "（" + Math.round(r.area) + "㎡）</option>"; }).join("");
+  document.getElementById("aRoomRow").style.display = roomAreas.length > 1 ? "" : "none";
   syncAlignInputs();
 }
 function showFitStatus() {
@@ -1788,6 +1808,13 @@ document.getElementById("aFlip").addEventListener("change", function (e) { splat
 document.getElementById("aAuto").addEventListener("click", function () {
   const b = this; b.disabled = true; b.textContent = "合わせています…";
   setTimeout(function () { splatTf = autoFitSplat({ flip: splatTf.flip, scale: splatTf.scale }); updateAlign(); b.disabled = false; b.textContent = "✨ 自動で合わせる"; }, 30);
+});
+document.getElementById("aRoom").addEventListener("change", function (e) {
+  alignRoom = +e.target.value;
+  // 選んだ部屋が画面の真ん中に来るようにして、その部屋の中で合わせ直す
+  const r = roomAreas[alignRoom];
+  if (r && arcCam) { arcCam.target.x = r.cx; arcCam.target.z = r.cz; let m = 4; r.pts.forEach(function (p) { m = Math.max(m, Math.abs(p.x - r.cx) * 2, Math.abs(p.z - r.cz) * 2); }); arcCam.radius = m * 1.5; }
+  document.getElementById("aAuto").click();
 });
 document.getElementById("aCancel").addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
 document.getElementById("aSave").addEventListener("click", function () {
