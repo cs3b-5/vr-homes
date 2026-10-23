@@ -1840,6 +1840,24 @@ async function setupSplat(opts) {
   if (opts.align) { enterAlignMode(); return; }
   document.getElementById("modeBtn").style.display = "block";
   setViewMode("real");
+  spawnInSplat();
+}
+// 実写が一部の部屋だけのとき(大きい建物の中のホールだけ、など)は、実写のある部屋から歩き始める
+function spawnInSplat() {
+  if (!hasPlan() || !splatRoot) return;
+  const pts = nearPts(sampleSplatWorld(8000)); if (!pts || pts.length < 50) return;
+  const c = { x: median(pts.map(function (p) { return p.x; })), z: median(pts.map(function (p) { return p.z; })) };
+  const inRoom = function (x, z) { return roomAreas.find(function (r) { return r.level === 0 && pointInPolygon(x, z, r.pts); }); };
+  const room = inRoom(c.x, c.z); if (!room || inRoom(currentSpawn.x, currentSpawn.z) === room) return;
+  // 部屋の中心(実写の中心寄り)に立って、実写の中心を向く
+  let s = { x: (room.cx + c.x) / 2, z: (room.cz + c.z) / 2 };
+  if (!pointInPolygon(s.x, s.z, room.pts)) s = pointInPolygon(room.cx, room.cz, room.pts) ? { x: room.cx, z: room.cz } : c;
+  const far = pts.reduce(function (a, p) { return a + Math.hypot(p.x - s.x, p.z - s.z); }, 0) / pts.length;
+  const fx = s.x + (c.x - s.x), fz = s.z + (c.z - s.z);
+  currentSpawn = { x: s.x, z: s.z, rotY: Math.hypot(fx - s.x, fz - s.z) > 0.3 ? Math.atan2(fx - s.x, fz - s.z) : currentSpawn.rotY };
+  void far;
+  camera.position.set(currentSpawn.x, EYE_HEIGHT + (room.base || 0), currentSpawn.z);
+  yaw = currentSpawn.rotY; pitch = 0;
 }
 
 /* =========================================================

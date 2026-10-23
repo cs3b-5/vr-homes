@@ -3821,4 +3821,55 @@ window.doLogout = function () {
   try { if (PROPS.some(p => p.modHidden || p.status === 'hidden') && typeof fetchAndRenderProps === 'function') fetchAndRenderProps(); } catch (e) {}
   return r;
 };
+
+/* ══════════════ 学校のデモ（1号館3階）をワンクリックで入れる ══════════════
+   管理者でログインして ?demo=school を開くと、物件の追加フォームに
+   間取り・ホールの実写(位置合わせ済み)・名前などが入った状態になる。あとは「登録する」を押すだけ。 */
+window.fxDemoSchool = async function () {
+  if (!currentUser || !isAdmin()) { toast('管理者でログインすると、学校のデモを入れられます', 'warn', 5000); return false; }
+  let plan;
+  try { plan = await (await fetch('demo/1gokan_3F.json', { cache: 'no-cache' })).json(); }
+  catch (e) { toast('デモの間取りを読み込めませんでした', 'error'); return true; }
+  if (typeof guardedScreen === 'function') guardedScreen('admin');
+  const nav = document.querySelector('#s-admin .admin-nav-item[onclick*="\'props\'"]');
+  if (typeof switchAdmin === 'function') switchAdmin('props', nav);
+  const form = $('add-form');
+  if (form && !form.classList.contains('show') && typeof toggleAddForm === 'function') toggleAddForm();
+  setTimeout(() => {
+    const set = (k, v) => { const el = $(k); if (el) el.value = v; };
+    set('af-name', '【デモ】名古屋工学院専門学校 1号館3階');
+    set('af-madori', '1R'); set('af-size', '1150'); set('af-age', '');
+    set('af-address', '愛知県名古屋市熱田区神宮4-7-21'); set('af-area', '名古屋市熱田区');
+    set('af-rent', '50000'); set('af-mgmt', '0'); set('af-deposit', '0'); set('af-key', '0');
+    set('af-floor-no', '3'); set('af-floors', '7');
+    set('af-desc', '卒業研究のデモ用です。名古屋工学院専門学校 1号館3階の避難経路図から間取りを作りました（教室の実測 9.22m を基準に縮尺を合わせています）。ホールは実写の3Dスキャンでも見られます。');
+    const st = $('af-structure'); if (st) st.value = 'RC';
+    const ty = $('af-type'); if (ty) for (let i = 0; i < ty.options.length; i++) if (ty.options[i].text === '店舗・事務所') ty.selectedIndex = i;
+    fxForm.status = 'hidden'; const ss = $('af-status'); if (ss) ss.value = 'hidden';   // 非公開(自分とグループだけ)
+    window.editedFloorplanData = plan; window.editedFloorplanThumb = null;
+    if (typeof window._applyFloorplanThumbnail === 'function') window._applyFloorplanThumbnail();
+    // ホールの実写。位置は自動の位置合わせで出した値(「位置合わせ」で直せる)
+    window.editedSplat = { url: new URL('demo/1gokan_hall.spz', location.href).href, transform: { x: 10.774, y: 0.053, z: -33.601, rotY: -45.47, scale: 1, flip: true } };
+    if (typeof _renderSplatStatus === 'function') _renderSplatStatus();
+    const adv = document.querySelector('.fx-af-adv'); if (adv) adv.open = true;
+    if (typeof autoFillFromAddress === 'function') autoFillFromAddress().catch(() => {});
+    if (typeof afCost === 'function') afCost();
+    if (typeof afScore === 'function') afScore();
+    toast('学校のデモを入れました。内容を確かめて「登録する」を押してください（非公開で登録されます）', 'success', 7000);
+  }, 300);
+  return true;
+};
+(function () {
+  let q; try { q = new URLSearchParams(location.search); } catch (e) { return; }
+  if (q.get('demo') !== 'school') return;
+  const drop = () => { try { q.delete('demo'); history.replaceState(history.state, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) {} };
+  let tries = 0, warned = false;
+  const tick = () => {
+    tries++;
+    if (typeof currentUser !== 'undefined' && currentUser && isAdmin() && typeof PROPS !== 'undefined') { drop(); window.fxDemoSchool(); return; }
+    if (tries === 6 && !warned) { warned = true; toast('管理者でログインすると、学校のデモが入ります', 'info', 6000); }
+    if (tries < 600) setTimeout(tick, 1000); else drop();   // ログインを10分まで待つ
+  };
+  setTimeout(tick, 1200);
+})();
 })();
