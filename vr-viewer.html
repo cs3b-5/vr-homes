@@ -43,6 +43,19 @@
   #closeBtn, #rotateBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; display: none; }
   #closeBtn { background: #2563eb; color: #fff; font-weight: 700; }
   body.touch #rotateBtn { display: block; }
+  #cbBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 700; display: none; background: #E8604A; color: #fff; }
+  body.touch #cbBtn { display: block; }
+  html.hero #cbBtn, body.aligning #cbBtn { display: none !important; }
+  #cbExit { position: fixed; top: calc(6px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 60; display: none; border: 0; border-radius: 999px; padding: 6px 12px; background: rgba(10,14,26,.6); color: #fff; font: 700 11px/1 inherit; font-family: inherit; pointer-events: auto; }
+  #cbHelp { position: fixed; inset: 0; z-index: 55; display: none; pointer-events: none; }
+  #cbHelp div { position: absolute; top: 58%; width: 50%; text-align: center; color: #fff; font-size: 13px; line-height: 1.6; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+  #cbHelp div:first-child { left: 0; } #cbHelp div:last-child { left: 50%; }
+  #cbHelp b { display: block; font-size: 15px; }
+  body.cardboard #cbExit { display: block; }
+  body.cardboard.cb-help #cbHelp { display: block; }
+  body.cardboard #topbar, body.cardboard #tools, body.cardboard #minimap, body.cardboard #labels, body.cardboard #joystick,
+  body.cardboard #hint, body.cardboard .bar, body.cardboard .panel, body.cardboard #rotateHint { display: none !important; }
+  body.cardboard canvas { cursor: none; }
   #xrBtn { pointer-events: auto; border: 0; cursor: pointer; font-size: 13px; font-family: inherit; font-weight: 700; display: none; background: #7C3AED; color: #fff; }
   body.xr-ok #xrBtn { display: block; }
   html.hero #xrBtn { display: none !important; }
@@ -170,11 +183,14 @@
   <button id="closeBtn" class="pill" data-t="← サイトに戻る">← サイトに戻る</button>
   <button id="rotateBtn" class="pill" title="全画面・横向きで見る" data-t="⤢ 横向き">⤢ 横向き</button>
   <button id="xrBtn" class="pill" title="Meta Quest などのVRゴーグルで見る" data-t="🥽 VRゴーグルで見る">🥽 VRゴーグルで見る</button>
+  <button id="cbBtn" class="pill" title="スマホをVRゴーグル（段ボールのゴーグルなど）に入れて見る" data-t="📱 スマホVR">📱 スマホVR</button>
   <button id="modeBtn" class="pill" title="実写と間取りを切り替える">🏠 間取りで見る</button>
   <div id="title" class="pill"></div>
   <div id="roomName" class="pill"></div>
 </div>
 <div id="hint" class="pill"></div>
+<button id="cbExit" type="button">✕ スマホVRをやめる</button>
+<div id="cbHelp"><div><b>スマホVR</b>画面をタップすると歩く<br>もう一度タップで止まる</div><div><b>スマホVR</b>画面をタップすると歩く<br>もう一度タップで止まる</div></div>
 <div id="alignPanel">
   <h4>実写の位置合わせ</h4>
   <div id="aStat" class="ast"></div>
@@ -1244,6 +1260,7 @@ let yaw = 0, pitch = 0;
 const look = { id: null, x: 0, y: 0 };
 const tap = { id: null, x: 0, y: 0, t: 0 };
 canvas.addEventListener("pointerdown", function (e) {
+  if (cb.on) { e.preventDefault(); e.stopImmediatePropagation(); cbTap(); return; }
   tap.id = e.pointerId; tap.x = e.clientX; tap.y = e.clientY; tap.t = performance.now();
   if (alignMode || dollMode) return;
   if (furnMode && tryStartFurnDrag(e)) return;
@@ -1320,10 +1337,11 @@ const vel = { x: 0, z: 0 };
 let roomTimer = 0;
 let currentRoom = null;
 scene.onBeforeRenderObservable.add(function () {
-  if (scene.activeCamera !== camera) return;   // VR中はヘッドセット側が動かす
+  if (scene.activeCamera !== camera && !cb.on) return;   // VR中はヘッドセット側が動かす（スマホVRは自分で動かす）
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
 
   let fwd = joy.y, side = joy.x;
+  if (cb.on) { cbUpdate(); fwd = cb.walking ? 1 : 0; side = 0; }
   if (keys.KeyW || keys.ArrowUp) fwd += 1;
   if (keys.KeyS || keys.ArrowDown) fwd -= 1;
   if (keys.KeyD) side += 1;
@@ -1344,9 +1362,11 @@ scene.onBeforeRenderObservable.add(function () {
   if (Math.abs(vel.x) < 0.002) vel.x = 0;
   if (Math.abs(vel.z) < 0.002) vel.z = 0;
 
-  camera.rotation.set(pitch, yaw, 0);
+  if (!cb.on) camera.rotation.set(pitch, yaw, 0);
   camera.cameraDirection.set(vel.x * dt, 0, vel.z * dt);
+  if (cb.on) camera.update();   // 画面に出していないカメラなので、壁の当たり判定つきの移動を自分で進める
   updateFoot(dt);
+  if (cb.on && cb.cam) cb.cam.position.copyFrom(camera.position);
 
 });
 // 足もとの床（階段・ロフト・上の階）に合わせて目の高さを決める
@@ -1414,6 +1434,100 @@ document.getElementById("xrBtn").addEventListener("click", async function () {
     catch (e2) { console.warn(e2); vtoast(T("VRを始められませんでした。ゴーグルのブラウザで開いてください")); }
   }
 });
+
+/* ---------- スマホVR（スマホを段ボールなどのゴーグルに入れて見る） ----------
+   左右の目の画面に分けて、レンズのゆがみも補正する。顔の向きはスマホのジャイロで追う。
+   操作はタップだけ（ゴーグルのボタンでもOK）: タップで歩く／もう一度タップで止まる。 */
+const cb = { on: false, walking: false, ev: null, off: 0, offSet: false, reticle: null, helpT: 0, cam: null };
+function cbOnOri(e) { if (e && e.alpha !== null && e.alpha !== undefined) cb.ev = { a: +e.alpha, b: +e.beta, g: +e.gamma }; }
+function qmul(a, b) {   // ハミルトン積 a*b（[x,y,z,w]）
+  return [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+    a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+}
+function screenAngle() {
+  if (rot90) return 90;   // 画面ごと回して横向きにしているとき
+  if (typeof cb.testAngle === "number") return cb.testAngle;
+  const a = screen.orientation && typeof screen.orientation.angle === "number" ? screen.orientation.angle : (window.orientation || 0);
+  return +a || 0;
+}
+// スマホの向き(alpha/beta/gamma) → カメラの向き（Babylon の左手座標の四元数）
+function cbQuat(ev) {
+  const d = Math.PI / 180, x = ev.b * d, y = ev.a * d, z = -ev.g * d;
+  const c1 = Math.cos(x / 2), c2 = Math.cos(y / 2), c3 = Math.cos(z / 2), s1 = Math.sin(x / 2), s2 = Math.sin(y / 2), s3 = Math.sin(z / 2);
+  let q = [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];   // YXZ
+  q = qmul(q, [-Math.SQRT1_2, 0, 0, Math.SQRT1_2]);   // 画面の裏側を向くカメラにする
+  const o = -screenAngle() * d / 2; q = qmul(q, [0, 0, Math.sin(o), Math.cos(o)]);   // 画面の向き(縦/横)
+  return [-q[0], -q[1], q[2], q[3]];   // 右手座標 → 左手座標
+}
+function qHeading(q) {   // 正面(0,0,1)を回した向きの水平の角度
+  const x = q[0], y = q[1], z = q[2], w = q[3];
+  const fx = 2 * (x * z + w * y), fz = 1 - 2 * (x * x + y * y);
+  return Math.atan2(fx, fz);
+}
+function cbUpdate() {
+  if (!cb.ev) return;
+  let q = cbQuat(cb.ev);
+  if (!cb.offSet) { cb.off = yaw - qHeading(q); cb.offSet = true; }   // はじめは今見ている向きに合わせる
+  q = qmul([0, Math.sin(cb.off / 2), 0, Math.cos(cb.off / 2)], q);
+  cb.q = q;
+  if (cb.cam) { if (!cb.cam.rotationQuaternion) cb.cam.rotationQuaternion = new BABYLON.Quaternion(); cb.cam.rotationQuaternion.set(q[0], q[1], q[2], q[3]); }
+  yaw = qHeading(q);   // 歩く向き
+}
+function cbMakeReticle() {
+  if (cb.reticle) return;
+  const r = BABYLON.MeshBuilder.CreateDisc("cbReticle", { radius: 0.012, tessellation: 24 }, scene);
+  const m = new BABYLON.StandardMaterial("cbReticleMat", scene);
+  m.disableLighting = true; m.emissiveColor = new BABYLON.Color3(1, 1, 1); m.alpha = 0.9; m.disableDepthWrite = true;
+  r.material = m; r.parent = cb.cam; r.position.set(0, 0, 1.2); r.isPickable = false; r.renderingGroupId = 3;
+  cb.reticle = r;
+}
+function cbTap() {
+  cb.walking = !cb.walking;
+  if (cb.reticle) { cb.reticle.material.emissiveColor = cb.walking ? new BABYLON.Color3(0.3, 0.95, 0.6) : new BABYLON.Color3(1, 1, 1); cb.reticle.scaling.setAll(cb.walking ? 1.6 : 1); }
+  if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {}
+}
+async function enterCardboard() {
+  if (cb.on) return;
+  if (dollMode && typeof exitDoll === "function") exitDoll();
+  // iPhone はジャイロの許可が必要（ボタンを押した直後に聞く必要がある）
+  if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+    try { const r = await DeviceOrientationEvent.requestPermission(); if (r !== "granted") { vtoast(T("向きのセンサーを許可すると、スマホVRで見回せます")); return; } }
+    catch (e) { vtoast(T("向きのセンサーを使えませんでした")); return; }
+  }
+  window.addEventListener("deviceorientation", cbOnOri, true);
+  cb.on = true; cb.walking = false; cb.offSet = false; cb.ev = null;
+  document.body.classList.add("cardboard", "cb-help");
+  clearTimeout(cb.helpT); cb.helpT = setTimeout(function () { document.body.classList.remove("cb-help"); }, 4500);
+  if (!landscapeOn) await enterLandscape();
+  // 左右の目に分けて描くカメラ（レンズのゆがみ補正つき）。向きと位置はこちらで渡す
+  if (!cb.cam) {
+    cb.cam = new BABYLON.VRDeviceOrientationFreeCamera("cbCam", camera.position.clone(), scene, true, BABYLON.VRCameraMetrics.GetDefault());
+    cb.cam.inputs.clear(); cb.cam.minZ = camera.minZ; cb.cam.maxZ = camera.maxZ;
+    cb.cam.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(yaw, 0, 0);
+  }
+  cb.cam.position.copyFrom(camera.position);
+  cb.cam.rotationQuaternion = BABYLON.Quaternion.RotationYawPitchRoll(yaw, 0, 0);
+  scene.activeCamera = cb.cam;
+  cbMakeReticle(); cb.reticle.setEnabled(true);
+  setTimeout(function () { engine.resize(); }, 300);
+  // センサーが動かない端末（PCなど）では、指で見回せないので知らせる
+  setTimeout(function () { if (cb.on && !cb.ev) vtoast(T("向きのセンサーが見つかりません。スマホで開いてください")); }, 2500);
+}
+async function exitCardboard() {
+  if (!cb.on) return;
+  cb.on = false; cb.walking = false;
+  window.removeEventListener("deviceorientation", cbOnOri, true);
+  if (cb.cam && cb.cam.rotationQuaternion) { const q = cb.cam.rotationQuaternion; yaw = qHeading([q.x, q.y, q.z, q.w]); }   // 今の向きのまま戻す
+  pitch = 0; scene.activeCamera = camera;
+  camera.rotation.set(pitch, yaw, 0);
+  if (cb.reticle) cb.reticle.setEnabled(false);
+  document.body.classList.remove("cardboard", "cb-help");
+  await exitLandscape();
+  setTimeout(function () { engine.resize(); }, 300);
+}
+document.getElementById("cbBtn").addEventListener("click", enterCardboard);
+document.getElementById("cbExit").addEventListener("click", function (e) { e.stopPropagation(); exitCardboard(); });
+document.addEventListener("fullscreenchange", function () { if (cb.on && !fsElement() && !rot90 && !isLandscape()) exitCardboard(); });
 
 /* ---------- 実写(ガウシアンスプラット) ---------- */
 // 実写データは見た目だけに使い、壁の当たり判定は間取りのまま残す。
@@ -1870,6 +1984,7 @@ let LANG = (function () { try { return localStorage.getItem("vr_lang") || "ja"; 
 const EN = {
   "✕ 閉じる": "✕ Close", "← サイトに戻る": "← Back to site", "⤢ 横向き": "⤢ Landscape", "🥽 VRゴーグルで見る": "🥽 View in VR headset", "このブラウザはVRゴーグルに対応していません": "This browser does not support VR headsets", "VRを始められませんでした。ゴーグルのブラウザで開いてください": "Could not start VR. Open this page in the headset browser.", "⤡ 縦に戻す": "⤡ Portrait",
   "🏠 間取りで見る": "🏠 Floor plan", "📷 実写で見る": "📷 Real photo",
+  "📱 スマホVR": "📱 Phone VR", "向きのセンサーを許可すると、スマホVRで見回せます": "Allow motion sensors to look around in Phone VR", "向きのセンサーを使えませんでした": "Could not use the motion sensors", "向きのセンサーが見つかりません。スマホで開いてください": "No motion sensor found. Open this on a smartphone.",
   "左下のスティックで移動 / 画面ドラッグで見回す": "Move with the stick / drag to look around",
   "W A S D で移動 / ドラッグで見回す / Shiftで速く": "WASD to move / drag to look / Shift to run",
   "地図": "Map", "測る": "Measure", "全体": "Overview", "ツアー": "Tour", "家具": "Furniture", "一緒に": "Together",
