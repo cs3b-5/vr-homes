@@ -638,12 +638,14 @@ function denseRange(vals, bin, minFrac) {
 }
 async function processSpz(arrayBuffer, opts) {
   opts = Object.assign({ margin: 0.3, keepSH: false, maxPoints: 600000 }, opts || {});
-  const d = await gunzipBytes(arrayBuffer);
+  let d;
+  try { d = await gunzipBytes(arrayBuffer); }
+  catch (e) { throw new Error('この .spz は読めませんでした(新しい形式の .spz かもしれません)。PCのソフトからなら .ply で書き出して入れてください'); }
   const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
   const magic = dv.getUint32(0, true), version = dv.getUint32(4, true), n = dv.getUint32(8, true);
   const shDeg = d[12], frac = d[13], flags = d[14];
   if (magic !== 0x5053474e) throw new Error('.spz ファイルではないようです');
-  if (version < 2 || version > 3) throw new Error('この .spz のバージョン(' + version + ')には対応していません');
+  if (version < 2 || version > 3) throw new Error('この .spz のバージョン(' + version + ')には対応していません。PCのソフトからなら .ply で書き出して入れてください');
   const shCoef = [0, 3, 8, 15][shDeg] || 0, rotB = version >= 3 ? 4 : 3;
   let off = 16;
   const posOff = off; off += n * 9;
@@ -688,16 +690,86 @@ async function processSpz(arrayBuffer, opts) {
   };
 }
 
-/* ── 物件フォーム: 実写データ(.spz) ── */
+/* ===== PCで作った実写データ(.ply)を .spz に変換 =====
+   Postshot・Brush・Spirula Studio などのガウシアンスプラット(3DGS形式の .ply)を読み、
+   サイトで使う .spz(バージョン2)に詰め直す。そのあと processSpz で部屋の外の点を削って軽くする。
+   .ply は「右・下・前」向きの座標なので、.spz の「右・上・後ろ」向きに直す(y と z を反転)。 */
+async function plyToSpz(arrayBuffer) {
+  const u8 = new Uint8Array(arrayBuffer);
+  // ヘッダーを読む
+  let hEnd = -1;
+  for (let i = 0; i < Math.min(u8.length, 65536) - 10; i++) {
+    if (u8[i] === 101 && u8[i + 1] === 110 && u8[i + 2] === 100 && u8[i + 3] === 95 && u8[i + 4] === 104 && u8[i + 5] === 101 && u8[i + 6] === 97 && u8[i + 7] === 100 && u8[i + 8] === 101 && u8[i + 9] === 114) {   // "end_header"
+      hEnd = i + 10; while (hEnd < u8.length && u8[hEnd] !== 10) hEnd++; hEnd++; break;
+    }
+  }
+  if (hEnd < 0) throw new Error('.ply ファイルではないようです');
+  const head = new TextDecoder().decode(u8.subarray(0, hEnd)).split(/\r?\n/);
+  if (head[0].trim() !== 'ply') throw new Error('.ply ファイルではないようです');
+  if (!head.some(l => /^format binary_little_endian/.test(l))) throw new Error('この .ply の形式(テキスト形式など)には対応していません。バイナリ形式で書き出してください');
+  const SIZES = { char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4, int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
+  let n = 0, inVertex = false, beforeVertex = 0, stride = 0; const props = {};
+  for (const l of head) {
+    const w = l.trim().split(/\s+/);
+    if (w[0] === 'element') {
+      if (inVertex) break;
+      if (w[1] === 'vertex') { inVertex = true; n = +w[2]; }
+      else if (+w[2] > 0) throw new Error('この .ply には頂点以外のデータが先に入っていて読めません');
+    } else if (w[0] === 'property' && inVertex) {
+      if (w[1] === 'list') throw new Error('この .ply の形式には対応していません');
+      if (!SIZES[w[1]]) throw new Error('この .ply の形式には対応していません(' + w[1] + ')');
+      props[w[2]] = { off: stride, type: w[1] }; stride += SIZES[w[1]];
+    }
+  }
+  void beforeVertex;
+  const need = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+  const miss = need.filter(k => !props[k]);
+  if (miss.length) throw new Error(props.red !== undefined || miss.length > 8 ? 'これは「点群」の .ply で、ガウシアンスプラットではないようです。スプラット(Splat)として書き出してください' : 'この .ply に必要なデータがありません(' + miss.join(', ') + ')');
+  if (!n || hEnd + n * stride > u8.length) throw new Error('.ply ファイルが壊れているようです');
+  const dv = new DataView(arrayBuffer, hEnd);
+  const rd = {};
+  need.forEach(k => { const p = props[k]; rd[k] = p.type === 'double' || p.type === 'float64' ? (i => dv.getFloat64(i * stride + p.off, true)) : (p.type === 'float' || p.type === 'float32' ? (i => dv.getFloat32(i * stride + p.off, true)) : (i => dv.getUint8(i * stride + p.off))); });
+  const FRAC = 12, sc = 1 << FRAC;
+  const out = new Uint8Array(16 + n * (9 + 1 + 3 + 3 + 3));
+  const ov = new DataView(out.buffer);
+  ov.setUint32(0, 0x5053474e, true); ov.setUint32(4, 2, true); ov.setUint32(8, n, true);
+  out[12] = 0; out[13] = FRAC; out[14] = 0; out[15] = 0;
+  const pO = 16, aO = pO + n * 9, cO = aO + n, sO = cO + n * 3, rO = sO + n * 3;
+  const u = v => v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+  for (let i = 0; i < n; i++) {
+    const P = [rd.x(i), -rd.y(i), -rd.z(i)];   // 右・下・前 → 右・上・後ろ
+    for (let a = 0; a < 3; a++) {
+      let v = Math.round(P[a] * sc); if (v > 0x7fffff) v = 0x7fffff; if (v < -0x800000) v = -0x800000;
+      const o = pO + i * 9 + a * 3; out[o] = v & 255; out[o + 1] = (v >> 8) & 255; out[o + 2] = (v >> 16) & 255;
+    }
+    out[aO + i] = u(255 / (1 + Math.exp(-rd.opacity(i))));
+    out[cO + i * 3] = u(rd.f_dc_0(i) * 0.15 * 255 + 127.5);
+    out[cO + i * 3 + 1] = u(rd.f_dc_1(i) * 0.15 * 255 + 127.5);
+    out[cO + i * 3 + 2] = u(rd.f_dc_2(i) * 0.15 * 255 + 127.5);
+    out[sO + i * 3] = u((rd.scale_0(i) + 10) * 16);
+    out[sO + i * 3 + 1] = u((rd.scale_1(i) + 10) * 16);
+    out[sO + i * 3 + 2] = u((rd.scale_2(i) + 10) * 16);
+    // 回転(w,x,y,z)。座標を回したぶん y と z の向きを反転し、w が正になるようにそろえる
+    let w = rd.rot_0(i), x = rd.rot_1(i), y = -rd.rot_2(i), z = -rd.rot_3(i);
+    const L = Math.hypot(w, x, y, z) || 1, s = (w < 0 ? -1 : 1) / L;
+    out[rO + i * 3] = u(x * s * 127.5 + 127.5); out[rO + i * 3 + 1] = u(y * s * 127.5 + 127.5); out[rO + i * 3 + 2] = u(z * s * 127.5 + 127.5);
+  }
+  return (await gzipBytes(out)).buffer;
+}
+
+/* ── 物件フォーム: 実写データ(.spz / .ply) ── */
 window.editedSplat=null;   // {blob?, url, transform, info?}
 async function onSplatFileChange(input){
   const f=input.files&&input.files[0]; if(!f) return;
   const st=document.getElementById('af-splat-status');
-  if(!/\.spz$/i.test(f.name)){ showToast('.spz ファイルを選んでください','warn'); input.value=''; return; }
+  const isPly=/\.ply$/i.test(f.name);
+  if(!/\.spz$/i.test(f.name)&&!isPly){ showToast('.spz か .ply のファイルを選んでください','warn'); input.value=''; return; }
   if(typeof DecompressionStream==='undefined'){ showToast('このブラウザでは実写データを扱えません。最新のChrome・Edge・Safariを使ってください','error'); return; }
   st.style.display='block'; st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
   try{
-    const r=await processSpz(await f.arrayBuffer());
+    let buf=await f.arrayBuffer();
+    if(isPly){ st.textContent='PCで作った実写データ(.ply)を変換しています…(大きいと数十秒かかります)'; await new Promise(r=>setTimeout(r,30)); buf=await plyToSpz(buf); st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)'; }
+    const r=await processSpz(buf);
     if(window.editedSplat&&window.editedSplat.url&&window.editedSplat.blob) URL.revokeObjectURL(window.editedSplat.url);
     window.editedSplat={blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info};
     _renderSplatStatus();
