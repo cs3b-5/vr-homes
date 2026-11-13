@@ -3477,7 +3477,7 @@ function initFormUX2() {
     rent.addEventListener('input', upd); upd();
   }
   // ファイルを選ぶボタン（英語の「Choose Files」を出さない・ドラッグでも入れられる）
-  [['af-photo', 'ti-photo-plus', '写真を選ぶ', 'またはここに写真をドラッグ'], ['af-pano', 'ti-360-view', '360°写真を選ぶ', 'THETA などで撮った全天球写真。部屋ごとに入れるとVRで切り替えられます'], ['af-splat', 'ti-cube-3d-sphere', '3Dデータ（.spz）を選ぶ', '']].forEach(([id, ic, label, hint]) => {
+  [['af-photo', 'ti-photo-plus', '写真を選ぶ', 'またはここに写真をドラッグ'], ['af-pano', 'ti-360-view', '360°写真を選ぶ', 'THETA などで撮った全天球写真。部屋ごとに入れるとVRで切り替えられます'], ['af-splat', 'ti-cube-3d-sphere', '3Dデータ（.spz / .ply）を選ぶ', '']].forEach(([id, ic, label, hint]) => {
     const inp = $(id); if (!inp || inp.dataset.fxPick) return;
     inp.dataset.fxPick = '1'; inp.classList.add('fx-file-hidden');
     const z = el('label', 'fx-drop'); z.htmlFor = id;
