@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>VR Homes ポスター</title>
+<style>
+  @page { size: 594mm 841mm; margin: 0; }
+  :root {
+    --ink:#2D2A32; --muted:#5E5866; --cream:#FFF7EC; --coral:#E8604A; --coral-l:#FFE3DA;
+    --mint:#D6F1EC; --teal:#178277; --teal-d:#0F5E56; --sun:#FFF0C2; --line:#E8DFD3;
+    --gap: 13mm;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 594mm; height: 841mm; overflow: hidden; }
+  body {
+    font-family: "Noto Sans CJK JP", "Noto Sans JP", sans-serif; color: var(--ink);
+    background: var(--cream); position: relative; overflow: hidden;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  /* 背景の丸はベクターのまま出す（ぼかし・影は使わない＝PDFで画像にならない） */
+  .blob { position: absolute; border-radius: 50%; z-index: 0; }
+  .b1 { width: 420mm; height: 420mm; right: -150mm; top: -170mm; background: var(--mint); }
+  .b2 { width: 260mm; height: 260mm; left: -130mm; top: 300mm; background: var(--sun); }
+  .b3 { width: 300mm; height: 300mm; right: -150mm; bottom: -130mm; background: var(--mint); }
+  .wrap { position: relative; z-index: 1; padding: 26mm 34mm 0; height: 100%; }
+  section { margin-top: var(--gap); }
+  .h2 { font-size: 16mm; font-weight: 900; margin-bottom: 6mm; display: flex; align-items: center; gap: 4mm; }
+  .h2::before { content: ""; width: 3.2mm; height: 13mm; border-radius: 2mm; background: var(--coral); }
+  .sh { border: 0.8mm solid var(--line); }
+
+  header { position: relative; height: 156mm; }
+  .cls { display: inline-block; font-size: 12mm; font-weight: 700; color: #fff; background: var(--teal-d); padding: 2.6mm 9mm; border-radius: 30mm; }
+  h1 { font-size: 56mm; line-height: 1; font-weight: 900; color: var(--teal-d); letter-spacing: -1mm; margin-top: 7mm; }
+  .catch { font-size: 25mm; font-weight: 900; margin-top: 6mm; }
+  .catch em { font-style: normal; color: var(--coral); }
+  .lead { font-size: 13mm; font-weight: 700; color: var(--muted); margin-top: 6mm; }
+  .mascot { position: absolute; right: -2mm; top: 4mm; width: 132mm; }
+  .bubble { position: absolute; right: 118mm; top: 6mm; background: #fff; border: 1.6mm solid var(--ink); border-radius: 12mm; padding: 4mm 8mm; font-size: 11.5mm; font-weight: 700; }
+  .bubble::after { content: ""; position: absolute; right: -9mm; top: 8mm; border: 5mm solid transparent; border-left: 9mm solid var(--ink); }
+
+  .hero { position: relative; height: 146mm; margin-top: 4mm; }
+  .screen { position: absolute; left: 0; top: 0; width: 396mm; border-radius: 9mm; overflow: hidden; border: 3.5mm solid var(--ink); background: #fff; }
+  .screen img { display: block; width: 100%; height: 114mm; object-fit: cover; object-position: 40% 60%; }
+  .screen .tag { position: absolute; left: 7mm; top: 7mm; background: var(--coral); color: #fff; font-weight: 900; font-size: 11mm; padding: 2.5mm 7mm; border-radius: 20mm; }
+  .phone { position: absolute; right: 2mm; top: -8mm; width: 98mm; height: 150mm; border-radius: 15mm; border: 4mm solid #1e1c22; overflow: hidden; background: #fff; }
+  .phone img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .devices { position: absolute; left: 0; top: 126mm; display: flex; gap: 5mm; }
+  .chip { font-size: 10.5mm; font-weight: 700; background: #fff; border: 1.2mm solid var(--ink); border-radius: 20mm; padding: 1.8mm 8mm; }
+  .chip.on { background: var(--coral); color: #fff; border-color: var(--coral); }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10mm; }
+  .card { background: #fff; border-radius: 10mm; padding: 8mm 8mm 9mm; text-align: center; }
+  .card h3 { display: inline-block; font-size: 11.5mm; font-weight: 900; color: #fff; background: var(--teal); padding: 1.2mm 8mm; border-radius: 20mm; margin-bottom: 4mm; }
+  .card.pb h3 { background: var(--coral); }
+  .card .big { font-size: 13mm; font-weight: 900; line-height: 1.3; }
+  .card .big b { color: var(--teal-d); }
+  .card.pb .big b { color: var(--coral); }
+  .card .sm { font-size: 8.8mm; font-weight: 700; color: var(--muted); margin-top: 3mm; }
+
+  .flow { display: grid; grid-template-columns: 1fr 13mm 1fr 13mm 1fr; align-items: center; }
+  .step { background: #fff; border-radius: 9mm; overflow: hidden; }
+  .step .ph { height: 84mm; overflow: hidden; background: #fff; }
+  .step .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .step .cap { padding: 4.5mm 6mm 5mm; font-size: 12mm; font-weight: 900; display: flex; align-items: center; gap: 3mm; }
+  .step .n { display: inline-flex; width: 12mm; height: 12mm; border-radius: 50%; background: var(--teal-d); color: #fff; font-size: 8mm; align-items: center; justify-content: center; }
+  .arrow { width: 0; height: 0; border-top: 8mm solid transparent; border-bottom: 8mm solid transparent; border-left: 10mm solid var(--coral); justify-self: center; }
+  .can { display: flex; flex-wrap: wrap; gap: 4mm; margin-top: 7mm; align-items: center; }
+  .can b { font-size: 10mm; font-weight: 900; margin-right: 1mm; }
+  .can span { font-size: 9.6mm; font-weight: 700; background: #fff; border: 1mm solid var(--line); border-radius: 20mm; padding: 1.6mm 6.5mm; }
+
+  .arch { background: #fff; border-radius: 10mm; padding: 9mm 10mm 8mm; }
+  .arow { display: grid; grid-template-columns: 1.15fr 30mm 1fr 30mm 1fr; align-items: center; }
+  .box { border: 1.3mm solid var(--ink); border-radius: 7mm; padding: 5mm 6mm; background: #fff; }
+  .box .bt { font-size: 10.5mm; font-weight: 900; }
+  .box .bs { font-size: 7.6mm; font-weight: 700; color: var(--muted); margin-top: 1mm; }
+  .box ul { list-style: none; margin-top: 3mm; display: flex; flex-direction: column; gap: 2mm; }
+  .box li { font-size: 7.8mm; font-weight: 700; background: var(--mint); color: var(--teal-d); border-radius: 4mm; padding: 1.2mm 4mm; }
+  .box.aws { border-color: var(--coral); }
+  .box.aws li { background: var(--coral-l); color: #8f3424; }
+  .link { text-align: center; font-size: 7.4mm; font-weight: 700; color: var(--muted); }
+  .link i { display: block; height: 1.4mm; background: var(--ink); position: relative; margin: 2mm 2mm 0; }
+  .link i::after { content: ""; position: absolute; right: -1mm; top: -2.6mm; border: 3.3mm solid transparent; border-left: 5mm solid var(--ink); }
+  .link i::before { content: ""; position: absolute; left: -1mm; top: -2.6mm; border: 3.3mm solid transparent; border-right: 5mm solid var(--ink); }
+  .points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin-top: 7mm; }
+  .pt { display: flex; gap: 3mm; align-items: center; font-size: 8.6mm; font-weight: 700; line-height: 1.3; }
+  .pt .n { flex: none; width: 10mm; height: 10mm; border-radius: 50%; background: var(--coral); color: #fff; font-size: 6.5mm; font-weight: 900; display: flex; align-items: center; justify-content: center; }
+
+  footer { position: absolute; left: 34mm; right: 34mm; bottom: 24mm; display: flex; justify-content: space-between; align-items: flex-end; }
+  .sig { font-size: 10mm; font-weight: 700; color: var(--muted); padding-bottom: 3mm; }
+  .sig b { display: block; font-size: 13mm; color: var(--ink); }
+  .qr { background: var(--teal-d); color: #fff; border-radius: 10mm; padding: 7mm 9mm; display: flex; gap: 7mm; align-items: center; }
+  .qr img { width: 46mm; height: 46mm; background: #fff; border-radius: 4mm; padding: 2.5mm; image-rendering: pixelated; }
+  .qr b { font-size: 12mm; display: block; line-height: 1.3; }
+  .qr small { font-size: 6.6mm; opacity: .9; display: block; margin-top: 2mm; }
+
+  .feat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7mm; }
+  .f { background: #fff; border-radius: 8mm; overflow: hidden; }
+  .f .ph { height: 100mm; overflow: hidden; background: #eee; }
+  .f .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .f .t { font-size: 12mm; font-weight: 900; padding: 4mm 6mm 5mm; color: var(--teal-d); text-align: center; }
+  .foot2 { position: absolute; left: 34mm; right: 34mm; bottom: 24mm; display: flex; gap: 10mm; align-items: stretch; }
+  .tech { flex: 1; background: #fff; border-radius: 10mm; padding: 7mm 9mm; }
+  .tech h3 { font-size: 12mm; font-weight: 900; margin-bottom: 4mm; }
+  .tech .tags { display: flex; flex-wrap: wrap; gap: 3mm; }
+  .tech .tags span { font-size: 11mm; font-weight: 700; background: var(--mint); color: var(--teal-d); padding: 2mm 7mm; border-radius: 20mm; }
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<div class="wrap">
+
+  <header>
+    <span class="cls">情報システム科3年B組　5班</span>
+    <h1>VR Homes</h1>
+    <div class="catch">行く前に、<em>住んでみる。</em></div>
+    <div class="lead">ブラウザだけで歩ける、VR内見サイト</div>
+    <div class="bubble">見ていってね！</div>
+    <img class="mascot" src="assets/yk.png" alt="">
+  </header>
+
+  <div class="hero">
+    <div class="screen"><img src="assets/vr_ldk.png" alt=""><span class="tag">VRで部屋の中を歩ける</span></div>
+    <div class="phone"><img src="assets/phone.png" alt=""></div>
+    <div class="devices"><span class="chip">スマホ</span><span class="chip">PC</span><span class="chip">Meta Quest</span><span class="chip on">アプリ不要</span></div>
+  </div>
+
+  <section class="cols">
+    <div class="card sh pb"><h3>課題</h3><div class="big">内見に行くのは<b>大変</b></div><div class="sm">時間がない・遠い・広さがわからない</div></div>
+    <div class="card sh"><h3>仕組み</h3><div class="big">間取り図から<b>自動で3D</b></div><div class="sm">そのままブラウザで歩ける</div></div>
+    <div class="card sh"><h3>効果</h3><div class="big"><b>家にいながら</b>内見</div><div class="sm">「思っていたのと違う」を減らす</div></div>
+  </section>
+
+  <section>
+    <div class="h2">間取り図から、歩ける部屋へ</div>
+    <div class="flow">
+      <div class="step sh"><div class="ph"><img src="assets/madori.png" alt="" style="object-fit: contain"></div><div class="cap"><span class="n">1</span>画像を入れる</div></div>
+      <div class="arrow"></div>
+      <div class="step sh"><div class="ph"><img src="assets/ed_doll_c.png" alt="" style="object-fit: contain; background: #dde8f3"></div><div class="cap"><span class="n">2</span>自動で3Dに</div></div>
+      <div class="arrow"></div>
+      <div class="step sh"><div class="ph"><img src="assets/vr_entry.png" alt="" style="object-position: 75% 65%"></div><div class="cap"><span class="n">3</span>ブラウザで内見</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="h2">部屋の中で、できること</div>
+    <div class="feat">
+      <div class="f sh"><div class="ph"><img src="assets/f_doll.png" alt="" style="object-position: 40% 45%"></div><div class="t">全体を模型で</div></div>
+      <div class="f sh"><div class="ph"><img src="assets/f_measure.png" alt="" style="object-position: 70% 55%"></div><div class="t">長さを測る</div></div>
+      <div class="f sh"><div class="ph"><img src="assets/f_furn.png" alt="" style="object-position: 45% 80%"></div><div class="t">家具を置く</div></div>
+      <div class="f sh"><div class="ph"><img src="assets/f_sun.png" alt="" style="object-position: 80% 75%"></div><div class="t">日当たり</div></div>
+    </div>
+  </section>
+
+  <div class="foot2">
+    <div class="tech sh"><h3>使った技術</h3><div class="tags"><span>Babylon.js</span><span>WebXR</span><span>実写3Dスキャン</span><span>AWS</span></div></div>
+    <div class="qr"><img src="assets/qr.png" alt="サイトのQRコード"><div><b>スマホで<br>体験する</b><small>cs3b-5.github.io/vr-homes</small></div></div>
+  </div>
+
+</div>
+</body>
+</html>
