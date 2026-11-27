@@ -190,7 +190,7 @@
 </div>
 <div id="hint" class="pill"></div>
 <button id="cbExit" type="button">✕ スマホVRをやめる</button>
-<div id="cbHelp"><div><b>スマホVR</b>画面をタップすると歩く<br>もう一度タップで止まる</div><div><b>スマホVR</b>画面をタップすると歩く<br>もう一度タップで止まる</div></div>
+<div id="cbHelp"><div><b>スマホVR</b>床を見つめると、そこまで歩く<br>タップでも歩く／止まる</div><div><b>スマホVR</b>床を見つめると、そこまで歩く<br>タップでも歩く／止まる</div></div>
 <div id="alignPanel">
   <h4>実写の位置合わせ</h4>
   <div id="aStat" class="ast"></div>
@@ -1260,7 +1260,7 @@ let yaw = 0, pitch = 0;
 const look = { id: null, x: 0, y: 0 };
 const tap = { id: null, x: 0, y: 0, t: 0 };
 canvas.addEventListener("pointerdown", function (e) {
-  if (cb.on) { e.preventDefault(); e.stopImmediatePropagation(); cbTap(); return; }
+  if (cb.on) { e.preventDefault(); return; }   // スマホVRのタップは下の document でまとめて受ける
   tap.id = e.pointerId; tap.x = e.clientX; tap.y = e.clientY; tap.t = performance.now();
   if (alignMode || dollMode) return;
   if (furnMode && tryStartFurnDrag(e)) return;
@@ -1341,7 +1341,18 @@ scene.onBeforeRenderObservable.add(function () {
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
 
   let fwd = joy.y, side = joy.x;
-  if (cb.on) { cbUpdate(); fwd = cb.walking ? 1 : 0; side = 0; }
+  if (cb.on) {
+    cbUpdate(); cbGaze(dt);
+    fwd = cb.walking ? 1 : 0; side = 0;
+    const gp = cbGamepad();   // Bluetoothのコントローラーがあれば、そのスティックで歩く
+    if (gp && (gp.x || gp.y)) { fwd = gp.y; side = gp.x; cbStopGoal(); }
+    if (cb.goal) {   // 見つめた場所まで歩く
+      const dx = cb.goal.x - camera.position.x, dz = cb.goal.z - camera.position.z, d = Math.hypot(dx, dz);
+      if (d < cb.goal.best - 0.02) { cb.goal.best = d; cb.goal.stuck = 0; } else cb.goal.stuck += dt;
+      if (d < 0.25 || cb.goal.stuck > 0.8) cbStopGoal();   // 着いた／壁で進めない
+      else { const s = Math.min(1, d / 0.6); fwd = (dx * Math.sin(yaw) + dz * Math.cos(yaw)) / d * s; side = (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / d * s; }
+    }
+  }
   if (keys.KeyW || keys.ArrowUp) fwd += 1;
   if (keys.KeyS || keys.ArrowDown) fwd -= 1;
   if (keys.KeyD) side += 1;
@@ -1413,16 +1424,51 @@ async function setupXR() {
     // Babylon の右下の小さなVRボタンは、道具のボタンに隠れて見えなかったので使わず、上に大きなボタンを出す
     xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true });
     if (!xrHelper.baseExperience) return;
+    xrSetupMovement();
     hookXR();
     document.body.classList.add("xr-ok");
     xrHelper.baseExperience.onInitialXRPoseSetObservable.add(function (xrCam) {
-      xrCam.position.x = currentSpawn.x;
-      xrCam.position.z = currentSpawn.z;
+      // 今いる場所からVRを始める（2階にいたら2階から）
+      xrCam.position.x = camera.position.x;
+      xrCam.position.z = camera.position.z;
+      xrCam.position.y += footY;
+      xrFoot = footY; xrPoseReady = true;
+      // スティックで歩いても壁を抜けないように（頭から80cm下までの当たり判定。床や低い家具には当たらない）
+      xrCam.checkCollisions = true;
+      xrCam.ellipsoid = new BABYLON.Vector3(0.22, 0.4, 0.22);
     });
   } catch (err) {
     console.warn("WebXRは利用できません:", err);
   }
 }
+
+// コントローラーの操作: 左スティックで歩く（見ている向きが前）／右スティックの左右で向きを変える
+// ワープ（テレポート）は右スティックの操作とぶつかるので使わない
+function xrSetupMovement() {
+  const fm = xrHelper.baseExperience.featuresManager, F = BABYLON.WebXRFeatureName;
+  try { fm.disableFeature(F.TELEPORTATION); } catch (e) {}
+  xrHelper.teleportation = null;
+  try {
+    fm.enableFeature(F.MOVEMENT, "latest", {
+      xrInput: xrHelper.input,
+      movementOrientationFollowsViewerPose: true,
+      movementSpeed: 0.5, rotationSpeed: 0.4,
+      movementThreshold: 0.2, rotationThreshold: 0.3
+    });
+  } catch (e) { console.warn("スティックで歩く機能を使えません", e); }
+}
+// 階段・ロフト・上の階: 足もとの床の高さに合わせて、ゴーグルの中の高さも上げ下げする
+let xrFoot = 0, xrPoseReady = false;
+scene.onBeforeRenderObservable.add(function () {
+  if (!inXR || !xrPoseReady) return;
+  const cam = xrCam(); if (!cam) return;
+  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+  const g = groundAt(cam.position.x, cam.position.z, xrFoot);
+  if (!g) return;
+  let ny = xrFoot + (g.y - xrFoot) * (1 - Math.exp(-dt * 10));
+  if (Math.abs(g.y - ny) < 0.003) ny = g.y;
+  if (ny !== xrFoot) { cam.position.y += ny - xrFoot; xrFoot = ny; }
+});
 
 document.getElementById("xrBtn").addEventListener("click", async function () {
   if (!xrHelper || !xrHelper.baseExperience) { vtoast(T("このブラウザはVRゴーグルに対応していません")); return; }
@@ -1481,10 +1527,71 @@ function cbMakeReticle() {
   r.material = m; r.parent = cb.cam; r.position.set(0, 0, 1.2); r.isPickable = false; r.renderingGroupId = 3;
   cb.reticle = r;
 }
+function cbReticle(on) {
+  if (cb.reticle) { cb.reticle.material.emissiveColor = on ? new BABYLON.Color3(0.3, 0.95, 0.6) : new BABYLON.Color3(1, 1, 1); cb.reticle.scaling.setAll(on ? 1.6 : 1); }
+}
+function cbBuzz() { if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {} }
 function cbTap() {
+  if (cb.goal) { cbStopGoal(); cbBuzz(); return; }   // 見つめて歩いている途中なら止まる
   cb.walking = !cb.walking;
-  if (cb.reticle) { cb.reticle.material.emissiveColor = cb.walking ? new BABYLON.Color3(0.3, 0.95, 0.6) : new BABYLON.Color3(1, 1, 1); cb.reticle.scaling.setAll(cb.walking ? 1.6 : 1); }
-  if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {}
+  cbReticle(cb.walking); cbBuzz();
+}
+function cbStopGoal() { if (!cb.goal) return; cb.goal = null; cbReticle(cb.walking); }
+// 画面のどこをタップしても（ゴーグルのボタンでも）歩く／止まる。canvas の上に何かが重なっていても受けられるように document で受ける
+document.addEventListener("pointerdown", function (e) {
+  if (!cb.on || (e.target && e.target.closest && e.target.closest("#cbExit"))) return;
+  e.preventDefault(); cbTap();
+}, true);
+// 見つめて歩く: 床を1.5秒見つめると、そこまで歩く（ボタンのないゴーグルでも動ける）
+const CB_DWELL = 1.5;
+function cbRing(p, t) {
+  if (!p) { if (cb.ring) cb.ring.setEnabled(false); return; }
+  if (!cb.ring) {
+    const root = new BABYLON.TransformNode("cbRing", scene);
+    const paint = function (mesh, col, a) {
+      const m = new BABYLON.StandardMaterial("cbRingMat", scene);
+      m.disableLighting = true; m.emissiveColor = col; m.alpha = a; m.backFaceCulling = false;
+      mesh.material = m; mesh.isPickable = false; mesh.renderingGroupId = 1; mesh.parent = root;
+    };
+    const ring = BABYLON.MeshBuilder.CreateTorus("cbRingT", { diameter: 0.5, thickness: 0.035, tessellation: 40 }, scene);
+    paint(ring, new BABYLON.Color3(1, 1, 1), 0.9);
+    const fill = BABYLON.MeshBuilder.CreateDisc("cbRingF", { radius: 0.23, tessellation: 40 }, scene);
+    fill.rotation.x = Math.PI / 2; paint(fill, new BABYLON.Color3(0.3, 0.95, 0.6), 0.6);
+    cb.ring = root; cb.ringFill = fill;
+  }
+  cb.ring.setEnabled(true);
+  cb.ring.position.set(p.x, p.y + 0.03, p.z);
+  const s = Math.max(0.05, Math.min(1, t));
+  cb.ringFill.scaling.set(s, s, s);
+}
+function cbGaze(dt) {
+  if (!cb.cam || !cb.ev || cb.walking || cb.goal) { cb.dwell = 0; cb.anchor = null; cbRing(null); return; }
+  const dir = cb.cam.getDirection(BABYLON.Axis.Z), cp = cb.cam.position;
+  const hit = dir.y < -0.15 ? scene.pickWithRay(new BABYLON.Ray(cp, dir, 8), PICK_SOLID) : null;
+  const p = hit && hit.hit && (hit.pickedMesh.name === "floor" || hit.pickedMesh.name === "stairs") ? hit.pickedPoint : null;
+  if (!p || Math.hypot(p.x - cp.x, p.z - cp.z) < 0.7) { cb.dwell = 0; cb.anchor = null; cbRing(null); return; }   // 足もとを見ているだけのときは歩かない
+  if (cb.anchor && BABYLON.Vector3.Distance(cb.anchor, p) < 0.45) cb.dwell += dt;
+  else { cb.anchor = p.clone(); cb.dwell = 0; }
+  cbRing(cb.anchor, cb.dwell / CB_DWELL);
+  if (cb.dwell >= CB_DWELL) {
+    cb.goal = { x: cb.anchor.x, z: cb.anchor.z, best: Infinity, stuck: 0 };
+    cb.dwell = 0; cb.anchor = null; cbRing(null); cbReticle(true); cbBuzz();
+  }
+}
+function cbGamepad() {
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (let i = 0; i < list.length; i++) {
+    const g = list[i];
+    if (!g || !g.connected) continue;
+    const ax = g.axes || [];
+    let x = ax[0] || 0, y = -(ax[1] || 0);
+    if (Math.hypot(x, y) < 0.2) { x = 0; y = 0; }
+    const b = !!(g.buttons && g.buttons[0] && g.buttons[0].pressed);
+    if (b && !cb.btn) cbTap();
+    cb.btn = b;
+    return { x: x, y: y };
+  }
+  return null;
 }
 async function enterCardboard() {
   if (cb.on) return;
@@ -1495,7 +1602,7 @@ async function enterCardboard() {
     catch (e) { vtoast(T("向きのセンサーを使えませんでした")); return; }
   }
   window.addEventListener("deviceorientation", cbOnOri, true);
-  cb.on = true; cb.walking = false; cb.offSet = false; cb.ev = null;
+  cb.on = true; cb.walking = false; cb.offSet = false; cb.ev = null; cb.goal = null; cb.dwell = 0; cb.anchor = null;
   document.body.classList.add("cardboard", "cb-help");
   clearTimeout(cb.helpT); cb.helpT = setTimeout(function () { document.body.classList.remove("cb-help"); }, 4500);
   if (!landscapeOn) await enterLandscape();
@@ -1515,7 +1622,7 @@ async function enterCardboard() {
 }
 async function exitCardboard() {
   if (!cb.on) return;
-  cb.on = false; cb.walking = false;
+  cb.on = false; cb.walking = false; cb.goal = null; cbRing(null);
   window.removeEventListener("deviceorientation", cbOnOri, true);
   if (cb.cam && cb.cam.rotationQuaternion) { const q = cb.cam.rotationQuaternion; yaw = qHeading([q.x, q.y, q.z, q.w]); }   // 今の向きのまま戻す
   pitch = 0; scene.activeCamera = camera;
@@ -3236,7 +3343,7 @@ function xrNextRoom() {
   if (!stops.length) return;
   xrTourIdx = (xrTourIdx + 1) % stops.length;
   const r = stops[xrTourIdx], s = freeSpot(r), cam = xrCam();
-  if (cam) { const dy = levelBase(r.level) - levelBase(xrLevel(cam)); cam.position.x = s.x; cam.position.z = s.z; cam.position.y += dy; }
+  if (cam) { const dy = levelBase(r.level) - levelBase(xrLevel(cam)); cam.position.x = s.x; cam.position.z = s.z; cam.position.y += dy; xrFoot += dy; }
   stats.tour = true;
   xrStatus = (xrTourIdx + 1) + "/" + stops.length + "  " + r.name + "  " + areaText(r);
 }
@@ -3292,7 +3399,7 @@ function onXRState(state) {
       menu.plane.setEnabled(true);
     }).catch(function (e) { console.warn("VRメニューを作れませんでした", e); });
   } else if (state === S.NOT_IN_XR) {
-    inXR = false; xrMeasure = false; xrPlace = false;
+    inXR = false; xrMeasure = false; xrPlace = false; xrPoseReady = false;
     if (xrMenu) xrMenu.plane.setEnabled(false);
     if (xrMap) xrMap.plane.setEnabled(false);
   }
