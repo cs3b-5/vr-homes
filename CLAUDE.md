@@ -14,7 +14,7 @@
 - GitHub: `cs3b-5/vr-homes`（**公開リポジトリ**。秘密は入れない）
 - 公開サイト: https://cs3b-5.github.io/vr-homes/ （main から GitHub Pages で自動公開）
 - 進め方: ブランチを作る → PR → main にマージ（しまの了承済み）。
-- **サイトのファイルを変えたら `sw.js` の `CACHE_NAME` の数字を1つ上げる**（今は `vr-homes-v46`）。上げないと古い画面が出る。
+- **サイトのファイルを変えたら `sw.js` の `CACHE_NAME` の数字を1つ上げる**（今は `vr-homes-v47`）。上げないと古い画面が出る。
 - Lambda（`lambda_function.py`, Python）は **このリポジトリに入っていない**。最新版は AWS のコンソールにある。学校のAWSルートアカウントしかない。
 
 ## ファイル
