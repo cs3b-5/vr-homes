@@ -1433,29 +1433,65 @@ async function setupXR() {
       xrCam.position.z = camera.position.z;
       xrCam.position.y += footY;
       xrFoot = footY; xrPoseReady = true;
-      // スティックで歩いても壁を抜けないように（頭から80cm下までの当たり判定。床や低い家具には当たらない）
-      xrCam.checkCollisions = true;
-      xrCam.ellipsoid = new BABYLON.Vector3(0.22, 0.4, 0.22);
+      xrStatus = LANG === "en" ? "Left stick: walk / Right stick: turn" : "左スティック: 歩く ／ 右スティック: 向きを変える";
+      setTimeout(function () { if (xrStatus.indexOf("スティック") >= 0 || xrStatus.indexOf("stick") >= 0) xrStatus = ""; }, 10000);
     });
   } catch (err) {
     console.warn("WebXRは利用できません:", err);
   }
 }
 
-// コントローラーの操作: 左スティックで歩く（見ている向きが前）／右スティックの左右で向きを変える
-// ワープ（テレポート）は右スティックの操作とぶつかるので使わない
+// コントローラーの操作（Questの定番）: 左スティックで歩く（前に倒すと見ている方へ）／右スティックの左右でカクッと45°回る
+// ワープ（テレポート）は使わない
 function xrSetupMovement() {
-  const fm = xrHelper.baseExperience.featuresManager, F = BABYLON.WebXRFeatureName;
-  try { fm.disableFeature(F.TELEPORTATION); } catch (e) {}
+  try { xrHelper.baseExperience.featuresManager.disableFeature(BABYLON.WebXRFeatureName.TELEPORTATION); } catch (e) {}
   xrHelper.teleportation = null;
-  try {
-    fm.enableFeature(F.MOVEMENT, "latest", {
-      xrInput: xrHelper.input,
-      movementOrientationFollowsViewerPose: true,
-      movementSpeed: 0.5, rotationSpeed: 0.4,
-      movementThreshold: 0.2, rotationThreshold: 0.3
-    });
-  } catch (e) { console.warn("スティックで歩く機能を使えません", e); }
+}
+function xrStick(hand) {   // そちらの手のスティックの傾き {x, y}（前に倒すと y がマイナス）
+  const list = xrHelper && xrHelper.input ? xrHelper.input.controllers : [];
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (!c.inputSource || c.inputSource.handedness !== hand || !c.motionController) continue;
+    const st = c.motionController.getComponentOfType("thumbstick") || c.motionController.getComponentOfType("touchpad");
+    return st && st.axes ? { x: st.axes.x || 0, y: st.axes.y || 0 } : null;
+  }
+  return null;
+}
+// 壁・ガラス・家具に当たるか（腰の高さで前を調べる。床と階段は通れる）
+const XR_BLOCK = function (m) { return m.isEnabled() && m.checkCollisions && m.name !== "floor" && m.name !== "stairs"; };
+function xrBlocked(x, z, dx, dz) {
+  const len = Math.hypot(dx, dz); if (len < 1e-6) return false;
+  const ray = new BABYLON.Ray(new BABYLON.Vector3(x, xrFoot + 0.9, z), new BABYLON.Vector3(dx / len, 0, dz / len), len + 0.25);
+  const hit = scene.pickWithRay(ray, XR_BLOCK);
+  return !!(hit && hit.hit);
+}
+let xrTurnReady = true;
+function xrStickStep(cam, dt) {
+  const L = xrStick("left");
+  if (L) {
+    let fwd = -L.y, side = L.x;
+    const m = Math.hypot(fwd, side);
+    if (m > 0.15) {
+      if (m > 1) { fwd /= m; side /= m; }
+      const f = cam.getDirection(BABYLON.Axis.Z); f.y = 0; f.normalize();
+      const r = new BABYLON.Vector3(f.z, 0, -f.x);   // 右向き
+      const sp = WALK_SPEED * dt;
+      const dx = (f.x * fwd + r.x * side) * sp, dz = (f.z * fwd + r.z * side) * sp;
+      const x = cam.position.x, z = cam.position.z;
+      if (!xrBlocked(x, z, dx, dz)) { cam.position.x += dx; cam.position.z += dz; }
+      else if (!xrBlocked(x, z, dx, 0)) cam.position.x += dx;   // 壁に沿ってすべる
+      else if (!xrBlocked(x, z, 0, dz)) cam.position.z += dz;
+    }
+  }
+  const R = xrStick("right");
+  if (R) {
+    if (xrTurnReady && Math.abs(R.x) > 0.7) {
+      xrTurnReady = false;
+      const a = (R.x > 0 ? 1 : -1) * Math.PI / 4;
+      if (!cam.rotationQuaternion) cam.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(cam.rotation.x, cam.rotation.y, cam.rotation.z);
+      cam.rotationQuaternion.copyFrom(BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y, a).multiply(cam.rotationQuaternion));
+    } else if (Math.abs(R.x) < 0.3) xrTurnReady = true;   // スティックを戻したら次の回転ができる
+  }
 }
 // 階段・ロフト・上の階: 足もとの床の高さに合わせて、ゴーグルの中の高さも上げ下げする
 let xrFoot = 0, xrPoseReady = false;
@@ -1463,6 +1499,7 @@ scene.onBeforeRenderObservable.add(function () {
   if (!inXR || !xrPoseReady) return;
   const cam = xrCam(); if (!cam) return;
   const dt = Math.min(engine.getDeltaTime() / 1000, 0.1);
+  xrStickStep(cam, dt);
   const g = groundAt(cam.position.x, cam.position.z, xrFoot);
   if (!g) return;
   let ny = xrFoot + (g.y - xrFoot) * (1 - Math.exp(-dt * 10));
