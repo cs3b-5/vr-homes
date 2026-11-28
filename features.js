@@ -72,6 +72,7 @@ window.viewInVR = async function (propId) {
   openVRViewer({
     data: prop.floorplanData || null, propName: prop.name || '',
     splat: prop.splatURL ? fixOldSplat({ url: prop.splatURL, transform: prop.splatTransform || null, ext: '.spz' }) : null,
+    splats: typeof splatsOfProp === 'function' ? splatsOfProp(prop) : null,   // 部屋ごとの実写（2つ以上なら今いる部屋の実写が出る）
     propKey: String(prop.id), lang: fxLang,
     panoramas: prop.panoramas || [], geo: { lat: +prop.lat || 35.68, lng: +prop.lng || 139.76 },
     furnStore: isLoggedIn && currentUser ? 'parent' : 'session',
@@ -2214,7 +2215,7 @@ async function openSchoolDemo() {
     if (!schoolPlan) schoolPlan = await (await fetch('demo/1gokan_3F.json')).json();
     openVRViewer({
       data: schoolPlan, propName: '名古屋工学院専門学校 1号館3階', propKey: 'sample', lang: fxLang,   // 'sample' = チェックや家具をアカウントに保存しない
-      splat: { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true }, ext: '.spz' },
+      splat: { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true }, ext: '.spz', room: 'ホール' },
       furnStore: 'session', geo: { lat: 35.1283, lng: 136.9087 }
     });
   } catch (e) { toast('デモを開けませんでした: ' + e.message, 'error'); }
@@ -3135,6 +3136,7 @@ function svgDataURL(svg) { return 'data:image/svg+xml;charset=utf-8,' + encodeUR
 const _applyFpThumb = window._applyFloorplanThumbnail;
 window._applyFloorplanThumbnail = function () {
   const r = typeof _applyFpThumb === 'function' ? _applyFpThumb.apply(this, arguments) : undefined;
+  try { if (typeof _renderSplatStatus === 'function') _renderSplatStatus(); } catch (e) {}   // 間取りが変わったら「撮った部屋」の選択肢も変える
   const img = $('fp-thumb-img');
   if (img && window.editedFloorplanData && !window.editedFloorplanThumb) {
     const svg = fpSvg(fpMiniFrom(window.editedFloorplanData), { big: true });
@@ -3279,7 +3281,7 @@ function initFormUX2() {
     rent.addEventListener('input', upd); upd();
   }
   // ファイルを選ぶボタン（英語の「Choose Files」を出さない・ドラッグでも入れられる）
-  [['af-photo', 'ti-photo-plus', '写真を選ぶ', 'またはここに写真をドラッグ'], ['af-pano', 'ti-360-view', '360°写真を選ぶ', 'THETA などで撮った全天球写真。部屋ごとに入れるとVRで切り替えられます'], ['af-splat', 'ti-cube-3d-sphere', '3Dデータ（.spz / .ply）を選ぶ', '']].forEach(([id, ic, label, hint]) => {
+  [['af-photo', 'ti-photo-plus', '写真を選ぶ', 'またはここに写真をドラッグ'], ['af-pano', 'ti-360-view', '360°写真を選ぶ', 'THETA などで撮った全天球写真。部屋ごとに入れるとVRで切り替えられます'], ['af-splat', 'ti-cube-3d-sphere', '実写を追加する（.spz / .ply）', '部屋ごとに何個でも追加できます']].forEach(([id, ic, label, hint]) => {
     const inp = $(id); if (!inp || inp.dataset.fxPick) return;
     inp.dataset.fxPick = '1'; inp.classList.add('fx-file-hidden');
     const z = el('label', 'fx-drop'); z.htmlFor = id;
@@ -3662,7 +3664,7 @@ window.fxDemoSchool = async function () {
     window.editedFloorplanData = plan; window.editedFloorplanThumb = null;
     if (typeof window._applyFloorplanThumbnail === 'function') window._applyFloorplanThumbnail();
     // ホールの実写。位置は自動の位置合わせで出した値(「位置合わせ」で直せる)
-    window.editedSplat = { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true } };
+    window.editedSplat = { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true }, room: 'ホール' };
     if (typeof _renderSplatStatus === 'function') _renderSplatStatus();
     const adv = document.querySelector('.fx-af-adv'); if (adv) adv.open = true;
     afShowAll(true);
