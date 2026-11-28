@@ -564,7 +564,7 @@ function viewInVR(propId){
   if(!prop){alert('物件が見つかりません');return;}
   if(!prop.floorplanData&&!prop.splatURL){alert('この物件には間取りデータがありません');return;}
   openVRViewer({data:prop.floorplanData||null,propName:prop.name||'',
-    splat:prop.splatURL?{url:prop.splatURL,transform:prop.splatTransform||null,ext:'.spz'}:null});
+    splat:prop.splatURL?{url:prop.splatURL,transform:prop.splatTransform||null,ext:'.spz'}:null, splats:splatsOfProp(prop)});
 }
 function openVRViewer(init){
   closeVRViewer();
@@ -599,7 +599,7 @@ window.addEventListener('message',function(e){
   } else if(msg.type==='vr-viewer-close'){closeVRViewer();}
   else if(msg.type==='vr-viewer-align-save'){
     // 実写の位置合わせの結果を、編集中の物件に入れておく(保存ボタンで物件と一緒に保存)
-    if(window.editedSplat){ window.editedSplat.transform=msg.transform||null; _renderSplatStatus(); }
+    _onSplatAlignSaved(msg);
     closeVRViewer();
     showToast('位置合わせを反映しました。「登録する/変更を保存」で保存されます','success');
   }
@@ -862,68 +862,119 @@ async function plyToSpz(arrayBuffer, opts) {
   return (await gzipBytes(out)).buffer;
 }
 
-/* ── 物件フォーム: 実写データ(.spz / .ply) ── */
-window.editedSplat=null;   // {blob?, url, transform, info?}
+/* ── 物件フォーム: 実写データ(.spz / .ply) ──
+   部屋ごとに何個でも入れられる（教室・廊下・ホールを別々に撮ったとき）。
+   1つずつ「撮った部屋」を選んで位置合わせする。VRでは今いる部屋の実写が出る。 */
+window.editedSplats=[];   // [{blob?, url, transform, info?, room}]
+// 前からある「実写1つ」の書き方(window.editedSplat)も使えるようにしておく(1つ目の実写)
+Object.defineProperty(window,'editedSplat',{configurable:true,
+  get(){ return window.editedSplats[0]||null; },
+  set(v){ window.editedSplats.forEach(s=>{ if(s.blob&&s.url&&s!==v) URL.revokeObjectURL(s.url); }); window.editedSplats=v?[v]:[]; }});
+let _alignSplatIdx=0;
+function _formPlan(){
+  const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
+  return window.editedFloorplanData||(editing&&editing.floorplanData)||null;
+}
+function _planRoomNames(){
+  const plan=_formPlan(), seen=new Set();
+  ((plan&&plan.rooms)||[]).forEach(r=>{ const n=String(r.name||'').trim(); if(n&&r.kind!=='loft') seen.add(n); });
+  return [...seen];
+}
 async function onSplatFileChange(input){
-  const f=input.files&&input.files[0]; if(!f) return;
+  const files=[...(input.files||[])]; input.value=''; if(!files.length) return;
   const st=document.getElementById('af-splat-status');
-  const isPly=/\.ply$/i.test(f.name);
-  if(!/\.spz$/i.test(f.name)&&!isPly){ showToast('.spz か .ply のファイルを選んでください','warn'); input.value=''; return; }
   if(typeof DecompressionStream==='undefined'){ showToast('このブラウザでは実写データを扱えません。最新のChrome・Edge・Safariを使ってください','error'); return; }
-  st.style.display='block'; st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
-  try{
-    let buf=await f.arrayBuffer();
-    if(isPly){
-      st.textContent='PCで作った実写データ(.ply)を変換しています…(床を水平にして大きさをそろえます。大きいと数十秒かかります)'; await new Promise(r=>setTimeout(r,30));
-      // 大きさの基準: 間取りの天井の高さ(なければ2.4m)
-      const ed=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null, plan=window.editedFloorplanData||(ed&&ed.floorplanData)||null;
-      const hs=((plan&&plan.rooms)||[]).map(r=>+r.ceilH).filter(v=>v>=2&&v<=6).sort((a,b)=>a-b);
-      buf=await plyToSpz(buf,{ceilH:hs.length?hs[hs.length>>1]:2.4});
-      const lv=plyToSpz.lastLevel;
-      if(lv) showToast(`床を水平にそろえました${lv.s!==1?`(大きさ ${lv.s.toFixed(2)}倍・天井 ${lv.height.toFixed(1)}m)`:''}`,'info',4000);
-      st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
-    }
-    const r=await processSpz(buf);
-    if(window.editedSplat&&window.editedSplat.url&&window.editedSplat.blob) URL.revokeObjectURL(window.editedSplat.url);
-    window.editedSplat={blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info};
-    _renderSplatStatus();
+  const names=_planRoomNames();
+  let added=0;
+  for(let fi=0;fi<files.length;fi++){
+    const f=files[fi], isPly=/\.ply$/i.test(f.name), tag=files.length>1?`（${fi+1}/${files.length}: ${f.name}）`:'';
+    if(!/\.spz$/i.test(f.name)&&!isPly){ showToast(f.name+' は .spz か .ply ではないので飛ばしました','warn'); continue; }
+    st.style.display='block'; st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)'+tag;
+    try{
+      let buf=await f.arrayBuffer();
+      if(isPly){
+        st.textContent='PCで作った実写データ(.ply)を変換しています…(床を水平にして大きさをそろえます。大きいと数十秒かかります)'+tag; await new Promise(r=>setTimeout(r,30));
+        // 大きさの基準: 間取りの天井の高さ(なければ2.4m)
+        const plan=_formPlan();
+        const hs=((plan&&plan.rooms)||[]).map(r=>+r.ceilH).filter(v=>v>=2&&v<=6).sort((a,b)=>a-b);
+        buf=await plyToSpz(buf,{ceilH:hs.length?hs[hs.length>>1]:2.4});
+        const lv=plyToSpz.lastLevel;
+        if(lv) showToast(`床を水平にそろえました${lv.s!==1?`(大きさ ${lv.s.toFixed(2)}倍・天井 ${lv.height.toFixed(1)}m)`:''}`,'info',4000);
+      }
+      const r=await processSpz(buf);
+      // ファイル名に部屋の名前が入っていれば(例: 廊下.ply)、その部屋を選んでおく
+      const base=f.name.replace(/\.[^.]+$/,'').normalize('NFKC');
+      const room=names.filter(n=>base.includes(n.normalize('NFKC'))).sort((a,b)=>b.length-a.length)[0]||'';
+      window.editedSplats.push({blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info,room});
+      added++;
+    }catch(e){ console.error(e); showToast(f.name+' を読み込めませんでした: '+e.message,'error',6000); }
+  }
+  st.style.display='none';
+  _renderSplatStatus();
+  if(!added) return;
+  const idx=window.editedSplats.length-1;
+  if(added===1&&_formPlan()){
     // 間取りがあれば、そのまま位置合わせを開く(自動で重ねた状態から始まる)
-    const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
-    if(window.editedFloorplanData||(editing&&editing.floorplanData)){
-      showToast('自動で間取りに重ねます。合っていれば「この位置で保存」を押すだけです','success',4000);
-      setTimeout(alignSplat,400);
-    } else showToast('実写データを読み込みました。床の高さと向きは自動でそろえます','success');
-  }catch(e){ console.error(e); st.textContent='読み込めませんでした: '+e.message; }
-  input.value='';
+    showToast(window.editedSplats[idx].room?'「'+window.editedSplats[idx].room+'」に自動で重ねます。合っていれば「この位置で保存」を押すだけです':'自動で間取りに重ねます。「撮った部屋」を選ぶと、その部屋の中で合わせます','success',5000);
+    setTimeout(()=>alignSplat(idx),400);
+  } else showToast(added>1?`実写を${added}つ追加しました。それぞれ「撮った部屋」を選んで「位置合わせ」してください`:'実写データを読み込みました。床の高さと向きは自動でそろえます','success',6000);
 }
 function _renderSplatStatus(){
-  const st=document.getElementById('af-splat-status'), acts=document.getElementById('af-splat-actions');
-  if(!st||!acts) return;
-  const sp=window.editedSplat;
-  if(!sp){ st.style.display='none'; acts.style.display='none'; return; }
-  st.style.display='block'; acts.style.display='flex';
+  const list=document.getElementById('af-splat-list'), acts=document.getElementById('af-splat-actions');
+  if(!list||!acts) return;
+  const sps=window.editedSplats, names=_planRoomNames();
+  acts.style.display=sps.length>1?'flex':'none';
   const mb=b=>(b/1024/1024).toFixed(1)+'MB';
-  const i=sp.info;
-  st.innerHTML=(i?`📷 実写データ: ${(i.pointsOut/10000).toFixed(1)}万点・${mb(i.bytesOut)}(元: ${(i.pointsIn/10000).toFixed(1)}万点・${mb(i.bytesIn)})`:'📷 実写データあり')
-    +'<br>'+(sp.transform?'<span style="color:var(--green)">✓ 位置合わせ済み</span>':'<span style="color:var(--amber)">自動で合わせた位置で表示されます。確かめるなら「位置合わせ」</span>');
+  const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  list.innerHTML=sps.map((sp,i)=>{
+    const opts=names.slice(); if(sp.room&&!opts.includes(sp.room)) opts.unshift(sp.room);
+    const i2=sp.info;
+    return `<div class="af-splat-it">
+      <div class="af-splat-h"><b>📷 実写 ${i+1}</b>
+        ${names.length||sp.room?`<label>撮った部屋 <select onchange="setSplatRoom(${i},this.value)"><option value="">${sps.length>1?'選んでください':'わからない'}</option>${opts.map(n=>`<option value="${esc(n)}"${n===sp.room?' selected':''}>${esc(n)}</option>`).join('')}</select></label>`:''}</div>
+      <div class="af-splat-i">${i2?`${(i2.pointsOut/10000).toFixed(1)}万点・${mb(i2.bytesOut)}(元: ${(i2.pointsIn/10000).toFixed(1)}万点・${mb(i2.bytesIn)})　`:''}${sp.transform?'<span style="color:var(--green)">✓ 位置合わせ済み</span>':'<span style="color:var(--amber)">自動で合わせた位置で表示されます。確かめるなら「位置合わせ」</span>'}${sps.length>1&&!sp.room?'<br><span style="color:var(--red)">「撮った部屋」を選ぶと、その部屋にいるときにこの実写が出ます</span>':''}</div>
+      <div class="af-splat-a">
+        <button class="btn btn-sm" type="button" onclick="alignSplat(${i})"><i class="ti ti-arrows-move"></i>位置合わせ</button>
+        <button class="btn btn-sm" type="button" onclick="previewSplat(${i})"><i class="ti ti-eye"></i>プレビュー</button>
+        <button class="btn btn-sm" type="button" style="color:var(--red)" onclick="clearSplat(${i})"><i class="ti ti-trash"></i>削除</button>
+      </div></div>`;
+  }).join('');
 }
-function alignSplat(){
-  const sp=window.editedSplat; if(!sp){ showToast('先に実写データを選んでください','warn'); return; }
-  const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
-  const plan=window.editedFloorplanData||(editing&&editing.floorplanData)||null;
+function setSplatRoom(i,room){
+  const sp=window.editedSplats[i]; if(!sp) return;
+  if(sp.room!==room) sp.transform=null;   // 部屋を変えたら、位置は合わせ直す
+  sp.room=room; _renderSplatStatus();
+  if(room&&_formPlan()) showToast('「'+room+'」にしました。「位置合わせ」で重なりを確かめてください','info',4000);
+}
+const _splatOpt=sp=>({url:sp.url,transform:sp.transform,room:sp.room||'',ext:'.spz'});
+function alignSplat(i){
+  if(i==null) i=0;
+  const sp=window.editedSplats[i]; if(!sp){ showToast('先に実写データを選んでください','warn'); return; }
+  _alignSplatIdx=i;
+  const plan=_formPlan();
   if(!plan) showToast('間取りがないので、床の高さと向きだけそろえます','info');
-  openVRViewer({data:plan,propName:'位置合わせ',align:true,splat:{url:sp.url,transform:sp.transform,ext:'.spz'}});
+  openVRViewer({data:plan,propName:'位置合わせ（実写 '+(i+1)+(sp.room?'・'+sp.room:'')+'）',align:true,splat:_splatOpt(sp)});
 }
-function previewSplat(){
-  const sp=window.editedSplat; if(!sp) return;
-  const editing=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null;
-  openVRViewer({data:window.editedFloorplanData||(editing&&editing.floorplanData)||null,propName:'プレビュー',splat:{url:sp.url,transform:sp.transform,ext:'.spz'}});
+function previewSplat(i){
+  const sps=window.editedSplats; if(!sps.length) return;
+  const one=i!=null&&sps[i];
+  openVRViewer({data:_formPlan(),propName:'プレビュー',splat:_splatOpt(one||sps[0]),splats:one?null:sps.map(_splatOpt)});
 }
-function clearSplat(){
-  if(window.editedSplat&&window.editedSplat.blob&&window.editedSplat.url) URL.revokeObjectURL(window.editedSplat.url);
-  window.editedSplat=null; _renderSplatStatus();
+function clearSplat(i){
+  const sps=window.editedSplats;
+  const del=i==null?sps.slice():sps.slice(i,i+1);
+  del.forEach(s=>{ if(s.blob&&s.url) URL.revokeObjectURL(s.url); });
+  window.editedSplats=i==null?[]:sps.filter((_,k)=>k!==i);
+  _renderSplatStatus();
 }
-window.onSplatFileChange=onSplatFileChange;window.alignSplat=alignSplat;window.previewSplat=previewSplat;window.clearSplat=clearSplat;
+// 位置合わせの結果を、編集中の物件の実写に入れる(保存ボタンで物件と一緒に保存)
+function _onSplatAlignSaved(msg){
+  const sp=window.editedSplats[_alignSplatIdx]; if(!sp) return;
+  sp.transform=msg.transform||null;
+  if(msg.room) sp.room=msg.room;
+  _renderSplatStatus();
+}
+window.onSplatFileChange=onSplatFileChange;window.alignSplat=alignSplat;window.previewSplat=previewSplat;window.clearSplat=clearSplat;window.setSplatRoom=setSplatRoom;
 // 実写データをS3に置いて、公開URLを返す
 async function uploadSplatToS3(blob){
   const filename='photos/splat_'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+'.spz';
@@ -934,17 +985,30 @@ async function uploadSplatToS3(blob){
   if(!putRes.ok) throw new Error('S3へのアップロードに失敗しました ('+putRes.status+')');
   return S3_PUBLIC_BASE+filename;
 }
-// フォームの実写データを保存用の値にする({splatURL, splatTransform})
+// フォームの実写データを保存用の値にする({splatURL, splatTransform, splats})
+// splatURL / splatTransform は1つ目の実写(前からある物件・ほかの画面のため)。splats が部屋ごとの全部
 async function resolveSplatForSave(){
-  const sp=window.editedSplat;
-  if(!sp) return {splatURL:null,splatTransform:null};
-  if(sp.blob){
-    showToast('実写データをアップロード中…(数MBあります)','info',4000);
-    const url=await uploadSplatToS3(sp.blob);
-    return {splatURL:url,splatTransform:sp.transform||null};
+  const sps=window.editedSplats;
+  if(!sps.length) return {splatURL:null,splatTransform:null,splats:null};
+  const out=[];
+  for(let i=0;i<sps.length;i++){
+    const sp=sps[i];
+    if(sp.blob){
+      showToast(`実写データをアップロード中…${sps.length>1?`(${i+1}/${sps.length})`:''}(数MBあります)`,'info',4000);
+      const url=await uploadSplatToS3(sp.blob);
+      URL.revokeObjectURL(sp.url); sp.url=url; delete sp.blob;   // 2回アップロードしないように
+    }
+    out.push({url:sp.url,transform:sp.transform||null,room:sp.room||''});
   }
-  return {splatURL:sp.url,splatTransform:sp.transform||null};
+  return {splatURL:out[0].url,splatTransform:out[0].transform,splats:out};
 }
+// 保存されている物件の実写を、フォーム用の形にする
+function splatsOfProp(prop){
+  const fix=window.fxFixOldSplat||(s=>s);
+  if(Array.isArray(prop.splats)&&prop.splats.length) return prop.splats.filter(s=>s&&s.url).map(s=>Object.assign(fix({url:s.url,transform:s.transform||null}),{room:s.room||''}));
+  return prop.splatURL?[fix({url:prop.splatURL,transform:prop.splatTransform||null})]:[];
+}
+window.splatsOfProp=splatsOfProp;
 
 function _openFloorEditorModal(mode){
   const overlay=document.getElementById('floor-editor-overlay');
@@ -2888,7 +2952,7 @@ function startEditProp(id){
   renderExistingPhotosPreview();
   window.editedFloorplanData=prop.floorplanData||null;
   window.editedFloorplanThumb=prop.floorplanURL||null;
-  window.editedSplat=prop.splatURL?(window.fxFixOldSplat||(s=>s))({url:prop.splatURL,transform:prop.splatTransform||null}):null;   // 古いホールの実写は新しい方に切り替える
+  window.editedSplats=splatsOfProp(prop);   // 古いホールの実写は新しい方に切り替わる
   _renderSplatStatus();
   if(typeof _applyFloorplanThumbnail==='function') _applyFloorplanThumbnail();
   const photoInput=document.getElementById('af-photo');if(photoInput) photoInput.value='';
@@ -3284,7 +3348,7 @@ async function addProperty(){
     const mergedPhotos=[...editingExistingPhotos,...newPhotoURLs];
     const updated={...existing,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,description:desc,access,details,photoURLs:mergedPhotos,
       floorplanURL:window.editedFloorplanThumb||existing.floorplanURL||null,floorplanData:window.editedFloorplanData||existing.floorplanData||null,
-      splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform};
+      splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform,splats:splatFields.splats};
     const addrChanged=(normalizeAddress(address)!==normalizeAddress(existing.address||')'))|| (normalizeAddress(area)!==normalizeAddress(existing.area||''));
     if(addrChanged){updated.lat=null;updated.lng=null;}
     PROPS[propIdx]=updated;removeMapMarker(editingPropId);
@@ -3303,7 +3367,7 @@ async function addProperty(){
   const newProp={id:null,name,area,address,station,walkMin,price:rent,mgmt,deposit,key:keyMoney,madori,size,type,structure,age,features:[],tags:[],description:desc,access,details,
     ownerEmail:(currentUser&&currentUser.email)||null, ownerName:(currentUser&&currentUser.name)||null,
     photoURLs:newPhotoURLs,floorplanURL:window.editedFloorplanThumb||null,floorplanData:window.editedFloorplanData||null,
-    splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform,
+    splatURL:splatFields.splatURL,splatTransform:splatFields.splatTransform,splats:splatFields.splats,
     lat:preCoords?preCoords.lat:null,lng:preCoords?preCoords.lng:null};
   window._afGeoCoords=null;
   clearAddForm();toggleAddForm();

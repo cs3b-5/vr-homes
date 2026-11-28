@@ -573,6 +573,13 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 #add-form:not(.af-short) .fx-af-shorthead{display:none}
 .fx-af-morebox{display:flex;justify-content:center;padding:6px 0 4px}
 .fx-af-morebtn{width:100%;max-width:520px;justify-content:center;padding:12px 16px;font-size:14px;font-weight:700;border:2px dashed #CBD5E1;background:#F8FAFC}
+/* 物件フォーム: 部屋ごとの実写 */
+.af-splat-it{border:1.5px solid #E2E8F0;border-radius:12px;padding:10px 12px;margin:0 0 8px;background:#F8FAFC}
+.af-splat-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--navy)}
+.af-splat-h label{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700}
+.af-splat-h select{height:30px;border:1px solid #cbd5e1;border-radius:7px;font-family:inherit;font-size:13px;max-width:220px}
+.af-splat-i{font-size:11.5px;color:#475569;margin-top:6px;line-height:1.7}
+.af-splat-a{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 /* 下の固定バー */
 .fx-af-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;position:sticky;bottom:0;background:var(--surface,#fff);padding:12px 0;border-top:1px solid var(--border,#e5e7eb);margin-top:8px;z-index:4}
 .fx-af-foot-st{margin-right:auto;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}

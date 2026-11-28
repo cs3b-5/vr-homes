@@ -1528,6 +1528,9 @@ document.addEventListener("fullscreenchange", function () { if (cb.on && !fsElem
 // 実写データは見た目だけに使い、壁の当たり判定は間取りのまま残す。
 let alignMode = false;
 let splatRoot = null, splatMesh = null, splatTf = null, viewMode = "plan";
+// 部屋ごとの実写（2つ以上あるとき）: [{url, ext, transform, room, rooms, cover, root, mesh, loading, used, failed}]
+// このときの splatRoot は全部をまとめる入れ物で、multiShown が今見せている実写
+let multiSplats = null, multiShown = null;
 const LOADERS_URL = "https://cdn.jsdelivr.net/npm/babylonjs-loaders@9.29.0/babylonjs.loaders.min.js";
 function loadScriptOnce(src) {
   return new Promise(function (resolve, reject) {
@@ -1565,17 +1568,23 @@ async function lightenSpz(url) {
   const gz = await new Response(new Blob([out]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
   return URL.createObjectURL(new Blob([gz], { type: "application/octet-stream" }));
 }
-async function loadSplat(url, ext) {
+// 実写を1つ読み込んで {root, mesh} を返す（quiet: 画面いっぱいの「読み込み中」を出さない）
+async function loadSplatMesh(url, ext, quiet) {
   await loadScriptOnce(LOADERS_URL);
-  loadingEl.classList.remove("hide");
-  loadingText.textContent = "実写データを読み込み中…";
+  if (!quiet) { loadingEl.classList.remove("hide"); loadingText.textContent = "実写データを読み込み中…"; }
   try { url = await lightenSpz(url); } catch (e) { console.warn("実写を軽くできませんでした", e); }
   const res = await BABYLON.SceneLoader.ImportMeshAsync("", "", url, scene, function (ev) {
-    if (ev && ev.lengthComputable && ev.total) loadingText.textContent = "実写データを読み込み中… " + Math.round(ev.loaded / ev.total * 100) + "%";
+    if (!quiet && ev && ev.lengthComputable && ev.total) loadingText.textContent = "実写データを読み込み中… " + Math.round(ev.loaded / ev.total * 100) + "%";
   }, ext || ".spz");
-  splatRoot = new BABYLON.TransformNode("splatRoot", scene);
-  splatMesh = res.meshes[0];
-  res.meshes.forEach(function (m) { if (!m.parent) m.parent = splatRoot; m.isPickable = false; });
+  const root = new BABYLON.TransformNode("splatRoot", scene), mesh = res.meshes[0];
+  res.meshes.forEach(function (m) { if (!m.parent) m.parent = root; m.isPickable = false; });
+  // 点の位置データは読み込み後に少し遅れて用意されるので待つ(最大8秒)
+  for (let i = 0; i < 80 && !(mesh._splatPositions && mesh._splatPositions.length); i++) await new Promise(function (r) { setTimeout(r, 100); });
+  return { root: root, mesh: mesh };
+}
+async function loadSplat(url, ext) {
+  const r = await loadSplatMesh(url, ext, false);
+  splatRoot = r.root; splatMesh = r.mesh;
 }
 function planCenter() {
   if (roomAreas.length) {
@@ -1587,13 +1596,16 @@ function planCenter() {
 }
 // 位置合わせの初期値: 実写の床を y=0 に、中心を間取りの中心にそろえる
 // (床は「低い位置で点がいちばん密集している高さ」、中心は点の中央値で求める。遠くの点に引っぱられないように)
-function sampleSplatWorld(maxN) {
-  const arr = splatMesh && (splatMesh._splatPositions || splatMesh.splatPositions);
+function sampleSplatWorld(maxN, mesh) {
+  const M = mesh || splatMesh;
+  const arr = M && (M._splatPositions || M.splatPositions);
   if (!arr || !arr.length) return null;
   const stride = arr.length % 4 === 0 ? 4 : 3;
-  const n = Math.min(Math.floor(arr.length / stride), splatMesh._vertexCount || Infinity), step = Math.max(1, Math.floor(n / (maxN || 60000)));
-  splatRoot.computeWorldMatrix(true); splatMesh.computeWorldMatrix(true);
-  const W = splatMesh.getWorldMatrix(), v = new BABYLON.Vector3(), out = [];
+  const n = Math.min(Math.floor(arr.length / stride), M._vertexCount || Infinity), step = Math.max(1, Math.floor(n / (maxN || 60000)));
+  if (M.parent && M.parent.parent) M.parent.parent.computeWorldMatrix(true);
+  if (M.parent) M.parent.computeWorldMatrix(true);
+  M.computeWorldMatrix(true);
+  const W = M.getWorldMatrix(), v = new BABYLON.Vector3(), out = [];
   for (let i = 0; i < n; i += step) {
     v.set(arr[i * stride], arr[i * stride + 1], arr[i * stride + 2]);
     out.push(BABYLON.Vector3.TransformCoordinates(v, W));
@@ -1653,13 +1665,15 @@ function applySplatTransform(t) {
 function planMeshes() { return planRoot ? planRoot.getChildMeshes(false) : []; }
 function setViewMode(mode) {
   viewMode = mode;
-  const real = mode === "real" && !!splatRoot;
+  // 部屋ごとの実写のときは、今いる部屋の実写があるときだけ実写の見た目にする（ない部屋は間取りで見せる）
+  const real = mode === "real" && !!splatRoot && (!multiSplats || !!multiShown);
   if (splatRoot) splatRoot.setEnabled(real || alignMode);
+  if (multiSplats) multiSplats.forEach(function (s) { if (s.root) s.root.setEnabled(s === multiShown); });
   // 実写のときは間取りの見た目を隠す(当たり判定はそのまま残る)
   planMeshes().forEach(function (m) { if (!m._hid) m.isVisible = !real; });   // 当たり判定だけの見えない箱はそのまま
   scene.clearColor = real ? new BABYLON.Color4(0.08, 0.09, 0.12, 1) : new BABYLON.Color4(0.72, 0.85, 0.96, 1);
   const btn = document.getElementById("modeBtn");
-  btn.textContent = real ? T("🏠 間取りで見る") : T("📷 実写で見る");
+  btn.textContent = mode === "real" && !!splatRoot ? T("🏠 間取りで見る") : T("📷 実写で見る");
 }
 document.getElementById("modeBtn").addEventListener("click", function () { setViewMode(viewMode === "real" ? "plan" : "real"); });
 
@@ -1834,6 +1848,9 @@ function enterAlignMode() {
   const sel = document.getElementById("aRoom");
   sel.innerHTML = '<option value="-1">わからない（自動で探す）</option>' + roomAreas.map(function (r, i) { return r.kind === "loft" ? "" : '<option value="' + i + '">' + esc(r.name) + "（" + Math.round(r.area) + "㎡）</option>"; }).join("");
   document.getElementById("aRoomRow").style.display = roomAreas.length > 1 ? "" : "none";
+  sel.value = String(alignRoom);
+  const ar = roomAreas[alignRoom];
+  if (ar) { arcCam.target.x = ar.cx; arcCam.target.z = ar.cz; let m = 4; ar.pts.forEach(function (p) { m = Math.max(m, Math.abs(p.x - ar.cx) * 2, Math.abs(p.z - ar.cz) * 2); }); arcCam.radius = m * 1.5; }
   syncAlignInputs();
 }
 function showFitStatus() {
@@ -1957,10 +1974,13 @@ document.getElementById("aRoom").addEventListener("change", function (e) {
 document.getElementById("aCancel").addEventListener("click", function () { postToParent({ type: "vr-viewer-close" }); });
 document.getElementById("aSave").addEventListener("click", function () {
   const t = { x: +splatTf.x.toFixed(3), y: +splatTf.y.toFixed(3), z: +splatTf.z.toFixed(3), rotY: +(+splatTf.rotY).toFixed(2), scale: +(+splatTf.scale).toFixed(3), flip: !!splatTf.flip };
-  postToParent({ type: "vr-viewer-align-save", transform: t });
+  const ar = roomAreas[alignRoom];
+  postToParent({ type: "vr-viewer-align-save", transform: t, room: ar ? ar.name : "" });
 });
 
 async function setupSplat(opts) {
+  if (opts && !opts.align && Array.isArray(opts.splats) && opts.splats.filter(function (s) { return s && s.url; }).length > 1) return setupMultiSplats(opts.splats.filter(function (s) { return s && s.url; }));
+  if (opts && opts.splats && opts.splats.length && !opts.splat) opts.splat = opts.splats[0];
   if (!opts || !opts.splat || !opts.splat.url) return;
   try {
     await loadSplat(opts.splat.url, opts.splat.ext);
@@ -1971,8 +1991,10 @@ async function setupSplat(opts) {
     hintEl.classList.remove("hide");
     return;
   }
-  // 点の位置データは読み込み後に少し遅れて用意されるので待つ(最大8秒)
-  for (let i = 0; i < 80 && !(splatMesh._splatPositions && splatMesh._splatPositions.length); i++) await new Promise(function (r) { setTimeout(r, 100); });
+  if (opts.align && opts.splat.room) {   // フォームで選んだ「撮った部屋」を、位置合わせの「撮った部屋」にも入れる
+    const ri = roomAreas.findIndex(function (r) { return r.name === opts.splat.room && r.kind !== "loft"; });
+    if (ri >= 0) alignRoom = ri;
+  }
   splatTf = opts.splat.transform ? Object.assign({ x: 0, y: 0, z: 0, rotY: 0, scale: 1, flip: false }, opts.splat.transform) : autoFitSplat();
   applySplatTransform(splatTf);
   if (opts.align) { enterAlignMode(); return; }
@@ -1997,6 +2019,99 @@ function spawnInSplat() {
   camera.position.set(currentSpawn.x, EYE_HEIGHT + (room.base || 0), currentSpawn.z);
   yaw = currentSpawn.rotY; pitch = 0;
 }
+
+/* ---------- 部屋ごとの実写（教室・廊下・ホールを別々に撮ったとき） ----------
+   今いる部屋の実写だけを表示する。まだ読み込んでいなければ、その部屋に入ったときに読み込む。
+   読み込んだ実写は端末に合わせて数個まで覚えておき、古いものから捨てる（重さは点の数に比例するため）。
+   実写がない部屋では、間取りの見た目で表示する。 */
+const SPLAT_KEEP = IS_QUEST || isTouch ? 2 : 4;
+function splatForRoom(room) {
+  if (!multiSplats || !room) return null;
+  return multiSplats.find(function (s) { return s.rooms.has(room); }) || multiSplats.find(function (s) { return s.cover.has(room); }) || null;
+}
+// 実写の点がたくさん入っている部屋（廊下と教室を続けて撮ったときなど）も、その実写の部屋にする
+function splatCover(s) {
+  const pts = sampleSplatWorld(6000, s.mesh); if (!pts || pts.length < 50) return;
+  const cnt = new Map();
+  pts.forEach(function (p) {
+    const lv = Math.max(0, Math.min(levelCount - 1, Math.floor((p.y + 0.3) / FLOOR_H)));
+    const r = roomAreas.find(function (q) { return q.level === lv && q.kind !== "loft" && pointInPolygon(p.x, p.z, q.pts); });
+    if (r) cnt.set(r, (cnt.get(r) || 0) + 1);
+  });
+  cnt.forEach(function (c, r) { if (c >= pts.length * 0.2) s.cover.add(r); });
+}
+function loadMultiSplat(s, quiet) {
+  if (s.root || s.failed) return Promise.resolve();
+  if (s.loading) return s.loading;
+  s.loading = (async function () {
+    const r = await loadSplatMesh(s.url, s.ext, quiet);
+    s.root = r.root; s.mesh = r.mesh; s.root.parent = splatRoot;
+    if (!s.transform) {   // 位置合わせしていない実写は、撮った部屋に自動で合わせる
+      const keep = [splatRoot, splatMesh, alignRoom];
+      splatRoot = s.root; splatMesh = s.mesh;
+      const first = s.rooms.values().next().value;
+      alignRoom = first ? roomAreas.indexOf(first) : -1;
+      try { s.transform = autoFitSplat(); } finally { splatRoot = keep[0]; splatMesh = keep[1]; alignRoom = keep[2]; }
+    }
+    s.root.position.set(+s.transform.x || 0, +s.transform.y || 0, +s.transform.z || 0);
+    s.root.rotation.set(s.transform.flip ? Math.PI : 0, (+s.transform.rotY || 0) * Math.PI / 180, 0);
+    const sc = +s.transform.scale || 1; s.root.scaling.set(sc, sc, sc);
+    s.root.setEnabled(false);
+    if (!s.covered) { splatCover(s); s.covered = true; }
+    s.used = Date.now();
+    // 覚えておく数を超えたら、今見せていないものから古い順に捨てる
+    const loaded = multiSplats.filter(function (q) { return q.root && q !== s && q !== multiShown; }).sort(function (a, b) { return a.used - b.used; });
+    while (loaded.length && multiSplats.filter(function (q) { return q.root; }).length > SPLAT_KEEP) {
+      const q = loaded.shift(); q.root.dispose(false, true); q.root = null; q.mesh = null;
+    }
+  })().catch(function (e) { console.warn("実写を読み込めませんでした", s.url, e); s.failed = true; })
+    .finally(function () { s.loading = null; });
+  return s.loading;
+}
+async function setupMultiSplats(list) {
+  splatRoot = new BABYLON.TransformNode("splatAll", scene);
+  multiSplats = list.map(function (s) {
+    return { url: s.url, ext: s.ext || ".spz", transform: s.transform || null, room: s.room || "",
+      rooms: new Set(s.room ? roomAreas.filter(function (r) { return r.name === s.room && r.kind !== "loft"; }) : []), cover: new Set(), used: 0 };
+  });
+  // 最初に読む実写: 歩き始める部屋のもの。なければ部屋がわかっている最初の実写（その部屋から歩き始める）
+  let first = splatForRoom(currentRoomAt(currentSpawn.x, currentSpawn.z, 0));
+  if (!first) first = multiSplats.find(function (s) { return s.rooms.size; }) || multiSplats[0];
+  await loadMultiSplat(first, false);
+  if (!first.root) {
+    hintEl.textContent = "実写データを読み込めなかったので、間取りで表示しています";
+    hintEl.classList.remove("hide");
+    return;
+  }
+  splatMesh = first.mesh;
+  spawnInSplat();
+  multiShown = first; first.used = Date.now();
+  document.getElementById("modeBtn").style.display = "block";
+  setViewMode("real");
+  // ほかの実写は、歩き始めてから順番に読み込んでおく（部屋に入ったときに待たなくていいように）
+  setTimeout(function preload() {
+    if (!multiSplats) return;
+    const next = multiSplats.find(function (s) { return !s.root && !s.failed && !s.loading && !s.covered; });
+    if (next && multiSplats.filter(function (q) { return q.root; }).length < SPLAT_KEEP) loadMultiSplat(next, true).then(function () { setTimeout(preload, 1500); });
+  }, 3000);
+}
+let multiT = 0;
+scene.onBeforeRenderObservable.add(function () {
+  if (!multiSplats || alignMode) return;
+  multiT += Math.min(engine.getDeltaTime() / 1000, 0.1);
+  if (multiT < 0.3) return;
+  multiT = 0;
+  const s = splatForRoom(currentRoom);
+  if (s && !s.root && !s.failed && !s.loading) {
+    if (viewMode === "real") vtoast(T("この部屋の実写を読み込んでいます…"), 2500);
+    loadMultiSplat(s, true).then(function () { multiT = 1; });
+  }
+  // 部屋の外（ドアの上など）にいるときは、今の実写のまま
+  const show = s && s.root ? s : (currentRoom ? null : multiShown);
+  if (show === multiShown) return;
+  multiShown = show; if (show) show.used = Date.now();
+  if (!dollMode && !panoMode && !(typeof sunOn !== "undefined" && sunOn)) setViewMode(viewMode);
+});
 
 /* =========================================================
    追加機能: 言語 / 計測 / ミニマップ / 全体表示 / 案内タグ /
@@ -2027,7 +2142,7 @@ const EN = {
   "本棚": "Bookshelf", "こたつ": "Kotatsu", "サイズを指定": "Custom size", "置いた家具": "Placed item",
   "幅": "W", "奥行": "D", "高さ": "H", "回転": "Rotate", "削除": "Delete", "全部消す": "Clear all",
   "収まっています": "Fits", "はみ出しています": "Doesn't fit", "家具を選んでください": "Select an item",
-  "ツアーが終わりました": "Tour finished", "あなた": "You", "案内役": "Guide",
+  "ツアーが終わりました": "Tour finished", "この部屋の実写を読み込んでいます…": "Loading the 3D scan of this room…", "あなた": "You", "案内役": "Guide",
   "間取りデータがないので使えません": "Not available without floor plan data",
   "コピーしました": "Copied", "コードは6けたの数字です": "The code is 6 digits",
   "接続中…": "Connecting…", "参加しました": "Joined", "案内役の人がいません": "The guide is not here",
@@ -3222,7 +3337,7 @@ window.addEventListener("message", function (e) {
   gotInit = true;
   if (msg.lang) setLang(msg.lang);
   if (msg.sample) { startWith(SAMPLE_PLAN, T("サンプルの部屋"), { furnStore: msg.furnStore || "session", propKey: "sample" }).catch(fail); return; }
-  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
+  startWith(msg.data, msg.propName, { splat: msg.splat, splats: msg.splats, align: !!msg.align, propKey: msg.propKey, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
 });
 
 /* ---------- トップページ用の模型表示 (?hero=1) ----------
