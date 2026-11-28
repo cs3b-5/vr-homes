@@ -16,3 +16,5 @@ img/*.png
 *.MOV
 *.mp4
 *.MP4
+# Lambda のコード（AWS のコンソールが本物。公開リポジトリには入れない）
+AWSCode/
