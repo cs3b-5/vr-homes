@@ -381,15 +381,16 @@ const maxDpr = isTouch ? 1.5 : 2;   // スマホは解像度を抑えて軽く�
 engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, maxDpr));
 // 実写はとても重いので、かくかくしてきたら自動で画面の細かさを下げる(速くなったら少しずつ戻す)
 const BASE_HSL = engine.getHardwareScalingLevel();
-let dynHsl = BASE_HSL, dynSlow = 0, dynFast = 0;
+const REAL_HSL = isTouch ? Math.max(BASE_HSL, 1) : BASE_HSL;   // スマホの実写は高精細にしない(ぼやけた写真なので見た目はほぼ同じ)
+let dynHsl = REAL_HSL, dynSlow = 0, dynFast = 0;
 setInterval(function () {
   if (document.hidden || inXR) return;
   const real = viewMode === "real" && !!splatRoot;
   if (real) {
     const fps = engine.getFps();
-    if (fps < 40) { dynSlow++; dynFast = 0; } else if (fps > 57) { dynFast++; dynSlow = 0; } else { dynSlow = 0; dynFast = 0; }
-    if (dynSlow >= 2 && dynHsl < BASE_HSL * 2.2) { dynHsl = Math.min(BASE_HSL * 2.2, dynHsl * 1.2); dynSlow = 0; }
-    if (dynFast >= 4 && dynHsl > BASE_HSL) { dynHsl = Math.max(BASE_HSL, dynHsl / 1.1); dynFast = 0; }
+    if (fps < 45) { dynSlow++; dynFast = 0; } else if (fps > 57) { dynFast++; dynSlow = 0; } else { dynSlow = 0; dynFast = 0; }
+    if (dynSlow >= 2 && dynHsl < REAL_HSL * 2.5) { dynHsl = Math.min(REAL_HSL * 2.5, dynHsl * 1.25); dynSlow = 0; }
+    if (dynFast >= 4 && dynHsl > REAL_HSL) { dynHsl = Math.max(REAL_HSL, dynHsl / 1.1); dynFast = 0; }
   }
   const want = real ? dynHsl : BASE_HSL;
   if (Math.abs(engine.getHardwareScalingLevel() - want) > 1e-3) engine.setHardwareScalingLevel(want);
@@ -1427,7 +1428,7 @@ async function setupXR() {
     if (!ok) return;
     // Babylon の右下の小さなVRボタンは、道具のボタンに隠れて見えなかったので使わず、上に大きなボタンを出す
     // ゴーグルの画面は両目ぶんで重いので、少しだけ解像度を下げる(実写がかくかくしないように)
-    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true, outputCanvasOptions: { canvasOptions: { framebufferScaleFactor: 0.8 } } });
+    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true, outputCanvasOptions: { canvasOptions: { framebufferScaleFactor: 0.7 } } });
     if (!xrHelper.baseExperience) return;
     hookXR();
     document.body.classList.add("xr-ok");
@@ -1560,7 +1561,7 @@ function loadScriptOnce(src) {
 }
 /* 実写を端末に合わせて軽くする: スマホ・Quest は点を減らす(見た目への効き具合が大きい点から残す) */
 const IS_QUEST = /OculusBrowser|Quest|Pico/i.test(navigator.userAgent);
-const SPLAT_MAX = IS_QUEST ? 300000 : isTouch ? 250000 : 600000;
+const SPLAT_MAX = IS_QUEST ? 150000 : isTouch ? 100000 : 350000;   // 重さはほぼ点の数に比例する
 async function lightenSpz(url) {
   if (typeof DecompressionStream === "undefined") return url;
   const raw = await (await fetch(url)).arrayBuffer();
