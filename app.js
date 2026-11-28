@@ -670,9 +670,18 @@ async function processSpz(arrayBuffer, opts) {
     if (d[alphaOff + i] < 8) continue;   // ほぼ透明な点も捨てる
     keep.push(i);
   }
-  // 多すぎるときは間引く(スマホ向け)
+  // 多すぎるときは間引く(スマホ向け)。均等に間引くと穴だらけになるので、
+  // 見た目への効き具合(不透明度 × 見かけの面積)が大きい点から残す
   let idx = keep;
-  if (keep.length > opts.maxPoints) { const step = keep.length / opts.maxPoints; idx = []; for (let k = 0; k < keep.length; k += step) idx.push(keep[Math.floor(k)]); }
+  if (keep.length > opts.maxPoints) {
+    const K = keep.length, score = new Float32Array(K), ord = new Uint32Array(K);
+    for (let k = 0; k < K; k++) {
+      const i = keep[k], o = sclOff + i * 3, a = d[o], b = d[o + 1], c = d[o + 2];
+      score[k] = d[alphaOff + i] * Math.exp((a + b + c - Math.min(a, b, c)) / 16); ord[k] = k;
+    }
+    ord.sort((p, q) => score[q] - score[p]);
+    idx = Array.from(ord.subarray(0, opts.maxPoints)).sort((p, q) => p - q).map(k => keep[k]);
+  }
   const m2 = idx.length, outSh = opts.keepSH ? shCoef : 0, outShDeg = opts.keepSH ? shDeg : 0;
   const out = new Uint8Array(16 + m2 * (9 + 1 + 3 + 3 + rotB + outSh * 3));
   const ov = new DataView(out.buffer);
@@ -693,8 +702,85 @@ async function processSpz(arrayBuffer, opts) {
 /* ===== PCで作った実写データ(.ply)を .spz に変換 =====
    Postshot・Brush・Spirula Studio などのガウシアンスプラット(3DGS形式の .ply)を読み、
    サイトで使う .spz(バージョン2)に詰め直す。そのあと processSpz で部屋の外の点を削って軽くする。
-   .ply は「右・下・前」向きの座標なので、.spz の「右・上・後ろ」向きに直す(y と z を反転)。 */
-async function plyToSpz(arrayBuffer) {
+   .ply は「右・下・前」向きの座標なので、.spz の「右・上・後ろ」向きに直す(y と z を反転)。
+   RealityScan→Brush などの .ply は大きさがメートルでなく、向きも傾いていることが多いので、
+   levelSplat で床と天井の面を探して「床が水平・床の高さ0・1単位=1m」にそろえる。 */
+
+// 床・天井・壁の面を探して、水平にする回転と、メートルにする倍率を求める(見つからなければ null)
+function levelSplat(PX, PY, PZ, AL, ceilH) {
+  const n = PX.length;
+  const idx = [], st = Math.max(1, Math.floor(n / 4000000));
+  for (let i = 0; i < n; i += st) if (AL[i] >= 150) idx.push(i);   // はっきり見える点だけ使う
+  if (idx.length < 2000) return null;
+  let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const m = Math.min(idx.length, 40000), S = new Float32Array(m * 3);
+  for (let k = 0; k < m; k++) { const i = idx[Math.floor(rnd() * idx.length)]; S[k * 3] = PX[i]; S[k * 3 + 1] = PY[i]; S[k * 3 + 2] = PZ[i]; }
+  let ext = 0;
+  for (let a = 0; a < 3; a++) { const v = new Float32Array(m); for (let k = 0; k < m; k++) v[k] = S[k * 3 + a]; v.sort(); ext = Math.max(ext, v[Math.floor(m * 0.95)] - v[Math.floor(m * 0.05)]); }
+  if (!(ext > 0)) return null;
+  const tol = ext * 0.004, alive = new Uint8Array(m).fill(1);
+  const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  const cross = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+  const unit = p => { const l = Math.hypot(p[0], p[1], p[2]) || 1; return [p[0] / l, p[1] / l, p[2] / l]; };
+  // 一番大きい平面を探す(perp があれば、それと直角な平面だけ)
+  const ransac = perp => {
+    let best = null;
+    for (let it = 0; it < 1500; it++) {
+      const a = Math.floor(rnd() * m), b = Math.floor(rnd() * m), c = Math.floor(rnd() * m);
+      if (!alive[a] || !alive[b] || !alive[c]) continue;
+      const A = [S[a * 3], S[a * 3 + 1], S[a * 3 + 2]];
+      const nn = cross([S[b * 3] - A[0], S[b * 3 + 1] - A[1], S[b * 3 + 2] - A[2]], [S[c * 3] - A[0], S[c * 3 + 1] - A[1], S[c * 3 + 2] - A[2]]);
+      const l = Math.hypot(nn[0], nn[1], nn[2]); if (l < 1e-12) continue;
+      const nv = [nn[0] / l, nn[1] / l, nn[2] / l];
+      if (perp && Math.abs(dot(nv, perp)) > 0.1) continue;
+      const d = dot(nv, A); let cnt = 0;
+      for (let k = 0; k < m; k += 2) if (alive[k] && Math.abs(nv[0] * S[k * 3] + nv[1] * S[k * 3 + 1] + nv[2] * S[k * 3 + 2] - d) < tol) cnt++;
+      if (!best || cnt > best.cnt) best = { n: nv, d: d, cnt: cnt };
+    }
+    return best;
+  };
+  const p1 = ransac(null); if (!p1) return null;
+  for (let k = 0; k < m; k++) if (Math.abs(dot(p1.n, [S[k * 3], S[k * 3 + 1], S[k * 3 + 2]]) - p1.d) < tol) alive[k] = 0;
+  const p2 = ransac(p1.n); if (!p2) return null;
+  const n1 = p1.n, n3 = unit(cross(n1, p2.n)), n2 = unit(cross(n3, n1));
+  // 3つの向きのうち、両端に大きな面(床と天井)があるものを「上下」にする
+  let pick = null;
+  [n1, n2, n3].forEach((ax, ai) => {
+    const v = new Float32Array(m); for (let k = 0; k < m; k++) v[k] = ax[0] * S[k * 3] + ax[1] * S[k * 3 + 1] + ax[2] * S[k * 3 + 2];
+    const sv = Float32Array.from(v).sort(), lo = sv[Math.floor(m * 0.01)], hi = sv[Math.floor(m * 0.99)];
+    const NB = 200, bin = (hi - lo) / NB || 1, cnt = new Uint32Array(NB + 1);
+    for (let k = 0; k < m; k++) if (v[k] >= lo && v[k] <= hi) cnt[Math.min(NB, Math.floor((v[k] - lo) / bin))]++;
+    const c3 = k => (cnt[k - 1] || 0) + cnt[k] + (cnt[k + 1] || 0);
+    // いちばん大きい面と、そこから離れたところで2番目に大きい面
+    let b1 = 0; for (let k = 0; k <= NB; k++) if (c3(k) > c3(b1)) b1 = k;
+    let b2 = -1; for (let k = 0; k <= NB; k++) if (Math.abs(k - b1) > NB * 0.15 && (b2 < 0 || c3(k) > c3(b2))) b2 = k;
+    if (b2 < 0) return;
+    const bl = Math.min(b1, b2), bh = Math.max(b1, b2);
+    const at = b => { let s = 0, w = 0; for (let k = Math.max(0, b - 1); k <= Math.min(NB, b + 1); k++) { s += cnt[k] * (lo + (k + 0.5) * bin); w += cnt[k]; } return s / (w || 1); };
+    const mean = 3 * m / (NB + 1);
+    if (Math.min(c3(bl), c3(bh)) < mean * 3) return;   // 両方ともはっきりした面でない
+    const score = c3(bl) + c3(bh);
+    if (!pick || score > pick.score) pick = { ai: ai, ax: ax, score: score, lo: at(bl), hi: at(bh), cl: c3(bl), ch: c3(bh) };
+  });
+  if (!pick) return null;
+  // 薄い点も含めて点の多い方を床にする(ビューアの上下の判定と同じ考え方)
+  let nl = 0, nh = 0; const ax = pick.ax, st2 = Math.max(1, Math.floor(n / 400000));
+  for (let i = 0; i < n; i += st2) { const v = ax[0] * PX[i] + ax[1] * PY[i] + ax[2] * PZ[i]; if (Math.abs(v - pick.lo) < tol * 2) nl++; else if (Math.abs(v - pick.hi) < tol * 2) nh++; }
+  let up = ax, floorV = pick.lo;
+  if (nh > nl) { up = [-ax[0], -ax[1], -ax[2]]; floorV = -pick.hi; }
+  const H = pick.hi - pick.lo;
+  let s = (+ceilH || 2.4) / H;
+  if (!(s > 0.02 && s < 50) || (s > 0.85 && s < 1.18)) s = 1;   // もともとメートルに近いならそのまま
+  const ex = unit([n1, n2, n3].filter((_, i) => i !== pick.ai)[0]), ez = cross(ex, up);
+  // 床の高さを0に、横方向は点の中央に
+  const med = ax => { const v = new Float32Array(m); for (let k = 0; k < m; k++) v[k] = ax[0] * S[k * 3] + ax[1] * S[k * 3 + 1] + ax[2] * S[k * 3 + 2]; v.sort(); return v[m >> 1]; };
+  const mx = med(ex), mz = med(ez);
+  const C = [0, 1, 2].map(a => floorV * up[a] + mx * ex[a] + mz * ez[a]);
+  return { R: [ex[0], ex[1], ex[2], up[0], up[1], up[2], ez[0], ez[1], ez[2]], C: C, s: s, height: H * s };
+}
+
+async function plyToSpz(arrayBuffer, opts) {
+  opts = opts || {};
   const u8 = new Uint8Array(arrayBuffer);
   // ヘッダーを読む
   let hEnd = -1;
@@ -736,21 +822,40 @@ async function plyToSpz(arrayBuffer) {
   out[12] = 0; out[13] = FRAC; out[14] = 0; out[15] = 0;
   const pO = 16, aO = pO + n * 9, cO = aO + n, sO = cO + n * 3, rO = sO + n * 3;
   const u = v => v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+  // まず位置と不透明度だけ読んで、水平・メートルにそろえる変換を求める
+  const PX = new Float32Array(n), PY = new Float32Array(n), PZ = new Float32Array(n);
   for (let i = 0; i < n; i++) {
-    const P = [rd.x(i), -rd.y(i), -rd.z(i)];   // 右・下・前 → 右・上・後ろ
+    PX[i] = rd.x(i); PY[i] = -rd.y(i); PZ[i] = -rd.z(i);   // 右・下・前 → 右・上・後ろ
+    out[aO + i] = u(255 / (1 + Math.exp(-rd.opacity(i))));
+  }
+  const lv = opts.level === false ? null : levelSplat(PX, PY, PZ, out.subarray(aO, aO + n), opts.ceilH);
+  plyToSpz.lastLevel = lv;
+  const R = lv ? lv.R : [1, 0, 0, 0, 1, 0, 0, 0, 1], C0 = lv ? lv.C : [0, 0, 0], S = lv ? lv.s : 1, lnS = Math.log(S);
+  // 回転行列 → 四元数(w,x,y,z)。点の向きにもかける
+  let qw, qx, qy, qz; {
+    const [m00, m01, m02, m10, m11, m12, m20, m21, m22] = R, tr = m00 + m11 + m22;
+    if (tr > 0) { const s = Math.sqrt(tr + 1) * 2; qw = s / 4; qx = (m21 - m12) / s; qy = (m02 - m20) / s; qz = (m10 - m01) / s; }
+    else if (m00 > m11 && m00 > m22) { const s = Math.sqrt(1 + m00 - m11 - m22) * 2; qw = (m21 - m12) / s; qx = s / 4; qy = (m01 + m10) / s; qz = (m02 + m20) / s; }
+    else if (m11 > m22) { const s = Math.sqrt(1 + m11 - m00 - m22) * 2; qw = (m02 - m20) / s; qx = (m01 + m10) / s; qy = s / 4; qz = (m12 + m21) / s; }
+    else { const s = Math.sqrt(1 + m22 - m00 - m11) * 2; qw = (m10 - m01) / s; qx = (m02 + m20) / s; qy = (m12 + m21) / s; qz = s / 4; }
+  }
+  for (let i = 0; i < n; i++) {
+    const dx = PX[i] - C0[0], dy = PY[i] - C0[1], dz = PZ[i] - C0[2];
+    const P = [S * (R[0] * dx + R[1] * dy + R[2] * dz), S * (R[3] * dx + R[4] * dy + R[5] * dz), S * (R[6] * dx + R[7] * dy + R[8] * dz)];
     for (let a = 0; a < 3; a++) {
       let v = Math.round(P[a] * sc); if (v > 0x7fffff) v = 0x7fffff; if (v < -0x800000) v = -0x800000;
       const o = pO + i * 9 + a * 3; out[o] = v & 255; out[o + 1] = (v >> 8) & 255; out[o + 2] = (v >> 16) & 255;
     }
-    out[aO + i] = u(255 / (1 + Math.exp(-rd.opacity(i))));
     out[cO + i * 3] = u(rd.f_dc_0(i) * 0.15 * 255 + 127.5);
     out[cO + i * 3 + 1] = u(rd.f_dc_1(i) * 0.15 * 255 + 127.5);
     out[cO + i * 3 + 2] = u(rd.f_dc_2(i) * 0.15 * 255 + 127.5);
-    out[sO + i * 3] = u((rd.scale_0(i) + 10) * 16);
-    out[sO + i * 3 + 1] = u((rd.scale_1(i) + 10) * 16);
-    out[sO + i * 3 + 2] = u((rd.scale_2(i) + 10) * 16);
-    // 回転(w,x,y,z)。座標を回したぶん y と z の向きを反転し、w が正になるようにそろえる
-    let w = rd.rot_0(i), x = rd.rot_1(i), y = -rd.rot_2(i), z = -rd.rot_3(i);
+    out[sO + i * 3] = u((rd.scale_0(i) + lnS + 10) * 16);
+    out[sO + i * 3 + 1] = u((rd.scale_1(i) + lnS + 10) * 16);
+    out[sO + i * 3 + 2] = u((rd.scale_2(i) + lnS + 10) * 16);
+    // 回転(w,x,y,z)。座標を回したぶん y と z の向きを反転し、全体の回転もかけて、w が正になるようにそろえる
+    const w0 = rd.rot_0(i), x0 = rd.rot_1(i), y0 = -rd.rot_2(i), z0 = -rd.rot_3(i);
+    const w = qw * w0 - qx * x0 - qy * y0 - qz * z0, x = qw * x0 + qx * w0 + qy * z0 - qz * y0;
+    const y = qw * y0 - qx * z0 + qy * w0 + qz * x0, z = qw * z0 + qx * y0 - qy * x0 + qz * w0;
     const L = Math.hypot(w, x, y, z) || 1, s = (w < 0 ? -1 : 1) / L;
     out[rO + i * 3] = u(x * s * 127.5 + 127.5); out[rO + i * 3 + 1] = u(y * s * 127.5 + 127.5); out[rO + i * 3 + 2] = u(z * s * 127.5 + 127.5);
   }
@@ -768,7 +873,16 @@ async function onSplatFileChange(input){
   st.style.display='block'; st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
   try{
     let buf=await f.arrayBuffer();
-    if(isPly){ st.textContent='PCで作った実写データ(.ply)を変換しています…(大きいと数十秒かかります)'; await new Promise(r=>setTimeout(r,30)); buf=await plyToSpz(buf); st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)'; }
+    if(isPly){
+      st.textContent='PCで作った実写データ(.ply)を変換しています…(床を水平にして大きさをそろえます。大きいと数十秒かかります)'; await new Promise(r=>setTimeout(r,30));
+      // 大きさの基準: 間取りの天井の高さ(なければ2.4m)
+      const ed=editingPropId!=null?PROPS.find(p=>p.id===editingPropId):null, plan=window.editedFloorplanData||(ed&&ed.floorplanData)||null;
+      const hs=((plan&&plan.rooms)||[]).map(r=>+r.ceilH).filter(v=>v>=2&&v<=6).sort((a,b)=>a-b);
+      buf=await plyToSpz(buf,{ceilH:hs.length?hs[hs.length>>1]:2.4});
+      const lv=plyToSpz.lastLevel;
+      if(lv) showToast(`床を水平にそろえました${lv.s!==1?`(大きさ ${lv.s.toFixed(2)}倍・天井 ${lv.height.toFixed(1)}m)`:''}`,'info',4000);
+      st.textContent='実写データを準備しています…(部屋の外の点を取り除いて軽くしています)';
+    }
     const r=await processSpz(buf);
     if(window.editedSplat&&window.editedSplat.url&&window.editedSplat.blob) URL.revokeObjectURL(window.editedSplat.url);
     window.editedSplat={blob:r.blob,url:URL.createObjectURL(r.blob),transform:null,info:r.info};
