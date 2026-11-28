@@ -1,7 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    VR Homes 追加機能（app.js のあとに読み込む）
    ・内見予約（申し込み／マイページの予約一覧／管理者の予約管理）
-   ・一緒に内見（VRビューアとサーバーの橋渡し）
    ・VR内見の閲覧記録と分析
    ・物件の比較 ・共有 ・お知らせ ・初期費用の計算 ・印刷 ・英語表示
 ══════════════════════════════════════════════════════════════ */
@@ -56,99 +55,41 @@ function closeModal(id) {
 }
 window.fxCloseModal = closeModal;
 
-/* ══════════════ 1. VRビューアとの連携（閲覧記録・一緒に内見）══════════════ */
-const live = { code: '', uid: '', propId: null, pose: null, chat: [], timer: null, host: false, busy: false, pendingResv: null };
-function newUid() { const c = 'abcdefghijkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < 12; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+/* ══════════════ 1. VRビューアとの連携（閲覧記録・家具・チェック）══════════════ */
 function viewerWin() { const f = $('vr-viewer-iframe'); return f && f.contentWindow; }
-function toViewer(msg) { const w = viewerWin(); if (w) w.postMessage(msg, '*'); }
 
-window.viewInVR = async function (propId, extra) {
+// 古いホールの実写（demo/1gokan_hall.spz）は消したので、それを指している物件は新しい実写（位置合わせ済み）で開く
+function fixOldSplat(sp) {
+  if (sp && /(^|\/)demo\/1gokan_hall\.spz(\?|$)/.test(sp.url)) return { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true }, ext: '.spz' };
+  return sp;
+}
+window.fxFixOldSplat = fixOldSplat;
+window.viewInVR = async function (propId) {
   const prop = findProp(propId);
   if (!prop) { alert('物件が見つかりません'); return; }
   if (prop.floorplanData && prop.floorplanData._stub && !(await ensureFull(prop.id))) return;
   if (!prop.floorplanData && !prop.splatURL && !(prop.panoramas && prop.panoramas.length)) { alert('この物件にはVR内見のデータがありません'); return; }
-  if (extra && extra.live && !isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.viewInVR(propId, extra)); return; }
-  stopLive(false);
-  live.propId = prop.id;
   openVRViewer({
     data: prop.floorplanData || null, propName: prop.name || '',
-    splat: prop.splatURL ? { url: prop.splatURL, transform: prop.splatTransform || null, ext: '.spz' } : null,
-    propKey: String(prop.id), liveOk: !!isLoggedIn, lang: fxLang,
+    splat: prop.splatURL ? fixOldSplat({ url: prop.splatURL, transform: prop.splatTransform || null, ext: '.spz' }) : null,
+    propKey: String(prop.id), lang: fxLang,
     panoramas: prop.panoramas || [], geo: { lat: +prop.lat || 35.68, lng: +prop.lng || 139.76 },
     furnStore: isLoggedIn && currentUser ? 'parent' : 'session',
     furniture: isLoggedIn && currentUser ? (((currentUser.myFurniture || {})[prop.id]) || []) : null,
-    checks: getChecks(prop.id),
-    live: extra && extra.live ? extra.live : null
+    checks: getChecks(prop.id)
   });
 };
-const _closeVR = window.closeVRViewer;
-window.closeVRViewer = function () { stopLive(true); return _closeVR.apply(this, arguments); };
-
-function stopLive(endIfHost) {
-  if (live.timer) clearInterval(live.timer);
-  live.timer = null;
-  if (endIfHost && live.host && live.code) api('liveEnd', { body: { code: live.code } }).catch(() => {});
-  live.code = ''; live.host = false; live.chat = []; live.pose = null; live.busy = false;
-}
-function startSync() {
-  if (live.timer) clearInterval(live.timer);
-  const tick = async () => {
-    if (!live.code || live.busy) return;
-    live.busy = true;
-    try {
-      const body = { code: live.code, uid: live.uid, pose: live.pose || {} };
-      if (live.chat.length) body.chat = live.chat.shift();
-      const st = await api('liveSync', { body });
-      toViewer({ type: 'vr-live-state', state: st, uid: live.uid });
-    } catch (e) {
-      if (e.status === 404 || e.status === 401) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); stopLive(false); }
-    } finally { live.busy = false; }
-  };
-  tick();
-  live.timer = setInterval(tick, 1000);
-}
-async function liveStart() {
-  try {
-    live.uid = newUid();
-    const r = await api('liveCreate', { body: { propId: live.propId, uid: live.uid } });
-    live.code = r.code; live.host = true;
-    startSync();
-    if (live.pendingResv) {
-      const pr = live.pendingResv; live.pendingResv = null;
-      api('updateReservation', { body: { propId: pr.propId, resvId: pr.resvId, status: 'confirmed', liveCode: r.code,
-        message: '「一緒にVR内見」を始めました。物件ページの「コードで参加」に参加コードを入れるか、マイページの「内見予約」から参加してください。' } })
-        .then(() => toast('予約者に参加コードを送りました', 'success')).catch(() => {});
-    }
-  } catch (e) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); }
-}
-async function liveJoin(code) {
-  try {
-    const info = await api('liveInfo', { query: { code } });
-    if (+info.propId !== +live.propId) {   // 別の物件の内見だったら、その物件で開き直す
-      if (!findProp(info.propId)) throw new Error('物件が見つかりません');
-      setTimeout(() => window.viewInVR(info.propId, { live: { code } }), 50);
-      return;
-    }
-    live.uid = live.uid || newUid(); live.code = info.code; live.host = false;
-    startSync();
-  } catch (e) { toViewer({ type: 'vr-live-error', error: e.message, fatal: true }); }
-}
 window.addEventListener('message', e => {
   const m = e.data;
   if (!m || typeof m !== 'object' || !m.type) return;
   if (e.source && e.source !== viewerWin()) return;
   switch (m.type) {
     case 'vr-viewer-stats':
-      if (m.stats && m.stats.seconds >= 2 && m.propKey)
+      if (m.stats && m.stats.seconds >= 2 && +m.propKey)
         api('trackView', { body: Object.assign({ propId: +m.propKey }, m.stats) }).catch(() => {});
       break;
     case 'vr-furn-save': saveFurniture(m.propKey, m.items); break;
     case 'vr-check-save': saveChecks(m.propKey, m.data); break;
-    case 'vr-live-start': liveStart(); break;
-    case 'vr-live-join': liveJoin(String(m.code || '')); break;
-    case 'vr-live-pose': live.pose = m.pose; break;
-    case 'vr-live-chat': if (m.text) live.chat.push(String(m.text).slice(0, 200)); break;
-    case 'vr-live-leave': stopLive(true); break;
     case 'vr-copy':
       try { navigator.clipboard.writeText(String(m.text || '')); toast('コピーしました', 'success'); } catch (err) { prompt('コピーしてください', m.text); }
       break;
@@ -172,24 +113,6 @@ function saveFurniture(propKey, items) {
 // 以前の「端末に保存」の家具は、ほかの人に見えてしまうので消す
 try { Object.keys(localStorage).filter(k => k.indexOf('vr_myfurn_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {}
 
-/* 参加コードを入れて一緒に内見する（物件ページ・マイページから） */
-window.fxJoinByCode = async function (code) {
-  if (!isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.fxJoinByCode(code)); return; }
-  code = String(code || prompt(t('参加コード（6けた）を入力してください')) || '').replace(/\D/g, '');
-  if (!code) return;
-  if (code.length !== 6) { toast(t('参加コードは6けたの数字です'), 'warn'); return; }
-  try {
-    const info = await api('liveInfo', { query: { code } });
-    if ($('pd-overlay').classList.contains('show')) closePropDetail();
-    window.viewInVR(info.propId, { live: { code } });
-  } catch (e) { toast(e.message, 'error'); }
-};
-/* 一緒に内見を始める（物件ページから） */
-window.fxStartLive = function (propId) {
-  if (!isLoggedIn) { requireLogin('一緒に内見するにはログインしてください', () => window.fxStartLive(propId)); return; }
-  window.viewInVR(propId, { live: { start: true } });
-};
-
 /* ══════════════ 1.5 一覧は軽く、必要なときだけ1件を全部読む ══════════════ */
 // 物件一覧では重い間取りデータを省いて取得する（物件が増えても速く開ける）
 const _fxFetch = window.fetch;
@@ -211,15 +134,14 @@ window.fxEnsureFull = ensureFull;
   window[fn] = async function (id) { if (id != null && !(await ensureFull(id))) return; return orig.apply(this, arguments); };
 });
 
-/* ══════════════ 2. URLから開く（?p=物件ID / ?live=参加コード）══════════════ */
-const deep = (() => { const q = new URLSearchParams(location.search); return { p: q.get('p'), live: q.get('live') }; })();
-if (deep.p || deep.live) {
+/* ══════════════ 2. URLから開く（?p=物件ID）══════════════ */
+const deep = (() => { const q = new URLSearchParams(location.search); return { p: q.get('p') }; })();
+if (deep.p) {
   const iv = setInterval(() => {
     if (!PROPS.length) return;
     clearInterval(iv);
     try { history.replaceState(history.state, '', location.pathname + location.hash); } catch (e) {}
-    if (deep.live) window.fxJoinByCode(deep.live);
-    else if (deep.p && findProp(deep.p)) showPropDetail(+deep.p);
+    if (deep.p && findProp(deep.p)) showPropDetail(+deep.p);
   }, 300);
   setTimeout(() => clearInterval(iv), 60000);
 }
@@ -304,20 +226,10 @@ function addCheckSection(prop) {
   renderCheckSection(prop);
 }
 
-window.fxLiveMenu = function (id) {
-  const b = openModal('fx-livem', `<i class="ti ti-users"></i> ${t('一緒に内見')}`, `
-    <p class="fx-mini" style="margin:0 0 12px">${t('担当者や家族と、同じ部屋を同時にVRで見ながらチャットできます。')}</p>
-    <div class="fx-live-ch">
-      <button class="btn btn-p" id="fx-lm-start"><i class="ti ti-player-play"></i> ${t('自分ではじめる')}<small>${t('参加コードができるので、相手に伝えます')}</small></button>
-      <button class="btn" id="fx-lm-join"><i class="ti ti-key"></i> ${t('コードで参加する')}<small>${t('相手から聞いた6けたのコードを入れます')}</small></button>
-    </div>`, { width: 440 });
-  b.querySelector('#fx-lm-start').onclick = () => { closeModal('fx-livem'); fxStartLive(id); };
-  b.querySelector('#fx-lm-join').onclick = () => { closeModal('fx-livem'); fxJoinByCode(); };
-};
 function decorateDetail(prop) {
   const side = document.querySelector('#pd-overlay .pd-side');
   if (!side) return;
-  // ボタンの並び: VRで内見 → 内見を予約（大きく）→ お気に入り・問い合わせ → 小さなボタン（一緒に内見・比較・共有・印刷）
+  // ボタンの並び: VRで内見 → 内見を予約（大きく）→ お気に入り・問い合わせ → 小さなボタン（比較・共有・印刷）
   let box = $('fx-pd-actions');
   if (!box) {
     box = document.createElement('div'); box.id = 'fx-pd-actions';
@@ -342,7 +254,6 @@ function decorateDetail(prop) {
     ${closed ? `<div class="fx-closed-note"><i class="ti ti-info-circle"></i> ${t(prop.status === 'hidden' ? 'この物件は非公開です（編集できる人にだけ表示）' : 'この物件は成約済みです')}</div>` : `<button class="btn btn-p fx-wide" onclick="fxOpenReserve(${prop.id})"><i class="ti ti-calendar-event"></i> ${t('内見を予約する')}</button>`}
     ${canEdit(prop) && vs.views ? `<div class="fx-mini"><i class="ti ti-chart-bar"></i> ${t('VR内見')} ${vs.views}${t('回')}・${t('平均')}${Math.round(vs.seconds / vs.views)}${t('秒')}</div>` : ''}`;
   more.innerHTML = `<div class="fx-mini-acts">
-      ${hasVR ? `<button class="fx-ma" onclick="fxLiveMenu(${prop.id})" title="${t('担当者や家族と同じ部屋を一緒に見られます')}"><i class="ti ti-users"></i><span>${t('一緒に内見')}</span></button>` : ''}
       <button class="fx-ma ${inCmp ? 'fx-on' : ''}" onclick="fxToggleCompare(${prop.id});renderPropDetail(PROPS.find(p=>p.id===${prop.id}))"><i class="ti ti-arrows-left-right"></i><span>${inCmp ? t('比較中') : t('比較')}</span></button>
       <button class="fx-ma" onclick="fxShare(${prop.id})"><i class="ti ti-share"></i><span>${t('共有')}</span></button>
       <button class="fx-ma" onclick="fxPrint()"><i class="ti ti-printer"></i><span>${t('印刷')}</span></button>
@@ -426,16 +337,10 @@ window.fxOpenReserve = function (propId) {
   if (prop.status === 'closed' || prop.status === 'hidden') { toast(t('この物件は現在、内見の予約を受け付けていません'), 'warn'); return; }
   const rule = Object.assign({ days: [0, 1, 2, 3, 4, 5, 6], start: 10, end: 18, closed: [] }, prop.viewingRule || {});
   const dayOk = d => rule.days.includes(d.getDay()) && !(rule.closed || []).includes(ymd(d));
-  const hasVR = !!(prop.floorplanData || prop.splatURL);
   const days = [];
   for (let i = 1; i <= 14; i++) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i); days.push(d); }
   const body = openModal('fx-resv', `<i class="ti ti-calendar-event"></i> ${t('内見を予約する')}`, `
     <div class="fx-prop-line">${esc(prop.name)}</div>
-    <div class="fx-label">${t('内見の方法')}</div>
-    <div class="fx-seg" id="fx-kind">
-      <button data-k="visit" class="on"><i class="ti ti-walk"></i> ${t('現地で内見')}</button>
-      ${hasVR ? `<button data-k="online"><i class="ti ti-users"></i> ${t('オンラインで一緒にVR内見')}</button>` : ''}
-    </div>
     <div class="fx-label">${t('日にち')}</div>
     <div class="fx-days" id="fx-days">${days.map(d => `<button data-d="${ymd(d)}" ${dayOk(d) ? '' : 'disabled title="' + t('休み') + '"'} class="${d.getDay() === 0 ? 'sun' : d.getDay() === 6 ? 'sat' : ''}"><small>${d.getMonth() + 1}/${d.getDate()}</small>${fxLang === 'en' ? WEEK_EN[d.getDay()] : WEEK[d.getDay()]}</button>`).join('')}</div>
     <div class="fx-label">${t('時間')}</div>
@@ -448,7 +353,7 @@ window.fxOpenReserve = function (propId) {
     <div class="fx-mini">${t('予約は担当者が確認すると「確定」になり、マイページとお知らせに届きます。')}<br>${t('予約すると')} <a href="privacy.html" target="_blank">${t('個人情報の取り扱い')}</a> ${t('に同意したものとします。')}</div>`, { width: 560 });
   const firstOk = days.find(dayOk);
   if (!firstOk) { body.querySelector('#fx-times').innerHTML = `<div class="fx-mini">${t('受け付けている日がありません')}</div>`; }
-  let day = firstOk ? ymd(firstOk) : '', time = null, kind = 'visit';
+  let day = firstOk ? ymd(firstOk) : '', time = null;
   const dbtn = body.querySelector(`#fx-days button[data-d="${day}"]`); if (dbtn) dbtn.classList.add('on');
   const SLOT_HOURS = []; for (let h = +rule.start; h < +rule.end; h++) SLOT_HOURS.push(h);
   const booked = new Set(prop.bookedSlots || []);
@@ -463,12 +368,11 @@ window.fxOpenReserve = function (propId) {
     body.querySelector('#fx-resv-go').innerHTML = `<i class="ti ti-check"></i> ${time ? slotLabel(time) + ' ' + t('で予約する') : t('時間を選んでください')}`;
   };
   body.querySelectorAll('#fx-days button:not([disabled])').forEach(b => b.onclick = () => { day = b.dataset.d; time = null; body.querySelectorAll('#fx-days button').forEach(x => x.classList.toggle('on', x === b)); renderTimes(); });
-  body.querySelectorAll('#fx-kind button').forEach(b => b.onclick = () => { kind = b.dataset.k; body.querySelectorAll('#fx-kind button').forEach(x => x.classList.toggle('on', x === b)); });
   renderTimes();
   body.querySelector('#fx-resv-go').onclick = async () => {
     const btn = body.querySelector('#fx-resv-go'); btn.disabled = true;
     try {
-      await api('reserve', { body: { propId: prop.id, slot: time, kind, phone: body.querySelector('#fx-phone').value, note: body.querySelector('#fx-note').value } });
+      await api('reserve', { body: { propId: prop.id, slot: time, kind: 'visit', phone: body.querySelector('#fx-phone').value, note: body.querySelector('#fx-note').value } });
       prop.bookedSlots = (prop.bookedSlots || []).concat([time]);
       closeModal('fx-resv');
       toast(t('予約を申し込みました。確定したらお知らせします'), 'success');
@@ -525,7 +429,6 @@ async function renderMyResv() {
         <div class="fx-mini">${t(KIND[r.kind] || '')}${r.note ? '・' + esc(r.note) : ''}</div>
         ${r.reply ? `<div class="fx-reply"><i class="ti ti-message"></i> ${esc(r.reply)}</div>` : ''}
         <div class="fx-row">
-          ${r.liveCode && active ? `<button class="btn btn-p btn-sm" onclick="fxJoinByCode('${esc(r.liveCode)}')"><i class="ti ti-users"></i> ${t('一緒にVR内見に参加')}（${esc(r.liveCode)}）</button>` : ''}
           ${active && future ? `<button class="btn btn-sm" style="color:var(--red)" onclick="fxCancelResv(${r.propId},'${esc(r.id)}')">${t('キャンセル')}</button>` : ''}
         </div></div>`;
     }).join('');
@@ -612,7 +515,6 @@ async function renderAdminResv(reload) {
       ${r.reply ? `<div class="fx-mini">返信: ${esc(r.reply)}</div>` : ''}
       <div class="fx-row">
         ${r.status === 'pending' ? `<button class="btn btn-p btn-sm" onclick="fxSetResv(${r.propId},'${r.id}','confirmed')">確定する</button><button class="btn btn-sm" style="color:var(--red)" onclick="fxSetResv(${r.propId},'${r.id}','declined')">お断りする</button>` : ''}
-        ${r.status === 'confirmed' && r.kind === 'online' ? `<button class="btn btn-p btn-sm" onclick="fxHostResv(${r.propId},'${r.id}')"><i class="ti ti-users"></i> 一緒にVR内見を始める</button>` : ''}
         ${r.status === 'confirmed' ? `<button class="btn btn-sm" onclick="fxSetResv(${r.propId},'${r.id}','done')">完了にする</button>` : ''}
       </div></div>`;
   }).join('');
@@ -623,10 +525,6 @@ window.fxSetResv = async function (propId, resvId, status) {
   if (msg === null) return;
   try { await api('updateReservation', { body: { propId, resvId, status, message: msg } }); toast(`「${label}」にしました。予約者にお知らせが届きます`, 'success'); renderAdminResv(true); refreshBooked(); }
   catch (e) { toast(e.message, 'error'); }
-};
-window.fxHostResv = function (propId, resvId) {
-  live.pendingResv = { propId, resvId };
-  window.viewInVR(propId, { live: { start: true } });
 };
 
 /* ══════════════ 5. VR内見の分析（管理画面）══════════════ */
@@ -971,7 +869,7 @@ Object.assign(EN, { '間取りから探す': 'Browse by floor plan', '掲載中�
   '間取り数': 'Plans', '件': '', '建物': 'Building', 'すべて': 'All', 'マンション・アパート': 'Apartment', '階数': 'Floors', '平屋・1階': 'Single-story', '2階建て': '2 floors', '3階建て': '3 floors', '玄関の位置': 'Entrance', '部屋数': 'Rooms', '部屋': ' rooms', '5部屋以上': '5+ rooms',
   '床面積': 'Floor area', '間口（横）': 'Width', '奥行（縦）': 'Depth', '条件をクリア': 'Clear', '該当': 'Matches', '新しい順': 'Newest', '床面積の広い順': 'Largest', '床面積の狭い順': 'Smallest', 'もっと見る': 'Show more', '絞り込み条件': 'Filters',
   '北': 'N', '北東': 'NE', '東': 'E', '南東': 'SE', '南': 'S', '南西': 'SW', '西': 'W', '北西': 'NW', '中央': 'Center', '間口': 'Width', '奥行': 'Depth', '坪': ' tsubo', '平屋': 'Single-story', '階建': ' floors', '階建て': ' floors', 'の間取り': ' plan',
-  '間口×奥行': 'Width × depth', '帖': ' jo', 'VRで歩く': 'Walk in VR', '物件の詳細': 'Details', 'この間取りで物件を作る': 'New listing with this plan', '間取り診断': 'Plan check', '間取りデータから自動でチェックしました': 'Checked automatically from the plan', '点': 'pts',
+  '間口×奥行': 'Width × depth', '帖': ' jo', 'VRで歩く': 'Walk in VR', '物件の詳細': 'Details', 'この間取りで物件を作る': 'New listing with this plan', '間取りデータから自動でチェックしました': 'Checked automatically from the plan', '点': 'pts',
   '収納': 'Storage', '日当たり': 'Sunlight', '家事動線': 'Chores', '水回り': 'Wet areas', '広さのバランス': 'Room balance', '暮らしやすさ': 'Livability',
   '※ 間取りの形と窓・設備の位置から計算した目安です。実際の住み心地は内見で確かめてください。': '* An estimate from the plan shape, windows and fixtures. Check the real home on a viewing.',
   '条件に合う間取りがありません。条件をへらしてみてください': 'No plans match. Try fewer filters.', '物件を読み込み中…': 'Loading…', '読み込んでいます…': 'Loading…', 'メゾネット': 'Maisonette' });
@@ -2177,7 +2075,6 @@ const HE_QA = [
   ['「測る」で壁を2か所タップしてみて。壁から壁までの長さが、その場でわかるよ。', 'Tap two spots with "Measure" — you get the wall-to-wall length right away.', 'img/measure.webp', '部屋の中で壁の幅を測っている画面', 'wow'],
   ['「日当たり」で12月の朝にしてみよう。窓から床に光が入るのが見えるよ。', 'Set "Sunlight" to a December morning and watch the light fall on the floor.', 'img/sun.webp', '窓から床に日が差している画面', 'happy'],
   ['「家具」でソファを選んで置いてみて。はみ出したら赤くなるから、すぐわかるよ。', 'Pick a sofa in "Furniture" and place it. It turns red if it does not fit.', 'img/furn.webp', 'ソファを置いて収まるか確かめている画面', 'wink'],
-  ['「一緒に」で招待リンクを送ってね。離れていても、同じ部屋を歩きながら話せるよ。', 'Send an invite link with "Together" — walk the same room and chat from anywhere.', 'img/live.webp', '2人で同じ部屋を見ながらチャットしている画面', 'vr']
 ];
 let heQ = 0;
 function heShowQ(i) {
@@ -2290,7 +2187,7 @@ function heLoadFrame() {
 }
 function heEnter() {
   if (heProp) window.viewInVR(heProp.id);
-  else openVRViewer({ sample: true, propName: '', lang: fxLang, liveOk: false });
+  else openVRViewer({ sample: true, propName: '', lang: fxLang });
 }
 window.fxHeroEnter = heEnter;
 const _toggleLang = window.fxToggleLang;
@@ -2309,8 +2206,25 @@ const _closeVR2 = window.closeVRViewer;
 window.closeVRViewer = function () { heVrOpen = false; const r = _closeVR2.apply(this, arguments); heRun(); return r; };
 const _fetchProps = window.fetchAndRenderProps;
 window.fetchAndRenderProps = async function () { const r = await _fetchProps.apply(this, arguments); heDecide(); return r; };
+// 展示用: 学校のデモ（1号館3階の間取り＋ホールの実写）をログインなしですぐ開く（サーバーを使わないので会場のネットが弱くても開ける）
+let schoolPlan = null;
+async function openSchoolDemo() {
+  const b = $('he-school'); if (b) b.disabled = true;
+  try {
+    if (!schoolPlan) schoolPlan = await (await fetch('demo/1gokan_3F.json')).json();
+    openVRViewer({
+      data: schoolPlan, propName: '名古屋工学院専門学校 1号館3階', propKey: 'sample', lang: fxLang,   // 'sample' = チェックや家具をアカウントに保存しない
+      splat: { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true }, ext: '.spz' },
+      furnStore: 'session', geo: { lat: 35.1283, lng: 136.9087 }
+    });
+  } catch (e) { toast('デモを開けませんでした: ' + e.message, 'error'); }
+  finally { if (b) b.disabled = false; }
+}
+window.fxOpenSchoolDemo = openSchoolDemo;
 function initHero() {
   const st = $('he-stage'), go = $('he-enter');
+  const sc = $('he-school'); if (sc) sc.onclick = openSchoolDemo;
+  const sv = $('he-survey'); if (sv && sv.getAttribute('href')) sv.hidden = false;
   if (!st) return;
   if (go) go.onclick = heEnter;
   const start = () => setTimeout(() => {
@@ -3027,10 +2941,8 @@ window.renderPropDetail = function (prop) {
   return r;
 };
 
-
-/* ══════════════ 34. 間取りプラン集・間取り診断 ══════════════
-   ・掲載中の物件の間取りを「間取り」だけで探せる一覧（階数・玄関の向き・部屋数・広さ・間口・奥行で絞り込み）
-   ・間取りを自動でチェックする「間取り診断」（収納・日当たり・家事動線・水回り・広さのバランス・暮らしやすさ） */
+/* ══════════════ 34. 間取りプラン集 ══════════════
+   ・掲載中の物件の間取りを「間取り」だけで探せる一覧（階数・玄関の向き・部屋数・広さ・間口・奥行で絞り込み） */
 const PX_M = 50, TSUBO = 3.30579, JO = 1.62;
 const isRoomName = n => /洋室|和室|寝室|子供|子ども|書斎|個室|^DEN|ベッド/i.test(n || '');
 function miniShapes(mini) {
@@ -3168,7 +3080,6 @@ async function openPlanDetail(id) {
   const sh = miniShapes(p.fpMini);
   const perLv = Array.from({ length: st.floors }, (_, l) => sh.filter(s => s.l === l && s.k !== 'loft' && s.k !== 'void').reduce((a, s) => a + s.area, 0));
   const rooms = sh.filter(s => s.k !== 'void').sort((a, b) => a.l - b.l || b.area - a.area);
-  const diag = fp ? diagnosePlan(fp, p) : null;
   body.innerHTML = `
     <div class="pl-dl">
       <div class="pl-dl-img">${fpSvg(p.fpMini, { big: true })}</div>
@@ -3187,7 +3098,7 @@ async function openPlanDetail(id) {
         </div>
       </div>
     </div>
-    ${diag ? diagHTML(diag) : ''}`;
+    `;
 }
 window.fxCopyPlan = async function (id) {
   const p = await ensureFull(id); if (!p || !p.floorplanData || p.floorplanData._stub) return;
@@ -3206,124 +3117,6 @@ window.fxCopyPlan = async function (id) {
     toast(t('間取りをコピーしました。物件の情報を入れて登録してください（「間取りを編集する」で直せます）'), 'success');
   }, 200);
 };
-
-/* ── 間取り診断 ── */
-function diagnosePlan(fp, prop) {
-  const rooms = (fp.rooms || []).map(r => {
-    let pts;
-    if (Array.isArray(r.vertices) && r.vertices.length >= 3) pts = r.vertices.map(v => [+v.x / PX_M, +v.y / PX_M]);
-    else pts = [[r.wx, r.wy], [r.wx + r.ww, r.wy], [r.wx + r.ww, r.wy + r.wh], [r.wx, r.wy + r.wh]].map(q => [+q[0] / PX_M, +q[1] / PX_M]);
-    let a = 0, cx = 0, cy = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; cx += p[0]; cy += p[1]; }
-    return { r, n: r.name || '', k: r.kind || '', l: +r.level || 0, pts, area: Math.abs(a) / 2, cx: cx / pts.length, cy: cy / pts.length, sign: a > 0 ? 1 : -1 };
-  }).filter(x => x.pts.every(q => isFinite(q[0]) && isFinite(q[1])));
-  const furn = fp.furnitures || [];
-  const solid = rooms.filter(x => x.k !== 'loft' && x.k !== 'void');
-  const total = solid.reduce((s, x) => s + x.area, 0) || 1;
-  const north = +fp.north || 0;
-  const items = [];
-  const clamp5 = v => Math.max(1, Math.min(5, Math.round(v)));
-  const inRoom = (x, px, py) => { let c = false; const p = x.pts; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { if ((p[i][1] > py) !== (p[j][1] > py) && px < (p[j][0] - p[i][0]) * (py - p[i][1]) / (p[j][1] - p[i][1]) + p[i][0]) c = !c; } return c; };
-  // 1) 収納
-  const stor = solid.filter(x => /収納|クローゼット|WIC|ウォークイン|納戸|押入|物入|シューズ|SIC|パントリー/i.test(x.n)).reduce((s, x) => s + x.area, 0)
-    + furn.filter(f => /closet|クローゼット|押入|shoebox|下駄箱|cupboard|カップボード/i.test((f.type || '') + (f.name || ''))).reduce((s, f) => s + (+f.w || 0) * (+f.d || 0), 0)
-    + rooms.filter(x => x.k === 'loft').reduce((s, x) => s + x.area * 0.5, 0);
-  const sr = stor / total * 100;
-  items.push({ key: 'storage', name: '収納', score: clamp5(sr >= 12 ? 5 : sr >= 9 ? 4 : sr >= 6 ? 3 : sr >= 4 ? 2 : 1),
-    text: `収納の広さは床面積の約${sr.toFixed(0)}%です（目安は10%前後）。` + (sr >= 9 ? '物が多い家族でもすっきり暮らせます。' : sr >= 6 ? 'ふつうの量です。' : '少なめなので、収納家具の置き場所も考えておきましょう。') });
-  // 2) 日当たり（居室・LDKに南・東・西の窓があるか）
-  const living = solid.filter(x => isRoomName(x.n) || /LDK|DK|リビング|ダイニング/i.test(x.n));
-  const dirOfEdge = (x, i) => {
-    const a = x.pts[i], b = x.pts[(i + 1) % x.pts.length];
-    const ex = b[0] - a[0], ey = b[1] - a[1]; let nx = ey * x.sign, ny = -ex * x.sign;   // 外向き
-    const L = Math.hypot(nx, ny) || 1; return compassOf(nx / L, ny / L, north);
-  };
-  const edgeIdx = (x, o) => { if (o.edgeIndex !== undefined) return +o.edgeIndex; return { North: 0, East: 1, South: 2, West: 3 }[o.wall]; };
-  let sunny = 0; const southRooms = [];
-  living.forEach(x => {
-    const ds = (x.r.openings || []).filter(o => o.type === 'window').map(o => dirOfEdge(x, edgeIdx(x, o) || 0));
-    if (ds.some(d => /南/.test(d))) { sunny += 1; southRooms.push(x.n); } else if (ds.some(d => d === '東' || d === '西')) sunny += 0.6;
-  });
-  const sunR = living.length ? sunny / living.length : 0;
-  items.push({ key: 'sun', name: '日当たり', score: clamp5(1 + sunR * 4),
-    text: living.length ? (southRooms.length ? `南向きの窓がある部屋: ${[...new Set(southRooms)].slice(0, 4).join('・')}。` : '南向きの窓がある部屋はありません。') + (sunR >= 0.7 ? '明るい間取りです。' : sunR >= 0.4 ? '部屋によって明るさに差があります。' : '日中も照明が必要な部屋がありそうです。VRの「日当たり」で確かめましょう。') : '部屋の窓の情報がありません。' });
-  // 3) 家事動線（キッチン ↔ 洗面所）
-  const kit = furn.find(f => /kitchen|キッチン/i.test((f.type || '') + (f.name || '')));
-  const kitPos = kit ? { x: +kit.cx / PX_M, y: +kit.cy / PX_M, l: +kit.level || 0 } : (() => { const x = solid.find(q => /LDK|DK|キッチン/i.test(q.n)); return x ? { x: x.cx, y: x.cy, l: x.l } : null; })();
-  const wash = solid.find(x => /洗面|脱衣|ランドリー|ユニットバス/.test(x.n));
-  if (kitPos && wash) {
-    const same = wash.l === kitPos.l, d = Math.hypot(wash.cx - kitPos.x, wash.cy - kitPos.y);
-    items.push({ key: 'chore', name: '家事動線', score: same ? clamp5(d <= 2.8 ? 5 : d <= 4.2 ? 4 : d <= 6 ? 3 : 2) : 1,
-      text: same ? `キッチンから洗面所まで約${d.toFixed(1)}m。` + (d <= 4.2 ? '料理と洗濯を同時に進めやすい、家事ラクな配置です。' : '少し離れているので、家事の行き来が多くなりそうです。') : 'キッチンと洗面所が別の階にあります。洗濯物を運ぶ動きを考えておきましょう。' });
-  }
-  // 4) 水回りのまとまり
-  const wets = solid.filter(x => /トイレ|浴室|風呂|洗面|脱衣|ユニットバス/.test(x.n));
-  if (wets.length >= 2) {
-    const byL = {}; wets.forEach(x => (byL[x.l] = byL[x.l] || []).push(x));
-    let spread = 0; Object.values(byL).forEach(a => a.forEach(x => a.forEach(y => { spread = Math.max(spread, Math.hypot(x.cx - y.cx, x.cy - y.cy)); })));
-    items.push({ key: 'wet', name: '水回り', score: clamp5(spread <= 2.6 ? 5 : spread <= 4 ? 4 : spread <= 6 ? 3 : 2),
-      text: spread <= 4 ? '浴室・洗面所・トイレが近くにまとまっていて、使いやすく掃除もしやすい配置です。' : '水回りが離れているので、動きが多くなることがあります。' });
-  }
-  // 5) 広さのバランス
-  const ldk = solid.filter(x => /LDK|DK|リビング/i.test(x.n)).sort((a, b) => b.area - a.area)[0];
-  const beds = solid.filter(x => isRoomName(x.n));
-  if (ldk) {
-    const share = ldk.area / total * 100, jo = ldk.area / JO, minBed = beds.length ? Math.min(...beds.map(b => b.area / JO)) : 99;
-    const need = 6 + Math.max(1, beds.length) * 2;   // 部屋数に合ったLDKの広さの目安（帖）
-    let sc = jo >= need ? 5 : jo >= need - 2 ? 4 : jo >= need - 4 ? 3 : 2;
-    if (minBed < 4.5) sc -= 1;
-    items.push({ key: 'size', name: '広さのバランス', score: clamp5(sc),
-      text: `${ldk.n}は約${jo.toFixed(1)}帖（床面積の${share.toFixed(0)}%）。` + (jo >= need ? '家族が集まるのに十分な広さです。' : `${beds.length}部屋の間取りなら${need}帖くらいあると、ゆったりします。`) + (minBed < 4.5 ? ` いちばん小さい部屋は${minBed.toFixed(1)}帖で、ベッドを置くと少しせまめです。` : '') });
-  }
-  // 6) 暮らしやすさ（階段のある家はトイレの数・ドアのない部屋）
-  const lvN = Math.max(0, ...rooms.map(x => x.l)) + 1;
-  const wcLv = new Set(solid.filter(x => /トイレ|ユニットバス/.test(x.n)).map(x => x.l));
-  const noDoor = solid.filter(x => x.area > 1.2 && !(x.r.openings || []).some(o => o.type !== 'window') && !solid.some(y => y !== x && y.l === x.l && (y.r.openings || []).some(o => o.type !== 'window' && (() => { const i = edgeIdx(y, o); const a = y.pts[i] || y.pts[0], b = y.pts[(i + 1) % y.pts.length] || y.pts[1]; const t2 = +o.offsetAlongWall <= 1 ? +o.offsetAlongWall : 0.5; const px = a[0] + (b[0] - a[0]) * t2, py = a[1] + (b[1] - a[1]) * t2; const ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey) || 1; return inRoom(x, px + ey / L * 0.2, py - ex / L * 0.2) || inRoom(x, px - ey / L * 0.2, py + ex / L * 0.2); })())));
-  let ls = 3; const notes = [];
-  const sepWc = solid.some(x => /^トイレ/.test(x.n)) && solid.some(x => /浴室|風呂/.test(x.n));
-  if (sepWc) { ls += 1; notes.push('お風呂とトイレが別々です。'); } else if (solid.some(x => /ユニットバス/.test(x.n))) notes.push('お風呂・洗面・トイレが一緒のユニットバスです。');
-  if (lvN > 1) { if (wcLv.size >= lvN) { ls += 1; notes.push('どの階にもトイレがあって、夜も安心です。'); } else { ls -= 1; notes.push('トイレがない階があります。'); } }
-  if (rooms.some(x => x.k === 'loft')) { ls += 1; notes.push('ロフトを収納や趣味のスペースに使えます。'); }
-  if (solid.some(x => /シューズ|SIC|土間収納/i.test(x.n))) { ls += 1; notes.push('玄関にシューズクロークがあります。'); }
-  if (noDoor.length) { ls -= Math.min(2, noDoor.length); notes.push(`ドアのない部屋があります（${noDoor.slice(0, 3).map(x => x.n).join('・')}）。`); }
-  if (!notes.length) notes.push('ふつうの間取りです。');
-  items.push({ key: 'life', name: '暮らしやすさ', score: clamp5(ls), text: notes.join('') });
-  const score = Math.round(items.reduce((s, x) => s + x.score, 0) / items.length * 20);
-  const best = items.slice().sort((a, b) => b.score - a.score)[0], worst = items.slice().sort((a, b) => a.score - b.score)[0];
-  const summary = `いちばんの良いところは「${best.name}」。` + (worst.score <= 3 ? `「${worst.name}」は内見のときによく確かめてね。` : 'どの項目もバランスがいい間取りだよ。');
-  return { score, items, summary };
-}
-window.fxDiagnosePlan = diagnosePlan;
-function diagHTML(dg) {
-  const grade = dg.score >= 85 ? 'S' : dg.score >= 72 ? 'A' : dg.score >= 58 ? 'B' : 'C';
-  return `<div class="dg-box">
-    <div class="dg-top"><div class="dg-score dg-${grade}"><b>${dg.score}</b><span>${t('点')}</span><i>${grade}</i></div>
-      <div><div class="dg-title"><i class="ti ti-sparkles"></i> ${t('間取り診断')}<small>${t('間取りデータから自動でチェックしました')}</small></div>
-      <p class="dg-sum"><span class="dg-yk" aria-hidden="true"></span>${esc(t(dg.summary))}</p></div></div>
-    <div class="dg-items">${dg.items.map(x => `<div class="dg-it"><div class="dg-h"><b>${t(x.name)}</b><span class="dg-stars" aria-label="${x.score}/5">${'★'.repeat(x.score)}<em>${'★'.repeat(5 - x.score)}</em></span></div><p>${esc(t(x.text))}</p></div>`).join('')}</div>
-    <p class="dg-note">${t('※ 間取りの形と窓・設備の位置から計算した目安です。実際の住み心地は内見で確かめてください。')}</p></div>`;
-}
-// 物件の詳細に「間取り診断」を出す
-const _renderPropDetailDg = window.renderPropDetail;
-window.renderPropDetail = function (prop) {
-  const r = _renderPropDetailDg.apply(this, arguments);
-  try {
-    let box = $('fx-diag');
-    if (!box) { const anchor = $('pd-details-section'); if (anchor) { anchor.insertAdjacentHTML('beforebegin', '<div id="fx-diag"></div>'); box = $('fx-diag'); } }
-    if (box) {
-      box.innerHTML = '';
-      if (prop && prop.floorplanData) {
-        const id = prop.id;
-        (async () => {
-          const full = await ensureFull(id);
-          if (!full || pdCurrentIdSafe() !== id || !full.floorplanData || full.floorplanData._stub) return;
-          box.innerHTML = `<div class="pd-section-title">${t('間取り診断')}</div>` + diagHTML(diagnosePlan(full.floorplanData, full));
-        })();
-      }
-    }
-  } catch (e) { console.warn(e); }
-  return r;
-};
-function pdCurrentIdSafe() { try { return typeof pdCurrentId !== 'undefined' ? pdCurrentId : null; } catch (e) { return null; } }
 
 /* ══════════════ 33. 物件フォームを使いやすく ══════════════
    ・項目を「基本 → 場所 → お金 → 設備と説明 → 写真とVR → 公開と内見 → 詳細」に分けて、上のボタンで移動できる
@@ -3427,6 +3220,15 @@ function initFormUX() {
     grid.appendChild(h);
     ids.forEach(id => { const f = afField(id); if (f && f.parentNode === grid) grid.appendChild(f); });
   });
+  // 最初は必ず入れる項目（物件名・間取り・住所・エリア・家賃）と間取り（VR）だけ見せて、ほかは「くわしく入れる」にしまう
+  AF_KEY_IDS.forEach(id => { const f = afField(id); if (f) f.classList.add('fx-af-key'); });
+  const sh = el('div', 'fx-af-sec fx-af-shorthead'); sh.innerHTML = '<i class="ti ti-star"></i> 必ず入れる項目（これだけで登録できます）';
+  grid.insertBefore(sh, grid.firstChild);
+  const mb = el('div', 'fx-af-morebox'); mb.style.gridColumn = '1/-1';
+  mb.innerHTML = '<button type="button" class="btn fx-af-morebtn" id="af-more-btn" aria-expanded="false"></button>';
+  grid.appendChild(mb);
+  $('af-more-btn').onclick = () => { const all = $('add-form').classList.contains('af-short'); afShowAll(all); if (all) afGo('basic'); };
+  afShowAll(false);
   // 上の案内（区切りへ移動・充実度）
   const head = document.querySelector('#add-form .add-form-head');
   const nav = el('div', 'fx-af-nav'); nav.id = 'af-secnav';
@@ -3556,7 +3358,19 @@ function afChecks() {
     ['面積', afNum('af-size') > 0 && afNum('af-age') >= 0 && v('af-size'), '面積', 'basic', 5]
   ];
 }
+const AF_KEY_IDS = ['af-name', 'af-madori', 'af-address', 'af-area', 'af-rent', 'af-fp-field'];
+function afShowAll(on) {   // true: 全部の項目を見せる / false: 必ず入れる項目だけ
+  const f = $('add-form'), b = $('af-more-btn'); if (!f) return;
+  f.classList.toggle('af-short', !on);
+  if (b) {
+    b.setAttribute('aria-expanded', on ? 'true' : 'false');
+    b.innerHTML = on ? '<i class="ti ti-chevron-up"></i> 必ず入れる項目だけにする' : '<i class="ti ti-chevron-down"></i> くわしく入れる（写真・駅・設備・説明・実写など）';
+  }
+  setTimeout(() => { try { afNavTop(); afSpy(); } catch (e) {} }, 0);
+}
 function afGo(sec, fieldId) {
+  const kf = fieldId && afField(fieldId);
+  if (!(kf && kf.classList.contains('fx-af-key'))) afShowAll(true);   // しまってある項目へ行くときは開く
   const tgt = (fieldId && afField(fieldId)) || $('af-sec-' + sec);
   if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: fieldId ? 'center' : 'start' });
   if (fieldId) setTimeout(() => { try { $(fieldId).focus({ preventScroll: true }); } catch (e) {} }, 350);
@@ -3749,7 +3563,7 @@ function afDraftOffer() {
     const x = dr.extra || {};
     if (Array.isArray(x.feats)) { fxForm.features = x.feats.slice(); renderFormExtras2(); }
     if (x.fp && x.fp.rooms) { window.editedFloorplanData = x.fp; window.editedFloorplanThumb = null; window._applyFloorplanThumbnail(); }
-    box.hidden = true; afCost(); afScore();
+    box.hidden = true; afCost(); afScore(); afShowAll(true);
     toast('下書きを戻しました（写真は選び直してください）', 'info');
   };
   $('af-draft-no').onclick = afDraftClear;
@@ -3761,11 +3575,11 @@ window.toggleAddForm = function () {
   const f = $('add-form'), open = f && f.classList.contains('show');
   if (open && afDirty && typeof editingPropId !== 'undefined' && editingPropId != null && !afSaving && !confirm('保存していない変更があります。閉じてもいいですか？')) return;
   const r = _toggleAddUX.apply(this, arguments);
-  if (!open) { afDirty = false; document.querySelectorAll('#add-form .fx-invalid').forEach(x => x.classList.remove('fx-invalid')); setTimeout(() => { afNavTop(); afSpy(); afCost(); afScore(); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftOffer(); else { const b = $('af-draft'); if (b) b.hidden = true; } }, 0); }
+  if (!open) { if (typeof editingPropId === 'undefined' || editingPropId == null) afShowAll(false); afDirty = false; document.querySelectorAll('#add-form .fx-invalid').forEach(x => x.classList.remove('fx-invalid')); setTimeout(() => { afNavTop(); afSpy(); afCost(); afScore(); if (typeof editingPropId === 'undefined' || editingPropId == null) afDraftOffer(); else { const b = $('af-draft'); if (b) b.hidden = true; } }, 0); }
   return r;
 };
 const _startEditUX = window.startEditProp;
-window.startEditProp = async function () { const r = await _startEditUX.apply(this, arguments); afDirty = false; setTimeout(() => { afCost(); afScore(); const b = $('af-draft'); if (b) b.hidden = true; }, 50); return r; };
+window.startEditProp = async function () { const r = await _startEditUX.apply(this, arguments); afDirty = false; afShowAll(true); setTimeout(() => { afCost(); afScore(); const b = $('af-draft'); if (b) b.hidden = true; }, 50); return r; };
 
 /* ══════════════ 起動 ══════════════ */
 function boot() {
@@ -3810,7 +3624,6 @@ window._enterApp = function () {
 };
 const _doLogout = window.doLogout;
 window.doLogout = function () {
-  stopLive(true);
   clearTimeout(furnTimer);
   if (isLoggedIn && currentUser && currentUser.myFurniture) saveUserToAWS(currentUser);   // まだ送っていない家具を保存してから
   const r = _doLogout.apply(this, arguments);
@@ -3852,6 +3665,7 @@ window.fxDemoSchool = async function () {
     window.editedSplat = { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true } };
     if (typeof _renderSplatStatus === 'function') _renderSplatStatus();
     const adv = document.querySelector('.fx-af-adv'); if (adv) adv.open = true;
+    afShowAll(true);
     if (typeof autoFillFromAddress === 'function') autoFillFromAddress().catch(() => {});
     if (typeof afCost === 'function') afCost();
     if (typeof afScore === 'function') afScore();

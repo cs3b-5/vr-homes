@@ -101,6 +101,7 @@
   .tbtn b { font-size: 10px; font-weight: 600; white-space: nowrap; }
   .tbtn.on { background: #2563eb; }
   .tbtn.hidden { display: none; }
+  #tools:not(.open) .tbtn.more { display: none; }
   @media (max-height: 520px) {
     #tools { flex-direction: row; }
     .tbtn { width: 48px; height: 44px; }
@@ -154,11 +155,6 @@
   .panel .ok { color: #15803d; font-weight: 700; } .panel .ng { color: #b91c1c; font-weight: 700; }
   .panel button.gray { background: #f1f5f9; }
   .panel button.red { background: #fee2e2; color: #b91c1c; }
-  #liveCode { font-size: 22px; font-weight: 800; letter-spacing: 3px; color: #1d4ed8; }
-  #liveChat { height: 130px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 8px; margin: 6px 0; font-size: 12.5px; line-height: 1.6; }
-  #liveChat .me { color: #1d4ed8; }
-  #liveMembers { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
-  #liveMembers span { background: #f1f5f9; border-radius: 999px; padding: 2px 8px; font-size: 11.5px; }
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 22; transition: opacity .3s; }
   #fade.on { opacity: 1; }
   #vtoast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; background: rgba(10,14,26,.88); color: #fff; padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; max-width: calc(100vw - 40px); }
@@ -212,15 +208,16 @@
 <canvas id="minimap" title="タップした場所へ移動"></canvas>
 <div id="labels"></div>
 <div id="tools">
-  <button class="tbtn" data-tool="map"><span>🗺</span><b data-t="地図">地図</b></button>
+  <!-- 最初に見えるのは 模型・測る・家具・日当たり だけ。ほかは「もっと見る」の中 -->
+  <button class="tbtn more" data-tool="map"><span>🗺</span><b data-t="地図">地図</b></button>
+  <button class="tbtn more" data-tool="tour"><span>▶</span><b data-t="ツアー">ツアー</b></button>
+  <button class="tbtn more hidden" data-tool="pano"><span>📷</span><b data-t="360°">360°</b></button>
+  <button class="tbtn more" data-tool="check"><span>📝</span><b data-t="チェック">チェック</b></button>
+  <button class="tbtn" data-tool="doll"><span>🏠</span><b data-t="模型">模型</b></button>
   <button class="tbtn" data-tool="measure"><span>📏</span><b data-t="測る">測る</b></button>
-  <button class="tbtn" data-tool="doll"><span>🏠</span><b data-t="全体">全体</b></button>
-  <button class="tbtn" data-tool="tour"><span>▶</span><b data-t="ツアー">ツアー</b></button>
   <button class="tbtn" data-tool="furn"><span>🛋</span><b data-t="家具">家具</b></button>
   <button class="tbtn" data-tool="sun"><span>☀</span><b data-t="日当たり">日当たり</b></button>
-  <button class="tbtn hidden" data-tool="pano"><span>📷</span><b data-t="360°">360°</b></button>
-  <button class="tbtn" data-tool="check"><span>📝</span><b data-t="チェック">チェック</b></button>
-  <button class="tbtn" data-tool="live"><span>👥</span><b data-t="一緒に">一緒に</b></button>
+  <button class="tbtn" data-tool="more" aria-expanded="false"><span>⋯</span><b data-t="もっと見る">もっと見る</b></button>
 </div>
 <div id="measureBar" class="bar"><span id="measureMsg" data-t="測りたい場所を2か所タップ">測りたい場所を2か所タップ</span><label><input type="checkbox" id="mFlat" checked> <span data-t="水平に測る">水平に測る</span></label><button id="mClear" data-t="消す">消す</button><button id="mDone" class="pri" data-t="終わる">終わる</button></div>
 <div id="tourBar" class="bar"><span id="tourCap"></span><button id="tPause" data-t="一時停止">一時停止</button><button id="tNext" data-t="次へ">次へ</button><button id="tEnd" class="pri" data-t="終わる">終わる</button></div>
@@ -231,23 +228,6 @@
   <div class="sub" data-t="置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。">置きたい家具を選ぶと目の前に出ます。家具をドラッグで移動、はみ出すと赤くなります。</div>
   <div class="chips" id="fCatalog"></div>
   <div class="sel" id="fSel"></div>
-</div>
-<div id="livePanel" class="panel">
-  <h4><span data-t="一緒に内見">一緒に内見</span><button id="lClose" data-t="閉じる">閉じる</button></h4>
-  <div id="liveOff">
-    <div class="sub" data-t="担当者や家族と、同じ部屋を同時に見ながらチャットできます。始めると6けたの参加コードが出ます。">担当者や家族と、同じ部屋を同時に見ながらチャットできます。始めると6けたの参加コードが出ます。</div>
-    <button id="lStart" class="pri" style="width:100%;margin-bottom:10px" data-t="この内見を始める">この内見を始める</button>
-    <div class="row"><input type="text" id="lCodeIn" inputmode="numeric" maxlength="6" placeholder="参加コード" data-tp="参加コード" style="flex:1"><button id="lJoin" data-t="参加">参加</button></div>
-  </div>
-  <div id="liveOn" style="display:none">
-    <div class="row" style="justify-content:space-between"><span data-t="参加コード">参加コード</span><span id="liveCode"></span></div>
-    <div class="row"><button id="lCopy" class="gray" data-t="コードをコピー">コードをコピー</button><button id="lLink" class="gray" data-t="招待リンクをコピー">招待リンクをコピー</button></div>
-    <div id="liveMembers"></div>
-    <label class="row" id="lFollowRow"><input type="checkbox" id="lFollow"> <span data-t="案内する人について行く">案内する人について行く</span></label>
-    <div id="liveChat"></div>
-    <div class="row"><input type="text" id="lMsg" maxlength="200" placeholder="メッセージ" data-tp="メッセージ" style="flex:1"><button id="lSend" class="pri" data-t="送信">送信</button></div>
-    <button id="lLeave" class="red" style="width:100%" data-t="退出する">退出する</button>
-  </div>
 </div>
 <div id="checkPanel" class="panel">
   <h4><span data-t="内見チェック">内見チェック</span><button id="cClose" data-t="閉じる">閉じる</button></h4>
@@ -343,7 +323,6 @@ function showError(msg) {
 
 function closeViewer() {
   if (typeof flushStats === "function") flushStats();
-  if (typeof leaveLive === "function" && live) leaveLive(true);
   postToParent({ type: "vr-viewer-close" });
 }
 function postToParent(msg) {
@@ -1366,9 +1345,8 @@ scene.onBeforeRenderObservable.add(function () {
   if (keys.ArrowLeft) yaw -= 1.8 * dt;
   if (panoMode) { fwd = 0; side = 0; }
   const mag = Math.sqrt(fwd * fwd + side * side);
-  if (mag > 0.08) { if (tour) endTour(false); if (live && live.follow) setFollow(false); }
+  if (mag > 0.08 && tour) endTour(false);
   if (tour) tourStep(dt);
-  if (live && live.follow) followStep(dt);
   if (mag > 1) { fwd /= mag; side /= mag; }
   const speed = WALK_SPEED * (keys.ShiftLeft || keys.ShiftRight ? 1.8 : 1);
   const tx = (Math.sin(yaw) * fwd + Math.cos(yaw) * side) * speed;
@@ -2033,7 +2011,7 @@ const EN = {
   "📱 スマホVR": "📱 Phone VR", "向きのセンサーを許可すると、スマホVRで見回せます": "Allow motion sensors to look around in Phone VR", "向きのセンサーを使えませんでした": "Could not use the motion sensors", "向きのセンサーが見つかりません。スマホで開いてください": "No motion sensor found. Open this on a smartphone.",
   "左下のスティックで移動 / 画面ドラッグで見回す": "Move with the stick / drag to look around",
   "W A S D で移動 / ドラッグで見回す / Shiftで速く": "WASD to move / drag to look / Shift to run",
-  "地図": "Map", "測る": "Measure", "全体": "Overview", "ツアー": "Tour", "家具": "Furniture", "一緒に": "Together",
+  "地図": "Map", "測る": "Measure", "全体": "Overview", "模型": "Model", "もっと見る": "More", "とじる": "Close", "ツアー": "Tour", "家具": "Furniture", "一緒に": "Together",
   "測りたい場所を2か所タップ": "Tap two points to measure", "もう1か所をタップ": "Tap the second point",
   "水平に測る": "Level", "消す": "Clear", "終わる": "Done", "次へ": "Next",
   "ドラッグで回す / 家具はつかんで動かせる / 床をタップでその場所へ": "Drag to rotate / drag furniture to move it / tap the floor to go there", "家具": "Furniture", "歩いて見る": "Walk",
@@ -2237,36 +2215,31 @@ function closePanels(except) {
   if (except !== "measure" && measureMode) setMeasure(false);
   if (except !== "furn" && furnMode) setFurn(false);
   if (except !== "sun" && typeof sunOn !== "undefined" && sunOn) setSun(false);
-  if (except !== "live") { document.getElementById("livePanel").classList.remove("show"); setToolOn("live", !!live); }
   if (except !== "check") { document.getElementById("checkPanel").classList.remove("show"); setToolOn("check", false); }
 }
+toolBtns.more.addEventListener("click", function () {
+  const open = document.getElementById("tools").classList.toggle("open");
+  toolBtns.more.setAttribute("aria-expanded", open ? "true" : "false");
+  const lb = toolBtns.more.querySelector("b"); lb.dataset.t = open ? "とじる" : "もっと見る"; lb.textContent = T(lb.dataset.t);
+  toolBtns.more.querySelector("span").textContent = open ? "✕" : "⋯";
+});
 toolBtns.map.addEventListener("click", function () { mmOn = !mmOn; setToolOn("map", mmOn); try { localStorage.setItem("vr_minimap", mmOn ? "1" : "0"); } catch (e) {} drawMinimap(); });
 toolBtns.measure.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } const on = !measureMode; closePanels("measure"); setMeasure(on); });
 toolBtns.doll.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } if (dollMode) exitDoll(); else { closePanels(); enterDoll(); } });
 toolBtns.tour.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } if (tour) endTour(false); else { closePanels(); startTour(); } });
 toolBtns.furn.addEventListener("click", function () { if (!hasPlan()) { vtoast(T("間取りデータがないので使えません")); return; } const on = !furnMode; closePanels("furn"); setFurn(on); });
-toolBtns.live.addEventListener("click", function () {
-  const p = document.getElementById("livePanel"), on = !p.classList.contains("show");
-  closePanels("live"); p.classList.toggle("show", on); setToolOn("live", on || !!live);
-});
-
 function initTools(opts) {
   propKey = String(opts.propKey || "");
   furnStore = opts.furnStore || (isEmbedded ? "session" : "local");
   furnInit = Array.isArray(opts.furniture) ? opts.furniture : null;
   toolsReady = true;
   document.body.classList.add("ready");
-  if (!isEmbedded || !opts.liveOk) toolBtns.live.classList.add("hidden");
   try { mmOn = localStorage.getItem("vr_minimap") !== "0"; } catch (e) { mmOn = true; }
   setToolOn("map", mmOn);
   loadMyFurniture();
   chkLoad(opts); renderChk();
   initToolsMore(opts);
   drawMinimap();
-  if (opts.live && isEmbedded) {
-    document.getElementById("livePanel").classList.add("show");
-    if (opts.live.code) joinLive(opts.live.code); else if (opts.live.start) startLive();
-  }
 }
 
 /* ---------- 間取りを読み込んだあと ---------- */
@@ -2400,13 +2373,6 @@ function paintMinimap(mctx, X, Y, s, me) {
   });
   // 案内タグ
   planTags.forEach(function (t) { if (t.level !== lv) return; mctx.beginPath(); mctx.arc(X(t.pos.x), Y(t.pos.z), 3.2 * k, 0, Math.PI * 2); mctx.fillStyle = "#f97316"; mctx.fill(); });
-  // 一緒に内見している人
-  if (live) Object.keys(avatars).forEach(function (uid) {
-    const a = avatars[uid];
-    if (Math.round((a.y || 0) / FLOOR_H) !== lv) return;
-    mctx.beginPath(); mctx.arc(X(a.x), Y(a.z), 4.5 * k, 0, Math.PI * 2); mctx.fillStyle = a.color; mctx.fill();
-    mctx.lineWidth = 1.5 * k; mctx.strokeStyle = "#fff"; mctx.stroke();
-  });
   // 何階か
   if (levelCount > 1) {
     mctx.save(); mctx.font = "bold " + Math.round(12 * k) + "px sans-serif"; mctx.textAlign = "left"; mctx.textBaseline = "top";
@@ -2440,7 +2406,6 @@ mm.addEventListener("pointerdown", function (e) {
   const z = mmMap.b.z2 - (ly - mmMap.oy) / mmMap.s;
   if (!roomAt(x, z)) return;
   if (tour) endTour(false);
-  if (live && live.follow) setFollow(false);
   if (dollMode) exitDoll({ x: x, z: z }); else goTo(x, z, undefined, false, curLevel);
 });
 
@@ -2853,157 +2818,6 @@ toolBtns.check.addEventListener("click", function () {
   if (on) renderChk();
 });
 
-/* ---------- 一緒に内見 ---------- */
-// サーバーとのやり取りは親画面(index.html)が受け持つ。ここは見た目と位置の送受信だけ。
-let live = null;
-const avatars = {};
-const AV_COLORS = ["#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"];
-function colorFor(uid) { let h = 0; for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0; return AV_COLORS[h % AV_COLORS.length]; }
-function showLiveUI() {
-  document.getElementById("liveOff").style.display = live ? "none" : "block";
-  document.getElementById("liveOn").style.display = live ? "block" : "none";
-  setToolOn("live", !!live || document.getElementById("livePanel").classList.contains("show"));
-  if (!live) return;
-  document.getElementById("liveCode").textContent = live.code || T("接続中…");
-  const isHost = live.state && live.state.host === live.uid;
-  document.getElementById("lFollowRow").style.display = isHost ? "none" : "flex";
-  document.getElementById("lFollow").checked = !!live.follow;
-  document.getElementById("lLeave").textContent = isHost ? T("終了する") : T("退出する");
-}
-function startLive() { postToParent({ type: "vr-live-start" }); live = { code: "", uid: "", follow: false, state: null, seen: 0 }; showLiveUI(); }
-function joinLive(code) {
-  code = String(code || "").replace(/\D/g, "");
-  if (code.length !== 6) { vtoast(T("コードは6けたの数字です")); return; }
-  postToParent({ type: "vr-live-join", code: code });
-  live = { code: code, uid: "", follow: true, state: null, seen: 0 }; showLiveUI();
-}
-function leaveLive(silent) {
-  if (!live) return;
-  postToParent({ type: "vr-live-leave" });
-  Object.keys(avatars).forEach(removeAvatar);
-  live = null;
-  if (!silent) showLiveUI();
-}
-function setFollow(on) { if (!live) return; live.follow = on; document.getElementById("lFollow").checked = on; }
-document.getElementById("lStart").addEventListener("click", startLive);
-document.getElementById("lJoin").addEventListener("click", function () { joinLive(document.getElementById("lCodeIn").value); });
-document.getElementById("lCodeIn").addEventListener("keydown", function (e) { if (e.key === "Enter") joinLive(this.value); });
-document.getElementById("lLeave").addEventListener("click", function () { leaveLive(false); });
-document.getElementById("lClose").addEventListener("click", function () { document.getElementById("livePanel").classList.remove("show"); setToolOn("live", !!live); });
-document.getElementById("lFollow").addEventListener("change", function () { setFollow(this.checked); });
-function copyText(t) {
-  const done = function () { vtoast(T("コピーしました")); };
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, function () { postToParent({ type: "vr-copy", text: t }); });
-  else postToParent({ type: "vr-copy", text: t });
-}
-document.getElementById("lCopy").addEventListener("click", function () { if (live && live.code) copyText(live.code); });
-document.getElementById("lLink").addEventListener("click", function () { if (live && live.code) copyText(new URL("index.html?live=" + live.code, location.href).href); });
-function sendChat() {
-  const inp = document.getElementById("lMsg"), t = inp.value.trim();
-  if (!t || !live) return;
-  postToParent({ type: "vr-live-chat", text: t });
-  inp.value = "";
-}
-document.getElementById("lSend").addEventListener("click", sendChat);
-document.getElementById("lMsg").addEventListener("keydown", function (e) { if (e.key === "Enter") sendChat(); });
-// 自分の位置を親へ (親がまとめてサーバーに送る)
-setInterval(function () {
-  if (!live || !toolsReady) return;
-  let px = camera.position.x, pz = camera.position.z, py = yaw, pp = pitch;
-  if (typeof inXR !== "undefined" && inXR && scene.activeCamera) {
-    const c = scene.activeCamera, d = c.getDirection(BABYLON.Axis.Z);
-    px = c.position.x; pz = c.position.z; py = Math.atan2(d.x, d.z); pp = -Math.asin(Math.max(-1, Math.min(1, d.y)));
-  }
-  const pyy = (typeof inXR !== "undefined" && inXR && scene.activeCamera) ? Math.max(0, scene.activeCamera.position.y - EYE_HEIGHT) : footY;
-  postToParent({ type: "vr-live-pose", pose: { x: +px.toFixed(2), z: +pz.toFixed(2), y: +pyy.toFixed(2), yaw: +py.toFixed(3), pitch: +pp.toFixed(3), mode: viewMode, room: currentRoom ? currentRoom.name : "" } });
-}, 400);
-function makeAvatar(uid, name) {
-  const color = colorFor(uid);
-  const root = new BABYLON.TransformNode("av_" + uid, scene);
-  const mat = stdMat("avMat_" + uid, color);
-  mat.emissiveColor = BABYLON.Color3.FromHexString(color).scale(0.35);
-  const body = BABYLON.MeshBuilder.CreateCylinder("avBody", { height: 1.1, diameterTop: 0.26, diameterBottom: 0.36, tessellation: 16 }, scene);
-  body.position.y = 0.75; body.material = mat; body.parent = root; body.isPickable = false;
-  const head = BABYLON.MeshBuilder.CreateSphere("avHead", { diameter: 0.3, segments: 12 }, scene);
-  head.position.y = 1.5; head.material = mat; head.parent = root; head.isPickable = false;
-  const nose = BABYLON.MeshBuilder.CreateBox("avNose", { width: 0.12, height: 0.06, depth: 0.14 }, scene);
-  nose.position.set(0, 1.5, 0.16); nose.material = emissiveMat("avNoseMat", "#FFFFFF"); nose.parent = root; nose.isPickable = false;
-  const a = { root: root, color: color, name: name, x: 0, z: 0, y: 0, yaw: 0, tx: 0, tz: 0, ty: 0, tyaw: 0, init: false };
-  a.label = addLabel("alabel", esc(name), function () { return new BABYLON.Vector3(a.x, a.y + 1.95, a.z); }, function () { return root.isEnabled(); });
-  avatars[uid] = a;
-  return a;
-}
-function removeAvatar(uid) {
-  const a = avatars[uid]; if (!a) return;
-  a.root.dispose(false, true); removeLabel(a.label); delete avatars[uid];
-}
-scene.onBeforeRenderObservable.add(function () {
-  const dt = Math.min(engine.getDeltaTime() / 1000, 0.1), k = 1 - Math.exp(-dt * 6);
-  Object.keys(avatars).forEach(function (uid) {
-    const a = avatars[uid];
-    a.x += (a.tx - a.x) * k; a.z += (a.tz - a.z) * k; a.y += (a.ty - a.y) * k;
-    let dy = a.tyaw - a.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); a.yaw += dy * k;
-    a.root.position.set(a.x, a.y, a.z); a.root.rotation.y = a.yaw;
-    // ついて行っている相手は自分と重なるので隠す
-    const hide = live && live.follow && live.state && uid === live.state.host;
-    a.root.setEnabled(!hide);
-  });
-});
-function hostMember() {
-  if (!live || !live.state) return null;
-  return (live.state.members || []).find(function (m) { return m.uid === live.state.host && !m.me; }) || null;
-}
-function followStep(dt) {
-  const h = hostMember();
-  if (!h) return;
-  const k = 1 - Math.exp(-dt * 4);
-  camera.position.x += (h.x - camera.position.x) * k;
-  camera.position.z += (h.z - camera.position.z) * k;
-  let dy = h.yaw - yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); yaw += dy * k;
-  pitch += (h.pitch - pitch) * k;
-  vel.x = 0; vel.z = 0;
-  if (h.mode && h.mode !== viewMode && splatRoot && !dollMode) setViewMode(h.mode);
-}
-function onLiveState(msg) {
-  if (!live) live = { code: "", uid: "", follow: false, state: null, seen: 0 };
-  const st = msg.state;
-  const first = !live.state;
-  live.state = st; live.uid = msg.uid || live.uid; live.code = st.code;
-  if (first) { vtoast(T("参加しました")); if (st.host === live.uid) live.follow = false; }
-  const seen = {};
-  (st.members || []).forEach(function (m) {
-    if (m.me || m.uid === live.uid) return;
-    seen[m.uid] = true;
-    const a = avatars[m.uid] || makeAvatar(m.uid, m.name + (m.uid === st.host ? "（" + T("案内役") + "）" : ""));
-    a.tx = m.x; a.tz = m.z; a.ty = +m.y || 0; a.tyaw = m.yaw;
-    if (!a.init) { a.x = m.x; a.z = m.z; a.y = a.ty; a.yaw = m.yaw; a.init = true; }
-  });
-  Object.keys(avatars).forEach(function (uid) { if (!seen[uid]) removeAvatar(uid); });
-  document.getElementById("liveMembers").innerHTML = (st.members || []).map(function (m) {
-    return '<span style="border-left:4px solid ' + (m.uid === live.uid ? "#2563eb" : colorFor(m.uid)) + '">' + esc(m.name) + (m.uid === st.host ? "★" : "") + (m.uid === live.uid ? "（" + T("あなた") + "）" : "") + "</span>";
-  }).join("");
-  const chat = st.chat || [];
-  const box = document.getElementById("liveChat");
-  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 10;
-  box.innerHTML = chat.map(function (c) { return '<div class="' + (c.uid === live.uid ? "me" : "") + '"><b>' + esc(c.name) + "</b>: " + esc(c.text) + "</div>"; }).join("");
-  if (atBottom || first) box.scrollTop = box.scrollHeight;
-  const last = chat.length ? chat[chat.length - 1] : null;
-  if (last && last.t > live.seen) {
-    if (live.seen && last.uid !== live.uid && !document.getElementById("livePanel").classList.contains("show")) vtoast("💬 " + last.name + ": " + last.text, 4000);
-    live.seen = last.t;
-  }
-  showLiveUI();
-}
-window.addEventListener("message", function (e) {
-  const msg = e.data;
-  if (!msg || typeof msg !== "object") return;
-  if (msg.type === "vr-live-state") onLiveState(msg);
-  else if (msg.type === "vr-live-error") {
-    vtoast(msg.error || "error", 4000);
-    if (msg.fatal) { Object.keys(avatars).forEach(removeAvatar); live = null; showLiveUI(); }
-  }
-});
-
 /* =========================================================
    日当たり / 360°写真 / Questのメニュー
    ========================================================= */
@@ -3274,8 +3088,7 @@ function xrMenuRefresh() {
   setT("map", (en ? "Mini map: " : "ミニマップ: ") + (xrMapOn ? "ON" : "OFF"));
   setT("sun", sunOn ? (en ? "Sun: " : "日当たり: ") + sunState.month + (en ? "/" : "月 ") + fmtHour(sunState.hour) + (en ? " (+2h)" : "（+2時間）") : (en ? "Show sunlight" : "日当たりを見る"));
   const room = currentRoom ? currentRoom.name + "  " + areaText(currentRoom) : "";
-  const people = live && live.state ? "\n" + (en ? "Together: " : "一緒に内見中: ") + (live.state.members || []).length + (en ? "" : "人") : "";
-  xrMenu.status.text = (xrStatus || room) + people;
+  xrMenu.status.text = xrStatus || room;
 }
 function xrNextRoom() {
   const stops = roomAreas.filter(function (r) { return r.area > 0.8 && r.kind !== "void" && r.kind !== "loft" && r.kind !== "stairs"; }).sort(function (p, q) { return p.level - q.level; });
@@ -3408,8 +3221,8 @@ window.addEventListener("message", function (e) {
   if (msg.type !== "vr-viewer-init") return;
   gotInit = true;
   if (msg.lang) setLang(msg.lang);
-  if (msg.sample) { startWith(SAMPLE_PLAN, T("サンプルの部屋"), { liveOk: !!msg.liveOk, furnStore: msg.furnStore || "session", propKey: "sample" }).catch(fail); return; }
-  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, live: msg.live, liveOk: !!msg.liveOk, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
+  if (msg.sample) { startWith(SAMPLE_PLAN, T("サンプルの部屋"), { furnStore: msg.furnStore || "session", propKey: "sample" }).catch(fail); return; }
+  startWith(msg.data, msg.propName, { splat: msg.splat, align: !!msg.align, propKey: msg.propKey, panoramas: msg.panoramas, geo: msg.geo, furnStore: msg.furnStore, furniture: msg.furniture, checks: msg.checks }).catch(fail);
 });
 
 /* ---------- トップページ用の模型表示 (?hero=1) ----------

@@ -3,7 +3,7 @@
    繧ｭ繝｣繝・す繝･謌ｦ逡･: 繧ｵ繧､繝医・繝輔ぃ繧､繝ｫ縺ｯ Network First・医＞縺､繧よ怙譁ｰ・・
               螟夜Κ繝ｩ繧､繝悶Λ繝ｪ縺ｯ Cache First
 ============================================ */
-const CACHE_NAME    = 'vr-homes-v50';
+const CACHE_NAME    = 'vr-homes-v51';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -18,7 +18,6 @@ const STATIC_ASSETS = [
   './img/measure.webp',
   './img/sun.webp',
   './img/furn.webp',
-  './img/live.webp',
   './icon-192.png',
   './icon-512.png',
   './manifest.json',
