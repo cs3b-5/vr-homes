@@ -379,6 +379,21 @@ if (typeof BABYLON === "undefined") {
 const engine = new BABYLON.Engine(canvas, true, { stencil: true }, false);
 const maxDpr = isTouch ? 1.5 : 2;   // スマホは解像度を抑えて軽くする
 engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, maxDpr));
+// 実写はとても重いので、かくかくしてきたら自動で画面の細かさを下げる(速くなったら少しずつ戻す)
+const BASE_HSL = engine.getHardwareScalingLevel();
+let dynHsl = BASE_HSL, dynSlow = 0, dynFast = 0;
+setInterval(function () {
+  if (document.hidden || inXR) return;
+  const real = viewMode === "real" && !!splatRoot;
+  if (real) {
+    const fps = engine.getFps();
+    if (fps < 40) { dynSlow++; dynFast = 0; } else if (fps > 57) { dynFast++; dynSlow = 0; } else { dynSlow = 0; dynFast = 0; }
+    if (dynSlow >= 2 && dynHsl < BASE_HSL * 2.2) { dynHsl = Math.min(BASE_HSL * 2.2, dynHsl * 1.2); dynSlow = 0; }
+    if (dynFast >= 4 && dynHsl > BASE_HSL) { dynHsl = Math.max(BASE_HSL, dynHsl / 1.1); dynFast = 0; }
+  }
+  const want = real ? dynHsl : BASE_HSL;
+  if (Math.abs(engine.getHardwareScalingLevel() - want) > 1e-3) engine.setHardwareScalingLevel(want);
+}, 1000);
 
 const scene = new BABYLON.Scene(engine);
 scene.clearColor = new BABYLON.Color4(0.72, 0.85, 0.96, 1);
@@ -1411,7 +1426,8 @@ async function setupXR() {
     const ok = await navigator.xr.isSessionSupported("immersive-vr");
     if (!ok) return;
     // Babylon の右下の小さなVRボタンは、道具のボタンに隠れて見えなかったので使わず、上に大きなボタンを出す
-    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true });
+    // ゴーグルの画面は両目ぶんで重いので、少しだけ解像度を下げる(実写がかくかくしないように)
+    xrHelper = await scene.createDefaultXRExperienceAsync({ floorMeshes: floorMeshes, disableDefaultUI: true, outputCanvasOptions: { canvasOptions: { framebufferScaleFactor: 0.8 } } });
     if (!xrHelper.baseExperience) return;
     hookXR();
     document.body.classList.add("xr-ok");
@@ -1542,10 +1558,39 @@ function loadScriptOnce(src) {
     document.head.appendChild(s);
   });
 }
+/* 実写を端末に合わせて軽くする: スマホ・Quest は点を減らす(見た目への効き具合が大きい点から残す) */
+const IS_QUEST = /OculusBrowser|Quest|Pico/i.test(navigator.userAgent);
+const SPLAT_MAX = IS_QUEST ? 300000 : isTouch ? 250000 : 600000;
+async function lightenSpz(url) {
+  if (typeof DecompressionStream === "undefined") return url;
+  const raw = await (await fetch(url)).arrayBuffer();
+  let d;
+  try { d = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()); }
+  catch (e) { return url; }
+  const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  const version = dv.getUint32(4, true), n = dv.getUint32(8, true), shDeg = d[12];
+  if (dv.getUint32(0, true) !== 0x5053474e || version < 2 || version > 3 || n <= SPLAT_MAX) return url;
+  const shC = [0, 3, 8, 15][shDeg] || 0, rotB = version >= 3 ? 4 : 3;
+  const pO = 16, aO = pO + n * 9, cO = aO + n, sO = cO + n * 3, rO = sO + n * 3, hO = rO + n * rotB;
+  const score = new Float32Array(n), ord = new Uint32Array(n);
+  for (let i = 0; i < n; i++) { const a = d[sO + i * 3], b = d[sO + i * 3 + 1], c = d[sO + i * 3 + 2]; score[i] = d[aO + i] * Math.exp((a + b + c - Math.min(a, b, c)) / 16); ord[i] = i; }
+  ord.sort(function (p, q) { return score[q] - score[p]; });
+  const idx = ord.subarray(0, SPLAT_MAX).sort(), m = idx.length;
+  const out = new Uint8Array(16 + m * (9 + 1 + 3 + 3 + rotB + shC * 3));
+  out.set(d.subarray(0, 16)); new DataView(out.buffer).setUint32(8, m, true);
+  let o = 16;
+  [[pO, 9], [aO, 1], [cO, 3], [sO, 3], [rO, rotB], [hO, shC * 3]].forEach(function (s) {
+    if (!s[1]) return;
+    for (let k = 0; k < m; k++) { const i = idx[k]; out.set(d.subarray(s[0] + i * s[1], s[0] + i * s[1] + s[1]), o); o += s[1]; }
+  });
+  const gz = await new Response(new Blob([out]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+  return URL.createObjectURL(new Blob([gz], { type: "application/octet-stream" }));
+}
 async function loadSplat(url, ext) {
   await loadScriptOnce(LOADERS_URL);
   loadingEl.classList.remove("hide");
   loadingText.textContent = "実写データを読み込み中…";
+  try { url = await lightenSpz(url); } catch (e) { console.warn("実写を軽くできませんでした", e); }
   const res = await BABYLON.SceneLoader.ImportMeshAsync("", "", url, scene, function (ev) {
     if (ev && ev.lengthComputable && ev.total) loadingText.textContent = "実写データを読み込み中… " + Math.round(ev.loaded / ev.total * 100) + "%";
   }, ext || ".spz");
