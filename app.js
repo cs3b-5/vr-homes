@@ -2888,7 +2888,7 @@ function startEditProp(id){
   renderExistingPhotosPreview();
   window.editedFloorplanData=prop.floorplanData||null;
   window.editedFloorplanThumb=prop.floorplanURL||null;
-  window.editedSplat=prop.splatURL?{url:prop.splatURL,transform:prop.splatTransform||null}:null;
+  window.editedSplat=prop.splatURL?(window.fxFixOldSplat||(s=>s))({url:prop.splatURL,transform:prop.splatTransform||null}):null;   // 古いホールの実写は新しい方に切り替える
   _renderSplatStatus();
   if(typeof _applyFloorplanThumbnail==='function') _applyFloorplanThumbnail();
   const photoInput=document.getElementById('af-photo');if(photoInput) photoInput.value='';

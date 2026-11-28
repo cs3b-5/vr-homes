@@ -113,11 +113,15 @@
       <div class="he-copy">
         <h1 class="he-title">行く前に、<br><em>住んでみる。</em></h1>
         <p class="he-sub">気になる部屋に、いま入ってみよう。案内するのは、おうちを背負ったヤドカリの「やどかりん」。</p>
+        <!-- 展示用: 押すとすぐ学校のデモ（1号館3階＋ホールの実写）のVRが開く -->
+        <button type="button" class="he-school" id="he-school"><i class="ti ti-school" aria-hidden="true"></i><span><b>学校の1号館を体験する</b><small>1号館3階をVRで歩けます（ホールは実写）</small></span><i class="ti ti-chevron-right he-school-go" aria-hidden="true"></i></button>
         <div class="he-ctas">
           <button type="button" class="he-btn-main" id="he-enter"><i class="ti ti-player-play-filled" aria-hidden="true"></i><span>この部屋に入ってみる</span></button>
           <button type="button" class="he-btn-sub" onclick="document.getElementById('he-search').scrollIntoView({behavior:'smooth',block:'start'})">物件をさがす</button>
         </div>
         <p class="he-note"><i class="ti ti-device-desktop" aria-hidden="true"></i> スマホ・PC・Meta Quest のブラウザで、そのまま歩けます</p>
+        <!-- アンケート: href に Googleフォームの URL を入れると表示される（空のあいだは隠れている） -->
+        <a class="he-survey" id="he-survey" href="" target="_blank" rel="noopener" hidden><i class="ti ti-clipboard-check" aria-hidden="true"></i> アンケートに答える（1分）</a>
       </div>
       <div class="he-stage" id="he-stage">
         <div class="he-blob" aria-hidden="true"></div>
@@ -219,7 +223,6 @@
         <button type="button" class="he-q on" role="tab" aria-selected="true" data-q="0">冷蔵庫、入る？</button>
         <button type="button" class="he-q" role="tab" aria-selected="false" data-q="1">冬の朝、日は入る？</button>
         <button type="button" class="he-q" role="tab" aria-selected="false" data-q="2">ソファ、置ける？</button>
-        <button type="button" class="he-q" role="tab" aria-selected="false" data-q="3">家族にも見せたい</button>
       </div>
       <div class="he-answer" role="tabpanel">
         <div class="he-say">

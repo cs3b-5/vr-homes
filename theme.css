@@ -88,6 +88,20 @@ body{font-family:'Zen Kaku Gothic New',-apple-system,BlinkMacSystemFont,'Hiragin
 .he-btn-sub:hover{background:var(--surface3)}
 .he-btn-main:focus-visible,.he-btn-sub:focus-visible,.he-chip:focus-visible,.he-q:focus-visible{outline:3px solid var(--coral);outline-offset:3px}
 .he-note{margin:0;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+/* 展示用「学校の1号館を体験する」ボタン（大きく、迷わないように） */
+.he-school{font:inherit;width:100%;max-width:520px;display:flex;align-items:center;gap:14px;text-align:left;cursor:pointer;margin:0 0 16px;padding:16px 20px;border:0;border-radius:18px;background:var(--coral);color:#fff;box-shadow:0 6px 0 #B9442F;transition:transform .12s,box-shadow .12s}
+.he-school:hover{transform:translateY(2px);box-shadow:0 4px 0 #B9442F}
+.he-school:active{transform:translateY(6px);box-shadow:0 0 0 #B9442F}
+.he-school:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+.he-school:disabled{opacity:.7;cursor:wait}
+.he-school>.ti-school{font-size:34px;flex:none}
+.he-school>span{flex:1;display:flex;flex-direction:column;gap:2px}
+.he-school b{font-size:20px;line-height:1.3}
+.he-school small{font-size:13px;font-weight:500;opacity:.92}
+.he-school-go{font-size:24px;flex:none}
+.he-survey[hidden]{display:none}
+.he-survey{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:14px;font-weight:700;color:var(--blue);text-decoration:underline}
+@media (max-width:600px){.he-school{padding:14px 16px;gap:10px}.he-school b{font-size:17px}.he-school>.ti-school{font-size:28px}}
 
 .he-stage{flex:1 1 500px;min-width:0;position:relative;height:480px}
 .he-blob{position:absolute;inset:34px 8px 14px 30px;background:var(--mint);border-radius:52% 48% 54% 46%/45% 55% 45% 55%}
@@ -495,22 +509,6 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 .pl-rooms i{font-style:normal;color:#2563eb;font-weight:700}
 .pl-acts{display:flex;flex-wrap:wrap;gap:8px}
 @media (max-width:720px){.pl-dl{grid-template-columns:1fr}.pl-row>label{min-width:auto;width:100%}.pl-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}.pl-info .pl-prop{max-width:130px}}
-/* ── 間取り診断 ── */
-.dg-box{border:1.5px solid #E5E7EB;border-radius:14px;padding:14px;margin:14px 0;background:#FFFDF8}
-.dg-top{display:flex;gap:14px;align-items:center;margin-bottom:10px}
-.dg-score{width:78px;height:78px;flex:none;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;position:relative;background:#64748b}
-.dg-score b{font-size:26px;line-height:1}.dg-score span{font-size:11px}
-.dg-score i{position:absolute;right:-4px;top:-4px;background:#fff;color:var(--navy);border:2px solid currentColor;border-radius:50%;width:24px;height:24px;font-style:normal;font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center}
-.dg-S{background:linear-gradient(135deg,#F59E0B,#EF4444)}.dg-A{background:linear-gradient(135deg,#10B981,#0EA5E9)}.dg-B{background:linear-gradient(135deg,#60A5FA,#6366F1)}
-.dg-title{font-weight:800;color:var(--navy);font-size:15px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.dg-title small{font-weight:500;color:#94a3b8;font-size:11px}
-.dg-sum{margin:6px 0 0;font-size:13px;color:#334155;line-height:1.6;display:flex;gap:6px;align-items:flex-start}
-.dg-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
-.dg-it{background:#fff;border:1px solid #EEF0F3;border-radius:10px;padding:8px 10px}
-.dg-h{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--navy)}
-.dg-stars{color:#F59E0B;letter-spacing:1px;font-size:13px}.dg-stars em{color:#E5E7EB;font-style:normal}
-.dg-it p{margin:4px 0 0;font-size:12px;color:#64748b;line-height:1.6}
-.dg-note{font-size:11px;color:#94a3b8;margin:8px 0 0}
 
 .pl-fd>summary{list-style:none;cursor:pointer;font-weight:800;font-size:14px;color:var(--navy);padding:10px 14px;background:#F3EEE6;border-radius:12px;display:flex;align-items:center;gap:6px}
 .pl-fd>summary::-webkit-details-marker{display:none}
@@ -530,15 +528,12 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 .pl-sortl{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#64748b}
 .pl-filter{gap:12px}
 @media (max-width:720px){.pl-info .pl-rent{font-size:15px}.pl-info .pl-l1 b{font-size:14.5px}}
-/* 物件ページの小さなボタン（一緒に内見・比較・共有・印刷） */
+/* 物件ページの小さなボタン（比較・共有・印刷） */
 #fx-pd-actions .fx-wide{width:100%;justify-content:center;padding:11px}
 .fx-mini-acts{display:grid;grid-template-columns:repeat(auto-fit,minmax(60px,1fr));gap:6px;margin-top:2px}
 .fx-ma{font:inherit;background:#fff;border:1.5px solid var(--border,#E5E7EB);border-radius:10px;padding:7px 2px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:#334155;font-size:11.5px}
 .fx-ma i{font-size:18px}.fx-ma:hover{border-color:#94A3B8;background:#F8FAFC}
 .fx-ma.fx-on{border-color:var(--blue);color:var(--blue);background:#ECFDF5}
-.fx-live-ch{display:grid;gap:8px}
-.fx-live-ch .btn{flex-direction:column;align-items:flex-start;padding:12px 14px;gap:2px;text-align:left;width:100%}
-.fx-live-ch small{font-weight:500;font-size:11.5px;opacity:.8}
 /* ══ 物件を追加（v41）: わかりやすく ══ */
 #add-form .req{display:inline-block;background:#FEE2E2;color:#B91C1C;font-size:10.5px;font-weight:800;border-radius:5px;padding:1px 6px;margin-left:4px;vertical-align:1px}
 #add-form .fx-auto{display:inline-block;background:#E0F2F1;color:#0F766E;font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 6px;margin-left:4px;vertical-align:1px}
@@ -572,6 +567,12 @@ body:has(#s-admin.active) .ykc-fab,body:has(#s-master.active) .ykc-fab,body:has(
 .fx-af-next:empty{display:none}
 .fx-af-next button{font:inherit;font-size:12px;font-weight:700;color:#B45309;background:#FFFBEB;border:1.5px dashed #F5C27A;border-radius:999px;padding:2px 9px;cursor:pointer}
 .fx-af-sec{scroll-margin-top:130px}
+/* 物件フォーム: 最初は必ず入れる項目だけ（「くわしく入れる」で全部） */
+#add-form.af-short .add-form-inner > .add-form-grid > :not(.fx-af-key):not(.fx-af-morebox):not(.fx-af-shorthead){display:none}
+#add-form.af-short .fx-af-steps{display:none}
+#add-form:not(.af-short) .fx-af-shorthead{display:none}
+.fx-af-morebox{display:flex;justify-content:center;padding:6px 0 4px}
+.fx-af-morebtn{width:100%;max-width:520px;justify-content:center;padding:12px 16px;font-size:14px;font-weight:700;border:2px dashed #CBD5E1;background:#F8FAFC}
 /* 下の固定バー */
 .fx-af-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;position:sticky;bottom:0;background:var(--surface,#fff);padding:12px 0;border-top:1px solid var(--border,#e5e7eb);margin-top:8px;z-index:4}
 .fx-af-foot-st{margin-right:auto;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
