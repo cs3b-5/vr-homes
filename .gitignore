@@ -8,3 +8,11 @@ img/rsmeta.db
 Real/
 demo/export_*.ply
 *.ply
+# 実写の撮影データ（大きい・人が写っている）。サイトに入れるのは .spz だけ
+img/*.heic
+img/*.HEIC
+img/*.png
+*.mov
+*.MOV
+*.mp4
+*.MP4
