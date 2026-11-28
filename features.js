@@ -3849,7 +3849,7 @@ window.fxDemoSchool = async function () {
     window.editedFloorplanData = plan; window.editedFloorplanThumb = null;
     if (typeof window._applyFloorplanThumbnail === 'function') window._applyFloorplanThumbnail();
     // ホールの実写。位置は自動の位置合わせで出した値(「位置合わせ」で直せる)
-    window.editedSplat = { url: new URL('demo/1gokan_hall.spz', location.href).href, transform: { x: 10.774, y: 0.053, z: -33.601, rotY: -45.47, scale: 1, flip: true } };
+    window.editedSplat = { url: new URL('demo/1gokan_hall2.spz', location.href).href, transform: { x: 11.077, y: 0, z: -34.942, rotY: 0.38, scale: 1, flip: true } };
     if (typeof _renderSplatStatus === 'function') _renderSplatStatus();
     const adv = document.querySelector('.fx-af-adv'); if (adv) adv.open = true;
     if (typeof autoFillFromAddress === 'function') autoFillFromAddress().catch(() => {});

@@ -14,7 +14,7 @@
 - GitHub: `cs3b-5/vr-homes`（**公開リポジトリ**。秘密は入れない）
 - 公開サイト: https://cs3b-5.github.io/vr-homes/ （main から GitHub Pages で自動公開）
 - 進め方: ブランチを作る → PR → main にマージ（しまの了承済み）。
-- **サイトのファイルを変えたら `sw.js` の `CACHE_NAME` の数字を1つ上げる**（今は `vr-homes-v46`）。上げないと古い画面が出る。
+- **サイトのファイルを変えたら `sw.js` の `CACHE_NAME` の数字を1つ上げる**（今は `vr-homes-v47`）。上げないと古い画面が出る。
 - Lambda（`lambda_function.py`, Python）は **このリポジトリに入っていない**。最新版は AWS のコンソールにある。学校のAWSルートアカウントしかない。
 
 ## ファイル
@@ -27,7 +27,7 @@
 | `vr-viewer.html` | VRビューア（Babylon.js 9.29）。歩く・模型・測る・家具・日当たり・ツアー・一緒に内見・実写・位置合わせ・スマホVR・WebXR |
 | `floor-editor.html` | 間取りエディタ（間取り図の画像から自動で作る、OCRは tesseract.js） |
 | `mascot.js` | キャラ「やどかりん」の SVG |
-| `demo/` | 学校のデモ（1号館3階の間取り `1gokan_3F.json`、ホールの実写 `1gokan_hall.spz`） |
+| `demo/` | 学校のデモ（1号館3階の間取り `1gokan_3F.json`、ホールの実写 `1gokan_hall2.spz`。古い Scaniverse 版 `1gokan_hall.spz` は登録済みの物件のために残している） |
 | `poster/` | 卒研ポスター（A1）。下に説明 |
 
 間取りデータ: 50px = 1m。部屋は `wx,wy,ww,wh`（長方形）か `vertices`（多角形、斜めの壁OK）。開口は `wall`（North/East/South/West）か `edgeIndex`。
@@ -37,6 +37,7 @@
 - .usdz（Mesh）や SPZ v4（Postshot の新形式）は不可。PCソフトからは .ply で書き出す。
 - 位置合わせは自動（床の高さ → 壁の向き → 間取りの壁と一番重なる位置）。「撮った部屋」を選ぶとその部屋の中だけで合わせる。
 - Scaniverse のスキャンはモヤが出やすい。きれいにするなら、スマホで動画（2〜3分）→ PCの GPU（しまのPCは RTX 3060）で Spirula Studio か RealityScan→Brush → .ply。
+- **RealityScan→Brush の .ply は大きさがメートルでなく、向きも傾いている**（サイトの変換は「1単位=1m・床が水平」のつもり）。2026/11/28 のホール（写真164枚、`img/` はリポジトリに入れない）は、床・天井・壁の面を探して水平にし、ホールの幅 5.12m と天井 3m から 0.36倍してから .spz にした（60万点・9.6MB）。間取りの位置は {x:11.077, y:0, z:-34.942, rotY:0.38, flip:true}。ベンチが東の壁の南側（ベランダの窓の横）に来るのが正しい向き。
 
 ## ポスター（`poster/`）
 - `poster.html` → `VR_Homes_ポスター_A1.pdf`。A1縦（594×841mm）、提出はPDF。載せるのはシステム名・概要・クラス名と班番号だけ（氏名は載せない）。
@@ -51,6 +52,6 @@
 - アンケートはまだ作っていない。
 
 ## これからやること
-- ホールの実写を撮り直す（PCで .ply を作る）→ 学校デモに入れ直す
+- 新しいホールの実写（`1gokan_hall2.spz`）をサイトで見て、位置と見た目を確認する
 - スマホVR・iPhone・Android・Quest を実機で確認
 - 展示会用のアンケート

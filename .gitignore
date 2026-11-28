@@ -1,3 +1,10 @@
 __pycache__/
 node_modules/
 demo/_*
+# ホール撮影の元写真（大きい・人が写っている）
+img/*.jpeg
+img/*.jpg
+img/rsmeta.db
+Real/
+demo/export_*.ply
+*.ply
